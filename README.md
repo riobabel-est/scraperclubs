@@ -67,6 +67,10 @@ scrapperclub/
 
 > ℹ️ Ver `docs/informe_estado_scraping.md` para detalles completos y próximos pasos.
 
+### ⚠️ `clubs_todos.csv`
+
+El archivo consolidado `clubs_todos.csv` contiene **14 clubes con datos de contacto que NO están en los archivos individuales** por federación. **No eliminarlo** — se regenerará al final del scraping con `python main.py --merge-only`, combinando todos los individuales más estos 14.
+
 ---
 
 ## Uso rápido
