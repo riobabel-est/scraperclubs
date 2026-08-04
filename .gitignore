@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Outputs de scraping
+output/*.csv
+output/*.json
+
+# Checkpoints
+checkpoints/
+
+# Logs
+logs/
+
+# Debug
+debug/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini

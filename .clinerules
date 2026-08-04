@@ -1,0 +1,72 @@
+# .clinerules — Scrapper Club
+
+## Objetivo del proyecto
+Este repositorio SOLO se usa para scraping de clubes de federaciones de fútbol españolas, extrayendo:
+- federacion
+- nombre
+- telefono
+- email
+
+No desviarse a features no relacionadas.
+
+---
+
+## Alcance permitido
+- Mantener y mejorar:
+  - `main.py`
+  - `scraper_nova.py`
+  - `scraper_rfcylf.py`
+  - `scraper_fcf_cat.py`
+  - `config.py`
+  - `README.md`
+  - `requirements.txt`
+- Mejoras permitidas:
+  - robustez de scraping
+  - anti-bloqueo (throttling/delay/retry/backoff)
+  - checkpoints/reanudación
+  - logging de progreso
+  - calidad de datos (normalización básica)
+
+---
+
+## Prohibiciones
+- No crear funcionalidades fuera del scraping de clubes.
+- No introducir frameworks, BD externas o servicios cloud sin petición explícita.
+- No cambiar estructura de columnas de salida sin aprobación explícita.
+- **PROHIBICIÓN ABSOLUTA: NUNCA borrar, sobrescribir ni eliminar archivos en `output/` ni `checkpoints/` sin permiso EXPLÍCITO del usuario. Cualquier operación `rm`, `write_to_file` sobre output/, o `taskkill` que pueda interrumpir un scrapeo en curso requiere confirmación previa. Los datos de output son irrecuperables si se borran.**
+- No hardcodear credenciales, cookies privadas o secretos.
+
+---
+
+## Reglas de ejecución (obligatorias)
+1. Priorizar ejecución segura para evitar bloqueo de IP:
+   - por defecto usar modo lento (`--slow`) o delay >= 3s
+   - paralelismo moderado (`--workers` 1 o 2)
+2. Reanudación siempre disponible:
+   - respetar `--resume`
+   - mantener checkpoints por federación
+3. Salida por federación + consolidado:
+   - `output/clubs_nova_<federacion>.csv`
+   - `output/clubs_nova.csv`
+   - `output/clubs_todos.csv`
+4. Mantener compatibilidad Windows (rutas y comandos).
+
+---
+
+## Validación mínima antes de cerrar cambios
+- Ejecutar compilación/sintaxis:
+  - `python -m py_compile main.py scraper_nova.py scraper_rfcylf.py scraper_fcf_cat.py config.py`
+- Verificar ayuda CLI:
+  - `python main.py --help`
+  - `python scraper_nova.py --help`
+- Confirmar que no se rompió:
+  - modo `--resume`
+  - modo `--slow`
+  - generación de checkpoints/progress
+
+---
+
+## Criterios de éxito
+- El scraping puede relanzarse en cualquier momento sin perder progreso.
+- El avance se ve en tiempo real en archivos de `output/` y `checkpoints/`.
+- El proyecto se mantiene centrado en scraping de clubes y datos de contacto.
