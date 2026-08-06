@@ -62,6 +62,7 @@ $tplActual=$plantillas[0]??null;
 <button @click="tab='gestor'" class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap" :class="tab==='gestor'?'border-amber-400 text-amber-400 bg-slate-900':'border-transparent text-slate-500 hover:text-slate-300'">Gestor de Datos</button>
 <button @click="tab='editor';loadPlantillas()" class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap" :class="tab==='editor'?'border-amber-400 text-amber-400 bg-slate-900':'border-transparent text-slate-500 hover:text-slate-300'">Editor Plantilla</button>
 <button @click="tab='smtp'" class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap" :class="tab==='smtp'?'border-amber-400 text-amber-400 bg-slate-900':'border-transparent text-slate-500 hover:text-slate-300'">Config SMTP</button>
+<button @click="tab='lanzadera';bootLanzadera()" class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap" :class="tab==='lanzadera'?'border-amber-400 text-amber-400 bg-slate-900':'border-transparent text-slate-500 hover:text-slate-300'">🚀 Lanzadera Outbound</button>
 </nav></div>
 
 <div x-show="tab==='kanban'" x-cloak class="max-w-full mx-auto px-4 py-4"><div class="kanban-scroll flex gap-3 overflow-x-auto pb-4" style="min-height:60vh"><?php foreach($estadosKanban as $est):$cards=$kanbanData[$est]??[];$borderCls=$colClasses[$est]??'border-slate-500';?><div class="flex-shrink-0 w-72 bg-slate-900/50 border border-slate-800 rounded-xl p-3 flex flex-col"><div class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1"><?=escHtml($est)?> <span class="text-slate-600">(<?=count($cards)?>)</span></div><div class="space-y-2 flex-1 overflow-y-auto max-h-[55vh]"><?php foreach($cards as $card):$waLink=getWaLink($card['telefono_movil']??'');$hasWa=(int)($card['tiene_whatsapp']??0);$opens=(int)($card['num_opens']??0);$isDup=(int)($card['es_duplicado']??0);$dupId=$card['duplicado_id']??null;$tempBadge=temperaturaBadge($card['estado_lead']??'Sin Contactar',$card['ultimo_contacto']??null);?><div class="bg-slate-800 border-l-4 <?=$borderCls?> rounded-lg p-3 cursor-pointer hover:bg-slate-700/70 transition text-sm" @click="openLead(<?=$card['id']?>)"><div class="font-semibold text-slate-200 text-xs mb-1 flex items-center justify-between"><?=escHtml($card['nombre_club'])?><span class="<?=$tempBadge['class']?> text-[9px] font-semibold px-1 py-0.5 rounded-full" title="<?=$tempBadge['title']?>"><?=$tempBadge['label']?></span></div><div class="flex items-center gap-2 flex-wrap text-[11px] text-slate-500"><?php if($card['persona_contacto']):?><span class="text-slate-400"><?=escHtml($card['persona_contacto'])?></span><?php endif;?><?php if($waLink&&$hasWa):?><a href="<?=escHtml($waLink)?>" target="_blank" @click.stop class="text-emerald-400 hover:text-emerald-300 font-semibold" title="WhatsApp"><i data-lucide="message-circle" class="w-3 h-3 inline"></i> WA</a><?php endif;?><?php if($opens>0):?><span class="bg-cyan-500/15 text-cyan-400 px-1.5 py-0.5 rounded-full text-[10px] font-semibold"><?=$opens?></span><?php endif;?><?php if($isDup):?><span class="bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer" @click.stop="openMerge(<?=$dupId?>,<?=$card['id']?>)">DUPLICADO</span><?php endif;?></div></div><?php endforeach;?></div></div><?php endforeach;?></div></div>
@@ -71,6 +72,79 @@ $tplActual=$plantillas[0]??null;
 <div x-show="tab==='editor'" x-cloak class="max-w-full mx-auto px-4 py-4"><div class="flex items-center gap-2 mb-3 flex-wrap"><select x-model="selectedTplId" @change="cargarTpl()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-amber-500/50 max-w-[220px]"><option value="0">-- Seleccionar plantilla --</option><template x-for="t in plantillasList" :key="t.id"><option :value="t.id" x-text="(t.categoria||'')+': '+t.nombre+' ['+(t.tipo||'html')+']'"></option></template></select><select x-model="tplFiltroCat" @change="loadPlantillas()" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-amber-500/50"><option value="">Todas categorías</option><option value="prospeccion">Prospección</option><option value="respuesta_modelo">Respuesta Modelo</option><option value="seguimiento">Seguimiento</option><option value="whatsapp">WhatsApp</option></select><button @click="nuevaPlantilla()" class="px-3 py-1.5 bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-semibold hover:bg-blue-500/25 transition flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Nueva</button><button @click="delPlantilla()" class="px-3 py-1.5 bg-rose-500/15 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold hover:bg-rose-500/25 transition flex items-center gap-1"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Eliminar</button><span class="text-[11px] text-slate-600">Plantilla activa: <strong x-text="tplNombre||'(nueva)'" class="text-amber-400"></strong></span></div><div class="grid md:grid-cols-2 gap-4" x-show="editMode"><div><label class="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Nombre</label><input type="text" id="tplNombre" x-model="tplNombre" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 mb-1 focus:outline-none focus:border-amber-500/50"><div class="flex gap-2 mb-2"><select id="tplTipoSel" x-model="tplTipoVal" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-amber-500/50 flex-1"><option value="html">HTML Enriquecido</option><option value="texto_plano">Texto Plano</option><option value="whatsapp">WhatsApp</option></select><select id="tplCatSel" x-model="tplCatVal" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-amber-500/50 flex-1"><option value="prospeccion">Prospección</option><option value="respuesta_modelo">Respuesta Modelo</option><option value="seguimiento">Seguimiento</option><option value="whatsapp">WhatsApp</option></select></div><label class="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Asunto (solo email)</label><input type="text" id="tplAsunto" x-model="tplAsuntoVal" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 mb-3 focus:outline-none focus:border-amber-500/50 font-mono"><label class="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Cuerpo</label><textarea id="tplCuerpo" x-model="tplCuerpoVal" class="w-full h-80 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-amber-500/50 resize-y"></textarea><div class="flex gap-2 mt-2"><button @click="saveTpl()" class="px-4 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold hover:bg-amber-500/30 transition">💾 Guardar</button><span class="text-[11px] text-slate-600 self-center">Tags: {'{{CLUB}}'}, {'{{CONTACTO}}'}, {'{{FEDERACION}}'}, {'{{ANIO}}'}</span></div></div><div><label class="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Previsualizacion</label><select id="previewClub" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 mb-2 focus:outline-none focus:border-amber-500/50"><option value="">-- Seleccionar club --</option><?php foreach($clubesList as $c):?><option value="<?=$c['id']?>"><?=escHtml($c['nombre_club'].($c['persona_contacto']?' ('.$c['persona_contacto'].')':''))?></option><?php endforeach;?></select><button @click="previewTpl()" class="px-4 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 hover:bg-slate-700 transition mb-3 w-full">Previsualizar</button><div id="previewWrapper" x-show="tplTipoVal!=='html'"><div id="previewTextoPlano" class="w-full p-4 border border-slate-700 rounded-lg bg-white text-slate-800 text-sm font-mono whitespace-pre-wrap" style="min-height:200px;display:none;"></div></div><iframe id="previewIframe" x-show="tplTipoVal==='html'" class="w-full h-[500px] border border-slate-700 rounded-lg bg-white" srcdoc="<html><body style='display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-family:sans-serif;'>Selecciona un club y pulsa Previsualizar</body></html>"></iframe></div></div></div>
 
 <div x-show="tab==='smtp'" x-cloak class="max-w-full mx-auto px-4 py-4"><div class="flex items-center justify-between mb-3"><h5 class="text-sm font-semibold text-slate-300">Configuracion SMTP</h5><button @click="openSmtp(0)" class="px-3 py-1.5 bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-semibold hover:bg-blue-500/25 transition flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Anadir Cuenta</button></div><div class="overflow-x-auto rounded-xl border border-slate-800"><table class="w-full text-xs"><thead><tr class="bg-slate-900 text-slate-400 text-[11px] uppercase tracking-wider"><th class="px-3 py-2 text-left">Emisor</th><th class="px-3 py-2 text-left hidden sm:table-cell">Host</th><th class="px-3 py-2 text-center">Envios / Limite</th><th class="px-3 py-2 text-center">Estado</th><th class="px-3 py-2 text-right">Acciones</th></tr></thead><tbody id="smtpBody"><tr><td colspan="5" class="px-3 py-8 text-center text-slate-600">Cargando...</td></tr></tbody></table></div></div>
+
+<!-- 🚀 LANZADERA OUTBOUND -->
+<div x-show="tab==='lanzadera'" x-cloak class="max-w-full mx-auto px-4 py-4" id="tab-lanzadera">
+<!-- Header del Motor -->
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
+<div class="flex items-center justify-between flex-wrap gap-3">
+<div class="flex items-center gap-3">
+<i data-lucide="rocket" class="w-5 h-5 text-amber-400"></i>
+<h5 class="text-sm font-bold uppercase tracking-wider text-slate-200">Lanzadera Outbound</h5>
+</div>
+<div class="flex items-center gap-3 flex-wrap">
+<button id="btn-toggle-motor" onclick="toggleMotor()" class="btn-success px-4 py-2 rounded-lg text-xs font-semibold transition flex items-center gap-2 border" :class="lzMotorActivo?'bg-rose-500/20 text-rose-400 border-rose-500/30 hover:bg-rose-500/30':'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30'">
+<i data-lucide="power" class="w-3.5 h-3.5"></i>
+<span x-text="lzMotorActivo?'⏸️ PAUSAR LANZADERA':'🟢 INICIAR LANZADERA'"></span>
+</button>
+<select id="delay-envio" x-model.number="lzDelay" @change="lzSaveDelay()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-amber-500/50">
+<option value="30">30 Segundos</option>
+<option value="60">60 Segundos</option>
+<option value="120">120 Segundos</option>
+</select>
+<span id="status-motor-badge" class="px-3 py-1 rounded-full text-xs font-semibold border" :class="lzMotorActivo?'bg-emerald-500/20 text-emerald-400 border-emerald-500/30':'bg-slate-700 text-slate-400 border-slate-600'" x-text="lzMotorActivo?'Motor Activo':'Motor Detenido'"></span>
+</div>
+</div>
+</div>
+
+<!-- Grid de 2 Columnas (Panel Central) -->
+<div class="grid lg:grid-cols-2 gap-4">
+<!-- Columna Izquierda: Próximos 10 Envíos en Cola -->
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+<h5 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+<i data-lucide="list-ordered" class="w-4 h-4 text-blue-400"></i> Próximos 10 Envíos en Cola
+</h5>
+<div class="overflow-x-auto">
+<table id="tabla-cola-envios" class="w-full text-xs">
+<thead>
+<tr class="bg-slate-800/50 text-slate-400 text-[11px] uppercase tracking-wider">
+<th class="px-2 py-1.5 text-left">#</th>
+<th class="px-2 py-1.5 text-left">Club</th>
+<th class="px-2 py-1.5 text-left">Email</th>
+<th class="px-2 py-1.5 text-left">SMTP Asignada</th>
+</tr>
+</thead>
+<tbody id="lzColaBody">
+<tr><td colspan="4" class="px-2 py-6 text-center text-slate-600">Cargando cola...</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+
+<!-- Columna Derecha: Estado de las 10 Cuentas SMTP -->
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+<h5 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+<i data-lucide="mail" class="w-4 h-4 text-cyan-400"></i> Estado de las 10 Cuentas SMTP
+</h5>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-80 overflow-y-auto" id="grid-cuentas-smtp">
+<div class="text-[11px] text-slate-600 text-center py-4 col-span-full">Cargando cuentas...</div>
+</div>
+</div>
+</div>
+
+<!-- Consola de Logs Inferior -->
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mt-4">
+<div class="flex items-center justify-between mb-2">
+<h5 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+<i data-lucide="terminal" class="w-4 h-4 text-emerald-400"></i> Consola de Logs
+</h5>
+<span class="text-[9px] text-slate-600" x-text="lzLogCount+' entradas'"></span>
+</div>
+<div id="console-log-outbound" style="background:#0f172a; color:#10b981; font-family:monospace; height:200px; overflow-y:auto; padding:12px; border-radius:6px;">
+<div class="text-slate-600">[--] Consola iniciada. Los logs aparecerán aquí en tiempo real.</div>
+</div>
+</div>
+</div>
 
 <!-- MODAL LEAD -->
 <div x-show="lm" @click.self="lm=false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" x-cloak x-transition>
@@ -117,6 +191,8 @@ gs:'',ge:'',gf:'',gt:'',gp:1,gpp:50,gsc:'nombre_club',gso:'ASC',
 // Editor de plantillas
 selectedTplId:0,tplNombre:'',tplAsuntoVal:'',tplCuerpoVal:'',tplTipoVal:'html',tplCatVal:'prospeccion',tplFiltroCat:'',plantillasList:[],editMode:true,
 waPlantillas:[],
+// Lanzadera Outbound
+lzMotorActivo:false,lzDelay:3,lzInterval:null,lzLogs:[],lzLogCount:0,lzCola:[],lzSmtpData:[],
 get waLink(){const m=this.ld.telefono_movil||'';const n=m.split(',').map(s=>s.trim()).filter(s=>/^[67]\d{8}$/.test(s));return n.length>0?'https://wa.me/34'+n[0]:'';},
 async boot(){window.__app=this;lucide.createIcons();await this.loadGestor();await this.loadSmtp();await this.loadWaPlantillas()},
 async toggleWa(){this.ld.tiene_whatsapp=!this.ld.tiene_whatsapp;await this.saveF('tiene_whatsapp',this.ld.tiene_whatsapp?1:0)},
@@ -158,7 +234,17 @@ async toggleSmtp(id){const f=new FormData();f.append('action','toggle_account');
 async deleteSmtp(id){if(!confirm('Eliminar esta cuenta SMTP?'))return;const f=new FormData();f.append('action','delete_account');f.append('id',id);const r=await fetch('api_smtp.php',{method:'POST',body:f});const j=await r.json();if(j.ok)this.loadSmtp();else alert('Error: '+(j.error||'Desconocido'))},
 async testSmtp(id,btn){if(btn){btn.disabled=true;const orig=btn.innerHTML;btn.innerHTML='<span class="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin inline-block"></span>'}const f=new FormData();f.append('action','test_smtp');f.append('id',id);const r=await fetch('api_smtp.php',{method:'POST',body:f});const j=await r.json();const ok=j.status==='success';alert((ok?'CONEXION EXITOSA: ':'ERROR: ')+j.message);if(btn){btn.disabled=false;btn.innerHTML=orig}this.loadSmtp()},
 
+// ─── Lanzadera Outbound ───
+cargarLanzaderaData(){const A=window.__app||this;A.bootLanzadera()},
+async bootLanzadera(){window.__app=this;this.lzMotorActivo=<?=$motorActivo?'true':'false'?>;this.lzDelay=parseInt('<?=($config['delay_envio']??'3')?>')||3;await Promise.all([this.loadLanzaderaCola(),this.loadLanzaderaSmtp()]);this.lzLog('🚀 Panel Lanzadera cargado. Motor: '+(this.lzMotorActivo?'ACTIVO':'PAUSADO')+', Delay: '+this.lzDelay+'s');lucide.createIcons();if(this.lzMotorActivo){this.lzPollInterval=setInterval(()=>{this.cargarLanzaderaData()},15000)}},
+lzLog(msg){const ts=new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});const entry='['+ts+'] '+msg;this.lzLogs.push(entry);if(this.lzLogs.length>200)this.lzLogs.shift();this.lzLogCount=this.lzLogs.length;const el=document.getElementById('console-log-outbound');if(el){el.innerHTML=this.lzLogs.map(s=>'<div>'+this.esc(s)+'</div>').join('');el.scrollTop=el.scrollHeight}},
+async lzToggleMotor(){this.lzMotorActivo=!this.lzMotorActivo;const f=new FormData();f.append('action','update_config');f.append('key','motor_estado');f.append('value',this.lzMotorActivo?'activo':'pausado');await fetch('',{method:'POST',body:f});this.lzLog(this.lzMotorActivo?'▶️ Motor ACTIVADO manualmente':'⏸️ Motor PAUSADO manualmente');if(this.lzMotorActivo){this.lzPollInterval=setInterval(()=>{this.cargarLanzaderaData()},15000)}else{if(this.lzPollInterval){clearInterval(this.lzPollInterval);this.lzPollInterval=null}}await this.loadLanzaderaCola()},
+async lzSaveDelay(){const f=new FormData();f.append('action','update_config');f.append('key','delay_envio');f.append('value',String(this.lzDelay));await fetch('',{method:'POST',body:f});this.lzLog('⏱️ Delay actualizado a '+this.lzDelay+'s')},
+async loadLanzaderaCola(){try{const r=await fetch('api_leads.php?action=get_leads_table&per_page=10&sort=creado_el&order=DESC&estado=Sin+Contactar');const j=await r.json();if(!j.ok)return;this.lzCola=j.data||[];const el=document.getElementById('lzColaBody');if(!el)return;if(!this.lzCola.length){el.innerHTML='<tr><td colspan="4" class="px-2 py-6 text-center text-slate-600">✅ No hay clubes pendientes de primer contacto.</td></tr>';return}const cuentas=this.lzSmtpData||[];let h='';this.lzCola.forEach((c,i)=>{const smtpAsignada=cuentas.length>0?cuentas[i%cuentas.length]:null;const smtpLabel=smtpAsignada?(smtpAsignada.email.split('@')[0]+' ('+smtpAsignada.enviados_hoy+'/'+smtpAsignada.limite_diario+')'):'Sin SMTP';h+='<tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition"><td class="px-2 py-1.5 text-slate-600 font-mono">'+(i+1)+'</td><td class="px-2 py-1.5"><span class="text-slate-300 font-semibold text-[11px]">'+this.esc(c.nombre_club)+'</span></td><td class="px-2 py-1.5"><code class="text-[10px] text-slate-500">'+this.esc(c.email)+'</code></td><td class="px-2 py-1.5"><span class="text-[9px] text-slate-400">'+this.esc(smtpLabel)+'</span></td></tr>'});el.innerHTML=h;this.lzLog('📋 Cola actualizada: '+this.lzCola.length+' clubes pendientes (Sin Contactar)')}catch(e){this.lzLog('❌ Error al cargar cola: '+e.message)}},
+async loadLanzaderaSmtp(){try{const r=await fetch('api_smtp.php?action=get_accounts');const j=await r.json();if(!j.ok)return;this.lzSmtpData=j.accounts||[];const el=document.getElementById('grid-cuentas-smtp');if(!el)return;if(!this.lzSmtpData.length){el.innerHTML='<div class="text-[11px] text-slate-600 text-center py-4 col-span-full">Sin cuentas SMTP configuradas</div>';return}let h='';this.lzSmtpData.forEach(a=>{const pct=Math.min(100,Math.round((a.enviados_hoy/Math.max(1,a.limite_diario))*100));const barColor=pct>=90?'bg-rose-500':pct>=70?'bg-amber-500':'bg-emerald-500';const statusColor=a.activa==1?'text-emerald-400':'text-slate-600';const statusLabel=a.activa==1?'● Activa':'○ Inactiva';const errLabel=a.ultimo_error?'⚠️ Error':'✅ OK';h+='<div class="bg-slate-800/50 border border-slate-700/50 rounded-lg px-3 py-2 text-[10px]"><div class="flex items-center justify-between mb-1"><code class="text-slate-300 truncate max-w-[140px]" title="'+this.esc(a.email)+'">'+this.esc(a.email.split('@')[0])+'</code><span class="font-mono font-semibold '+(pct>=90?'text-rose-400':pct>=70?'text-amber-400':'text-emerald-400')+'">'+a.enviados_hoy+'/'+a.limite_diario+'</span></div><div class="w-full bg-slate-700 rounded-full h-1.5"><div class="'+barColor+' h-1.5 rounded-full" style="width:'+pct+'%"></div></div><div class="flex items-center justify-between mt-1"><span class="'+statusColor+'">'+statusLabel+'</span><span class="text-slate-600">'+errLabel+'</span></div></div>'});el.innerHTML=h;this.lzLog('📊 Grid SMTP actualizado: '+this.lzSmtpData.length+' cuentas')}catch(e){this.lzLog('❌ Error al cargar cuentas SMTP: '+e.message)}},
 esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}}}
+function toggleMotor(){const A=window.__app;if(A)A.lzToggleMotor()}
+function cargarLanzaderaDataGlobal(){const A=window.__app;if(A)A.cargarLanzaderaData()}
 function tempCalc(estado){if(estado==='Sin Contactar')return{cls:'bg-slate-600/20 text-slate-400',label:'Sin contacto',title:'Nunca contactado'};if(estado.includes('Cerrado Ganado'))return{cls:'bg-emerald-500/15 text-emerald-400',label:'Ganado',title:'Cliente ganado'};if(estado.includes('Cerrado Perdido'))return{cls:'bg-rose-500/15 text-rose-400',label:'Perdido',title:'Cliente perdido'};if(estado.includes('Enviado')||estado.includes('Secuencia'))return{cls:'bg-amber-500/15 text-amber-400',label:'En secuencia',title:'Email enviado, sin abrir'};if(estado.includes('Abrio')||estado.includes('Impactado'))return{cls:'bg-cyan-500/15 text-cyan-400',label:'Abierto',title:'Email abierto'};if(estado.includes('Conversacion')||estado.includes('WhatsApp'))return{cls:'bg-emerald-500/15 text-emerald-400',label:'Conversando',title:'En conversacion activa'};if(estado.includes('Muestra')||estado.includes('Propuesta'))return{cls:'bg-purple-500/15 text-purple-400',label:'Propuesta',title:'Propuesta enviada'};return{cls:'bg-slate-600/20 text-slate-400',label:estado,title:estado}}
 </script></body></html>
 <?php function temperaturaBadge(string $estado,?string $ultimo):array{$cls='bg-slate-600/20 text-slate-400';$label='';$title='';if($estado==='Sin Contactar'){$label='Sin contacto';$title='Nunca contactado';}elseif(str_contains($estado,'Cerrado Ganado')){$cls='bg-emerald-500/15 text-emerald-400';$label='Ganado';$title='Cliente ganado';}elseif(str_contains($estado,'Cerrado Perdido')){$cls='bg-rose-500/15 text-rose-400';$label='Perdido';$title='Cliente perdido';}elseif(str_contains($estado,'Enviado')||str_contains($estado,'Secuencia')){$cls='bg-amber-500/15 text-amber-400';$label='En secuencia';$title='Email enviado, sin abrir';}elseif(str_contains($estado,'Abrio')||str_contains($estado,'Impactado')){$cls='bg-cyan-500/15 text-cyan-400';$label='Abierto';$title='Email abierto';}elseif(str_contains($estado,'Conversacion')||str_contains($estado,'WhatsApp')){$cls='bg-emerald-500/15 text-emerald-400';$label='Conversando';$title='En conversacion activa';}elseif(str_contains($estado,'Muestra')||str_contains($estado,'Propuesta')){$cls='bg-purple-500/15 text-purple-400';$label='Propuesta';$title='Propuesta enviada';}else{$label=$estado;$title=$estado;}return['class'=>$cls,'label'=>$label,'title'=>$title];}
