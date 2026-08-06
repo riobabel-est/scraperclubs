@@ -141,7 +141,7 @@ foreach ($sourceFiles as $filepath) {
         }
 
         // ─── Determinar estado ───
-        $estadoLead = $esValido ? 'Sin Contactar' : 'Archivado';
+        $estadoLead = $esValido ? 'Sin Contactar' : 'Email Inválido';
         $observaciones = $motivo ? "Email inválido: {$motivo}" : '';
 
         // ─── Escribir CSV de salida ───
