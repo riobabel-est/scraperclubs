@@ -6,6 +6,11 @@
 
 declare(strict_types=1);
 
+// ─── Buffer + Control de errores para JSON limpio ───
+ob_start();
+error_reporting(0);
+ini_set('display_errors', 0);
+
 $DB_PATH = __DIR__ . '/stats.db';
 
 if (!file_exists($DB_PATH)) {
@@ -519,6 +524,59 @@ if ($action === 'get_plantillas_wa') {
     exit;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: save_nuevo_lead — Alta manual de un nuevo club/lead
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'save_nuevo_lead') {
+    header('Content-Type: application/json');
+    try {
+        $nombre     = trim($_POST['nombre_club'] ?? '');
+        $email      = trim($_POST['email'] ?? '');
+        $telefono   = trim($_POST['telefono_movil'] ?? '');
+        $contacto   = trim($_POST['persona_contacto'] ?? '');
+        $cargo      = trim($_POST['cargo_contacto'] ?? '');
+        $federacion = trim($_POST['federacion'] ?? '');
+        $estado     = trim($_POST['estado_lead'] ?? 'Sin Contactar');
+
+        if ($nombre === '' || $email === '') {
+            ob_clean();
+            echo json_encode(['ok' => false, 'error' => 'Nombre y Email son obligatorios']);
+            exit;
+        }
+
+        // Verificar si ya existe por email
+        $existente = $db->querySingle("SELECT id FROM clubes_crm WHERE LOWER(email) = LOWER(:email)", true, [':email' => $email]);
+        if ($existente) {
+            ob_clean();
+            echo json_encode(['ok' => false, 'error' => 'Ya existe un club con ese email (ID #' . $existente['id'] . ')']);
+            exit;
+        }
+
+        $stmt = $db->prepare(
+            "INSERT INTO clubes_crm (nombre_club, email, telefono_movil, persona_contacto, cargo_contacto, federacion, estado_lead, creado_el)
+             VALUES (:n, :e, :t, :p, :c, :f, :est, CURRENT_TIMESTAMP)"
+        );
+        $stmt->bindValue(':n', $nombre, SQLITE3_TEXT);
+        $stmt->bindValue(':e', $email, SQLITE3_TEXT);
+        $stmt->bindValue(':t', $telefono, SQLITE3_TEXT);
+        $stmt->bindValue(':p', $contacto, SQLITE3_TEXT);
+        $stmt->bindValue(':c', $cargo, SQLITE3_TEXT);
+        $stmt->bindValue(':f', $federacion, SQLITE3_TEXT);
+        $stmt->bindValue(':est', $estado, SQLITE3_TEXT);
+        $stmt->execute();
+
+        $newId = $db->lastInsertRowID();
+
+        ob_clean();
+        echo json_encode(['ok' => true, 'id' => $newId, 'mensaje' => 'Club añadido correctamente']);
+    } catch (\Exception $e) {
+        ob_clean();
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // Default
 header('Content-Type: application/json');
+ob_clean();
 echo json_encode(['ok' => false, 'error' => 'Acción no reconocida']);
