@@ -361,6 +361,164 @@ if ($action === 'get_estadisticas_estado') {
     exit;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_plantillas — Devuelve todas las plantillas activas
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_plantillas') {
+    header('Content-Type: application/json');
+
+    $plantillas = [];
+    $res = $db->query("SELECT * FROM plantillas WHERE activo = 1 ORDER BY categoria, nombre ASC");
+    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+        $plantillas[] = $row;
+    }
+
+    echo json_encode(['ok' => true, 'plantillas' => $plantillas]);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: save_plantilla — Crea o actualiza una plantilla
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'save_plantilla') {
+    header('Content-Type: application/json');
+
+    try {
+        $id        = (int)($_POST['id'] ?? 0);
+        $nombre    = trim($_POST['nombre'] ?? '');
+        $asunto    = trim($_POST['asunto'] ?? '');
+        $cuerpo    = $_POST['cuerpo'] ?? '';
+        $tipo      = $_POST['tipo'] ?? 'html';
+        $categoria = $_POST['categoria'] ?? 'prospeccion';
+
+        if ($nombre === '') {
+            echo json_encode(['ok' => false, 'error' => 'El nombre es obligatorio']);
+            exit;
+        }
+
+        if ($id > 0) {
+            $stmt = $db->prepare(
+                "UPDATE plantillas SET nombre=:n, asunto=:a, cuerpo=:c, tipo=:t, categoria=:cat WHERE id=:id"
+            );
+            $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        } else {
+            $stmt = $db->prepare(
+                "INSERT INTO plantillas (nombre, asunto, cuerpo, tipo, categoria, activo)
+                 VALUES (:n, :a, :c, :t, :cat, 1)"
+            );
+        }
+        $stmt->bindValue(':n', $nombre, SQLITE3_TEXT);
+        $stmt->bindValue(':a', $asunto, SQLITE3_TEXT);
+        $stmt->bindValue(':c', $cuerpo, SQLITE3_TEXT);
+        $stmt->bindValue(':t', $tipo, SQLITE3_TEXT);
+        $stmt->bindValue(':cat', $categoria, SQLITE3_TEXT);
+        $stmt->execute();
+
+        $newId = $id > 0 ? $id : $db->lastInsertRowID();
+
+        echo json_encode(['ok' => true, 'id' => $newId]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: delete_plantilla — Desactiva una plantilla
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'delete_plantilla') {
+    header('Content-Type: application/json');
+
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            echo json_encode(['ok' => false, 'error' => 'ID inválido']);
+            exit;
+        }
+
+        $db->exec("UPDATE plantillas SET activo = 0 WHERE id = {$id}");
+        echo json_encode(['ok' => true]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_timeline — Devuelve el historial de comunicaciones de un lead
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_timeline') {
+    header('Content-Type: application/json');
+
+    $leadId = (int)($_GET['lead_id'] ?? 0);
+    $clubId = (int)($_GET['club_id'] ?? 0);
+
+    if ($leadId <= 0 && $clubId <= 0) {
+        echo json_encode(['ok' => false, 'error' => 'Se requiere lead_id o club_id']);
+        exit;
+    }
+
+    $where = $leadId > 0 ? "lead_id = {$leadId}" : "club_id = {$clubId}";
+    $eventos = [];
+    $res = $db->query(
+        "SELECT * FROM comunicaciones_log WHERE {$where} ORDER BY fecha DESC LIMIT 50"
+    );
+    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+        $eventos[] = $row;
+    }
+
+    echo json_encode(['ok' => true, 'eventos' => $eventos]);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: add_nota_timeline — Añade nota manual al timeline
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'add_nota_timeline') {
+    header('Content-Type: application/json');
+
+    try {
+        $leadId  = (int)($_POST['lead_id'] ?? 0);
+        $clubId  = (int)($_POST['club_id'] ?? 0);
+        $detalle = trim($_POST['detalles'] ?? '');
+
+        if (($leadId <= 0 && $clubId <= 0) || $detalle === '') {
+            echo json_encode(['ok' => false, 'error' => 'Datos insuficientes']);
+            exit;
+        }
+
+        $stmt = $db->prepare(
+            "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+             VALUES (:lid, :cid, 'nota_manual', :det, CURRENT_TIMESTAMP)"
+        );
+        $stmt->bindValue(':lid', $leadId > 0 ? $leadId : null, SQLITE3_INTEGER);
+        $stmt->bindValue(':cid', $clubId > 0 ? $clubId : null, SQLITE3_INTEGER);
+        $stmt->bindValue(':det', $detalle, SQLITE3_TEXT);
+        $stmt->execute();
+
+        echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID()]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_plantilla_wa — Devuelve plantillas tipo whatsapp
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_plantillas_wa') {
+    header('Content-Type: application/json');
+
+    $plantillas = [];
+    $res = $db->query("SELECT * FROM plantillas WHERE activo = 1 AND tipo = 'whatsapp' ORDER BY nombre ASC");
+    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+        $plantillas[] = $row;
+    }
+
+    echo json_encode(['ok' => true, 'plantillas' => $plantillas]);
+    exit;
+}
+
 // Default
 header('Content-Type: application/json');
 echo json_encode(['ok' => false, 'error' => 'Acción no reconocida']);

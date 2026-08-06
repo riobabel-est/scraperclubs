@@ -1,0 +1,549 @@
+<?php
+/**
+ * init_db.php — Configura la base de datos SQLite para el CRM Kanban FutProtec v2.0.
+ * Crea tablas: envios, aperturas, rebotes, clubes_crm, config, plantillas.
+ * Migra contactos desde clubes.json + CSV con clasificación telefónica.
+ *
+ * Uso: php init_db.php                    # Inicializa/Migra
+ *      php init_db.php --migrate-contacts  # Fuerza migración desde CSV
+ *
+ * PHP 8.x nativo — SiteGround compatible.
+ */
+
+declare(strict_types=1);
+
+$dbPath = __DIR__ . '/stats.db';
+$clubesJson = __DIR__ . '/../../clubes.json';
+$csvContactos = __DIR__ . '/../../output/clean/contactos_sintaxis_ok.csv';
+
+$forceMigrate = in_array('--migrate-contacts', $argv ?? [], true);
+
+try {
+    $db = new SQLite3($dbPath);
+    $db->enableExceptions(true);
+    $db->exec('PRAGMA journal_mode=WAL');
+    $db->exec('PRAGMA synchronous=NORMAL');
+    $db->exec('PRAGMA foreign_keys=ON');
+
+    echo "══════════════════════════════════════════════\n";
+    echo "  FutProtec — Init DB CRM Kanban v2.0\n";
+    echo "══════════════════════════════════════════════\n\n";
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 1. TABLAS EXISTENTES (envios, aperturas, rebotes)
+    // ─────────────────────────────────────────────────────────────────────
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS envios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            club TEXT NOT NULL,
+            email TEXT NOT NULL,
+            federacion TEXT DEFAULT '',
+            cuenta_emision TEXT DEFAULT '',
+            fecha_envio DATETIME DEFAULT CURRENT_TIMESTAMP,
+            estado TEXT DEFAULT 'pendiente',
+            tracking_id TEXT UNIQUE NOT NULL,
+            asunto TEXT DEFAULT '',
+            cuerpo_mensaje TEXT DEFAULT ''
+        )
+    ");
+
+    // Migracion: anadir columnas si no existen
+    $cols = [];
+    $res = $db->query("PRAGMA table_info(envios)");
+    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+        $cols[] = $row['name'];
+    }
+    if (!in_array('asunto', $cols, true)) {
+        $db->exec("ALTER TABLE envios ADD COLUMN asunto TEXT DEFAULT ''");
+        echo "   Migracion: columna 'asunto' anadida a envios\n";
+    }
+    if (!in_array('cuerpo_mensaje', $cols, true)) {
+        $db->exec("ALTER TABLE envios ADD COLUMN cuerpo_mensaje TEXT DEFAULT ''");
+        echo "   Migracion: columna 'cuerpo_mensaje' anadida a envios\n";
+    }
+
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS aperturas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tracking_id TEXT NOT NULL,
+            fecha_apertura DATETIME DEFAULT CURRENT_TIMESTAMP,
+            ip TEXT DEFAULT '',
+            user_agent TEXT DEFAULT '',
+            FOREIGN KEY (tracking_id) REFERENCES envios(tracking_id)
+        )
+    ");
+
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS rebotes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            motivo TEXT DEFAULT '',
+            fecha_rebote DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 2. NUEVAS TABLAS CRM KANBAN v2.0
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Tabla ampliada de leads / clubes para CRM Kanban
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS clubes_crm (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre_club TEXT NOT NULL,
+            federacion TEXT DEFAULT '',
+            persona_contacto TEXT DEFAULT '',
+            cargo_contacto TEXT DEFAULT '',
+            email TEXT UNIQUE NOT NULL,
+            telefono_fijo TEXT DEFAULT '',
+            telefono_movil TEXT DEFAULT '',
+            tiene_whatsapp INTEGER DEFAULT 0,
+            estado_lead TEXT DEFAULT 'Sin Contactar',
+            observaciones TEXT DEFAULT '',
+            ultimo_contacto DATETIME,
+            creado_el DATETIME DEFAULT CURRENT_TIMESTAMP,
+            es_duplicado INTEGER DEFAULT 0,
+            duplicado_id INTEGER DEFAULT NULL
+        )
+    ");
+
+    // Migracion: anadir columnas de duplicados si no existen
+    $colsCrm = [];
+    $resCrm = $db->query("PRAGMA table_info(clubes_crm)");
+    while ($r = $resCrm->fetchArray(SQLITE3_ASSOC)) {
+        $colsCrm[] = $r['name'];
+    }
+    if (!in_array('es_duplicado', $colsCrm, true)) {
+        $db->exec("ALTER TABLE clubes_crm ADD COLUMN es_duplicado INTEGER DEFAULT 0");
+        echo "   Migracion CRM: columna 'es_duplicado' anadida\n";
+    }
+    if (!in_array('duplicado_id', $colsCrm, true)) {
+        $db->exec("ALTER TABLE clubes_crm ADD COLUMN duplicado_id INTEGER DEFAULT NULL");
+        echo "   Migracion CRM: columna 'duplicado_id' anadida\n";
+    }
+
+    // Tabla de cuentas SMTP para rotacion dinamica
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS cuentas_smtp (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            host TEXT NOT NULL DEFAULT 'mail.getfutprotec.com',
+            puerto INTEGER NOT NULL DEFAULT 465,
+            usuario TEXT NOT NULL,
+            password TEXT NOT NULL,
+            seguridad TEXT DEFAULT 'ssl',
+            activa INTEGER DEFAULT 1,
+            limite_diario INTEGER DEFAULT 50,
+            enviados_hoy INTEGER DEFAULT 0,
+            ultimo_error TEXT DEFAULT NULL,
+            ultimo_uso DATETIME DEFAULT NULL
+        )
+    ");
+
+    // Migrar cuentas hardcodeadas a la tabla si esta vacia
+    $countSMTP = (int)$db->querySingle("SELECT COUNT(*) FROM cuentas_smtp");
+    if ($countSMTP === 0) {
+        $cuentasDefault = [
+            ['rodrigo@getfutprotec.com', 'Rodrigo Vazquez | FutProtec', '%75Q2%#_g*12'],
+            ['mario.ortiz@getfutprotec.com', 'Mario Ortiz | Area de Clubes FutProtec', 'ci21w_S%34#f'],
+            ['alvaro.ruiz@getfutprotec.com', 'Alvaro Ruiz | Equipamiento FutProtec', '~i1c%)1)i@35'],
+            ['carlos.mora@getfutprotec.com', 'Carlos Mora | Proyectos Cantera FutProtec', '_%}jP|nb~b1f'],
+            ['javier.sanz@getfutprotec.com', 'Javier Sanz | At. Clubes FutProtec', '11k1%425e;%4'],
+            ['diego.navarro@getfutprotec.com', 'Diego Navarro | Equipaciones FutProtec', '1;2Aj]#1`11i'],
+            ['pablo.blanco@getfutprotec.com', 'Pablo Blanco | FutProtec Oficial', '(5^j@c[3k%3d'],
+            ['gonzalo.vega@getfutprotec.com', 'Gonzalo Vega | Gestion Deportivo FutProtec', ';^361y)bO1*5'],
+            ['adrian.cano@getfutprotec.com', 'Adrian Cano | FutProtec Canteras', 'k@1$%%kl2lKb'],
+            ['sergio.gil@getfutprotec.com', 'Sergio Gil | Relaciones Clubes FutProtec', '(5^j@c[3k%3d'],
+        ];
+        $stmtSMTP = $db->prepare(
+            'INSERT INTO cuentas_smtp (email, usuario, password, host, puerto, seguridad, activa, limite_diario)
+             VALUES (:email, :user, :pass, :host, :port, :sec, 1, 50)'
+        );
+        foreach ($cuentasDefault as $c) {
+            $stmtSMTP->bindValue(':email', $c[0], SQLITE3_TEXT);
+            $stmtSMTP->bindValue(':user', $c[0], SQLITE3_TEXT);
+            $stmtSMTP->bindValue(':pass', $c[2], SQLITE3_TEXT);
+            $stmtSMTP->bindValue(':host', 'mail.getfutprotec.com', SQLITE3_TEXT);
+            $stmtSMTP->bindValue(':port', 465, SQLITE3_INTEGER);
+            $stmtSMTP->bindValue(':sec', 'ssl', SQLITE3_TEXT);
+            $stmtSMTP->execute();
+            $stmtSMTP->reset();
+        }
+        echo "   Cuentas SMTP migradas: " . count($cuentasDefault) . "\n";
+    }
+
+    // Tabla de configuracion global (motor y entornos)
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS config (
+            clave TEXT PRIMARY KEY,
+            valor TEXT
+        )
+    ");
+
+    // Insertar defaults de configuracion si no existen
+    $stmt = $db->prepare('INSERT OR IGNORE INTO config (clave, valor) VALUES (:k, :v)');
+    $defaults = [
+        'motor_estado'     => 'pausado',
+        'modo_entorno'     => 'test',
+        'email_test'       => 'contactofutprotec@gmail.com',
+        'delay_envio'      => '3',
+        'lote_envio'       => '10',
+    ];
+    foreach ($defaults as $k => $v) {
+        $stmt->bindValue(':k', $k, SQLITE3_TEXT);
+        $stmt->bindValue(':v', $v, SQLITE3_TEXT);
+        $stmt->execute();
+        $stmt->reset();
+    }
+
+    // Tabla de plantillas de email y WhatsApp editables (ampliada)
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS plantillas_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre VARCHAR(100) NOT NULL,
+            asunto VARCHAR(255) DEFAULT '',
+            cuerpo TEXT NOT NULL,
+            tipo VARCHAR(20) DEFAULT 'html',
+            categoria VARCHAR(50) DEFAULT 'prospeccion',
+            activo INTEGER DEFAULT 1,
+            fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+
+    // Migrar plantillas viejas a la nueva tabla si es necesario
+    $colTipo = [];
+    $resCheck = $db->query("PRAGMA table_info(plantillas)");
+    while ($r = $resCheck->fetchArray(SQLITE3_ASSOC)) {
+        $colTipo[] = $r['name'];
+    }
+    $needsMigration = !in_array('tipo', $colTipo, true);
+
+    if ($needsMigration) {
+        // Crear tabla nueva y migrar datos
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS plantillas_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre VARCHAR(100) NOT NULL,
+                asunto VARCHAR(255) DEFAULT '',
+                cuerpo TEXT NOT NULL,
+                tipo VARCHAR(20) DEFAULT 'html',
+                categoria VARCHAR(50) DEFAULT 'prospeccion',
+                activo INTEGER DEFAULT 1,
+                fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+        // Migrar datos existentes
+        $resOld = $db->query("SELECT id, nombre, asunto, cuerpo_html FROM plantillas WHERE activo=1");
+        $migrados = 0;
+        while ($row = $resOld->fetchArray(SQLITE3_ASSOC)) {
+            $stmtMig = $db->prepare(
+                "INSERT OR IGNORE INTO plantillas_new (id, nombre, asunto, cuerpo, tipo, categoria)
+                 VALUES (:id, :n, :a, :c, 'html', 'prospeccion')"
+            );
+            $stmtMig->bindValue(':id', $row['id'], SQLITE3_INTEGER);
+            $stmtMig->bindValue(':n', $row['nombre'], SQLITE3_TEXT);
+            $stmtMig->bindValue(':a', $row['asunto'], SQLITE3_TEXT);
+            $stmtMig->bindValue(':c', $row['cuerpo_html'], SQLITE3_TEXT);
+            $stmtMig->execute();
+            $migrados++;
+        }
+        // Reemplazar tabla vieja
+        $db->exec("DROP TABLE IF EXISTS plantillas");
+        $db->exec("ALTER TABLE plantillas_new RENAME TO plantillas");
+        echo "   Plantillas migradas a nuevo esquema: {$migrados} registros\n";
+    }
+
+    // Tabla de registro de comunicaciones (tracking timeline)
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS comunicaciones_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id INTEGER DEFAULT NULL,
+            club_id INTEGER DEFAULT NULL,
+            tipo_evento VARCHAR(50) NOT NULL,
+            plantilla_id INTEGER DEFAULT NULL,
+            detalles TEXT DEFAULT '',
+            ip_registro VARCHAR(45) DEFAULT NULL,
+            fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_comlog_lead ON comunicaciones_log(lead_id)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_comlog_club ON comunicaciones_log(club_id)");
+
+    // Insertar plantillas por defecto si no hay ninguna
+    $countPlantillas = (int)$db->querySingle("SELECT COUNT(*) FROM plantillas");
+    if ($countPlantillas === 0) {
+        $asuntoDefault = 'Espinilleras personalizadas para {{CLUB}} | FutProtec';
+        $cuerpoDefault = <<<'HTML'
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, Helvetica, sans-serif; color: #1a1a2e; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 30px; border-radius: 8px 8px 0 0; text-align: center;">
+        <h1 style="color: #e2b04a; margin: 0; font-size: 24px;">FutProtec</h1>
+        <p style="color: #ffffff; margin: 10px 0 0 0; font-size: 16px;">Espinilleras y Material de Proteccion para Futbol Base</p>
+    </div>
+    <div style="background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="font-size: 15px; line-height: 1.6;">Estimado/a responsable de <strong>{{CLUB}}</strong>,</p>
+        <p style="font-size: 15px; line-height: 1.6;">En <strong>FutProtec</strong> somos especialistas en espinilleras y material de proteccion para clubes de futbol base. Sabemos que la seguridad de vuestros jugadores es una prioridad absoluta.</p>
+        <p style="font-size: 15px; line-height: 1.6;">Nuestras <strong>espinilleras personalizadas</strong> incluyen:</p>
+        <ul style="font-size: 14px; line-height: 1.8; color: #333;">
+            <li>Diseno personalizado con los colores y escudo de vuestro club</li>
+            <li>Proteccion de alto impacto homologada</li>
+            <li>Tallas para todas las categorias (prebenjamin a juvenil)</li>
+            <li>Materiales ligeros y transpirables</li>
+            <li>Precios especiales para equipos y clubes federados</li>
+        </ul>
+        <p style="font-size: 15px; line-height: 1.6;">Actualmente trabajamos con clubes en toda Espana y nos gustaria presentaros nuestro catalogo <strong>sin compromiso</strong> adaptado a las necesidades del {{CLUB}}.</p>
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="https://getfutprotec.com/contacto" style="background: #e2b04a; color: #1a1a2e; padding: 14px 35px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">Solicitar Catalogo Sin Compromiso</a>
+        </p>
+        <p style="font-size: 13px; color: #777; margin-top: 30px;">Si prefieres hablar directamente, llamanos o contacta por WhatsApp y te atendemos personalmente.</p>
+        <p style="font-size: 13px; color: #999;">Recibe un cordial saludo,<br><strong>Equipo FutProtec</strong></p>
+    </div>
+    <div style="text-align: center; padding: 15px; font-size: 11px; color: #aaa;">
+        <p>Este mensaje se envia de acuerdo con la legislacion sobre proteccion de datos (RGPD y LOPDGDD).<br>
+        Si no deseas recibir mas comunicaciones, <a href="https://getfutprotec.com/baja" style="color: #aaa;"> solicita tu baja aqui</a>.</p>
+        <p>{{ANIO}} FutProtec — Espinilleras Personalizadas</p>
+    </div>
+</body>
+</html>
+HTML;
+        $stmtPlantilla = $db->prepare(
+            'INSERT INTO plantillas (nombre, asunto, cuerpo_html, activo) VALUES (:n, :a, :c, 1)'
+        );
+        $stmtPlantilla->bindValue(':n', 'Plantilla Principal', SQLITE3_TEXT);
+        $stmtPlantilla->bindValue(':a', $asuntoDefault, SQLITE3_TEXT);
+        $stmtPlantilla->bindValue(':c', $cuerpoDefault, SQLITE3_TEXT);
+        $stmtPlantilla->execute();
+        echo "   Plantilla por defecto creada\n";
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 3. INDICES
+    // ─────────────────────────────────────────────────────────────────────
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_envios_estado ON envios(estado)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_envios_cuenta ON envios(cuenta_emision)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_envios_tracking ON envios(tracking_id)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_aperturas_tracking ON aperturas(tracking_id)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_rebotes_email ON rebotes(email)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_crm_estado ON clubes_crm(estado_lead)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_crm_federacion ON clubes_crm(federacion)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_crm_email ON clubes_crm(email)");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 4. MIGRACION DE CONTACTOS CON CLASIFICACION TELEFONICA
+    // ─────────────────────────────────────────────────────────────────────
+    $countCRM = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm");
+
+    if ($countCRM === 0 || $forceMigrate) {
+        echo "\n   Migrando contactos a clubes_crm...\n";
+
+        // 4a. Cargar CSV con telefonos (indice por email)
+        $csvPhones = [];
+        if (file_exists($csvContactos)) {
+            $fh = fopen($csvContactos, 'r');
+            if ($fh) {
+                fgetcsv($fh); // saltar cabecera
+                while (($row = fgetcsv($fh)) !== false) {
+                    if (count($row) < 4) continue;
+                    $telefonoRaw   = trim($row[2] ?? '');
+                    $emailCsv      = strtolower(trim($row[3] ?? ''));
+
+                    if ($emailCsv === '' || !filter_var($emailCsv, FILTER_VALIDATE_EMAIL)) continue;
+
+                    $parsed = parseAndClassifyPhones($telefonoRaw);
+                    $csvPhones[$emailCsv] = $parsed;
+                }
+                fclose($fh);
+                echo "   CSV procesado: " . count($csvPhones) . " contactos con telefonos\n";
+            }
+        } else {
+            echo "   CSV de contactos no encontrado en: {$csvContactos}\n";
+            echo "   Se migrara sin datos de telefono\n";
+        }
+
+        // 4b. Cargar clubes.json
+        $clubesMigrados = 0;
+        $clubesConTelefono = 0;
+
+        if (file_exists($clubesJson)) {
+            $clubes = json_decode(file_get_contents($clubesJson), true);
+            if (is_array($clubes) && !empty($clubes)) {
+                $stmtInsert = $db->prepare(
+                    'INSERT INTO clubes_crm (nombre_club, federacion, email, telefono_movil, telefono_fijo, tiene_whatsapp, estado_lead)
+                     VALUES (:nombre, :fed, :email, :movil, :fijo, :wa, :estado)'
+                );
+
+                foreach ($clubes as $club) {
+                    $nombreClub = trim($club['club'] ?? '');
+                    $federacion = trim($club['federacion'] ?? '');
+                    $email      = strtolower(trim($club['email'] ?? ''));
+                    $estado     = trim($club['estado'] ?? 'Sin Contactar');
+
+                    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) continue;
+
+                    $movil = '';
+                    $fijo  = '';
+                    $wa    = 0;
+                    if (isset($csvPhones[$email])) {
+                        $phoneData = $csvPhones[$email];
+                        $movil = !empty($phoneData['moviles']) ? implode(', ', $phoneData['moviles']) : '';
+                        $fijo  = !empty($phoneData['fijos']) ? implode(', ', $phoneData['fijos']) : '';
+                        // Asignar tiene_whatsapp = 1 automáticamente si hay móvil
+                        $wa = ($movil !== '') ? 1 : 0;
+                    }
+
+                    $estadoLead = mapEstadoLegacy($estado, $email, $db);
+
+                    try {
+                        $stmtInsert->bindValue(':nombre', $nombreClub, SQLITE3_TEXT);
+                        $stmtInsert->bindValue(':fed',    $federacion,  SQLITE3_TEXT);
+                        $stmtInsert->bindValue(':email',  $email,       SQLITE3_TEXT);
+                        $stmtInsert->bindValue(':movil',  $movil,       SQLITE3_TEXT);
+                        $stmtInsert->bindValue(':fijo',   $fijo,        SQLITE3_TEXT);
+                        $stmtInsert->bindValue(':wa',     $wa,          SQLITE3_INTEGER);
+                        $stmtInsert->bindValue(':estado', $estadoLead,  SQLITE3_TEXT);
+                        $stmtInsert->execute();
+                        $clubesMigrados++;
+                        if ($movil !== '' || $fijo !== '') {
+                            $clubesConTelefono++;
+                        }
+                        $stmtInsert->reset();
+                    } catch (\Exception $e) {
+                        // Email duplicado: saltar (reset no es posible en estado invalido)
+                        if (!str_contains($e->getMessage(), 'UNIQUE')) {
+                            echo "   Error migrando '{$nombreClub}': " . $e->getMessage() . "\n";
+                        }
+                    }
+                }
+            }
+        }
+
+        echo "   Migrados: {$clubesMigrados} clubes a clubes_crm\n";
+        echo "   Con telefonos: {$clubesConTelefono}\n";
+    } else {
+        echo "   clubes_crm ya tiene {$countCRM} registros. Usa --migrate-contacts para forzar re-migracion.\n";
+    }
+
+    echo "\n══════════════════════════════════════════════\n";
+    echo "  VERIFICACION DE TABLAS\n";
+    echo "══════════════════════════════════════════════\n";
+
+    $tables = ['envios', 'aperturas', 'rebotes', 'clubes_crm', 'config', 'plantillas'];
+    foreach ($tables as $table) {
+        $cnt = (int)$db->querySingle("SELECT COUNT(*) FROM {$table}");
+        echo "   {$table}: {$cnt} registros\n";
+    }
+
+    $resEstados = $db->query("SELECT estado_lead, COUNT(*) as cnt FROM clubes_crm GROUP BY estado_lead ORDER BY cnt DESC");
+    echo "\n   Distribucion Kanban:\n";
+    while ($row = $resEstados->fetchArray(SQLITE3_ASSOC)) {
+        echo "      {$row['estado_lead']}: {$row['cnt']}\n";
+    }
+
+    $db->close();
+    echo "\nBase de datos inicializada correctamente: {$dbPath}\n";
+
+} catch (\Exception $e) {
+    echo "Error: " . $e->getMessage() . "\n";
+    exit(1);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FUNCIONES DE CLASIFICACION TELEFONICA
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Parsea un string de telefono con multiples numeros y los clasifica en
+ * moviles (prefijo 6 o 7) y fijos (prefijo 8 o 9).
+ *
+ * Reglas segun especificacion espanola:
+ * - Empieza por 6 o 7 (9 digitos tras limpieza) -> telefono_movil
+ * - Empieza por 8 o 9 (9 digitos tras limpieza) -> telefono_fijo
+ *
+ * @return array{ moviles: string[], fijos: string[] }
+ */
+function parseAndClassifyPhones(string $telefonoRaw): array
+{
+    $moviles = [];
+    $fijos   = [];
+
+    // Normalizar: reemplazar separadores comunes por pipe
+    $telefonoRaw = str_replace([' - ', '-', '/', '  ', "\t"], '|', $telefonoRaw);
+    $telefonoRaw = preg_replace('/\s+/', ' ', $telefonoRaw);
+
+    // Separar por pipe
+    $parts = preg_split('/\s*\|\s*/', $telefonoRaw);
+
+    foreach ($parts as $part) {
+        $part = trim($part);
+        if ($part === '') continue;
+
+        // Limpiar numero: quitar espacios, guiones, parentesis, puntos, +
+        $limpio = preg_replace('/[\s\-\(\)\.\+]/', '', $part);
+
+        // Si empieza con +34, quitar prefijo
+        if (str_starts_with($limpio, '+34')) {
+            $limpio = substr($limpio, 3);
+        }
+        // Si empieza con 0034, quitar prefijo
+        if (str_starts_with($limpio, '0034')) {
+            $limpio = substr($limpio, 4);
+        }
+
+        // Validar que sean 9 digitos
+        if (!preg_match('/^\d{9}$/', $limpio)) {
+            // Intentar extraer un numero de 9 digitos
+            if (preg_match('/\d{9}/', $limpio, $m)) {
+                $limpio = $m[0];
+            } else {
+                continue;
+            }
+        }
+
+        $primerDigito = $limpio[0];
+
+        if ($primerDigito === '6' || $primerDigito === '7') {
+            $moviles[] = $limpio;
+        } elseif ($primerDigito === '8' || $primerDigito === '9') {
+            $fijos[] = $limpio;
+        }
+    }
+
+    $moviles = array_unique($moviles);
+    $fijos   = array_unique($fijos);
+
+    return [
+        'moviles' => array_values($moviles),
+        'fijos'   => array_values($fijos),
+    ];
+}
+
+/**
+ * Mapea el estado legacy al nuevo pipeline Kanban.
+ * Consulta si el email ya ha sido enviado o abierto.
+ */
+function mapEstadoLegacy(string $estadoLegacy, string $email, SQLite3 $db): string
+{
+    $stmt = $db->prepare(
+        "SELECT e.estado, e.tracking_id,
+                (SELECT COUNT(*) FROM aperturas a WHERE a.tracking_id = e.tracking_id) as num_aperturas
+         FROM envios e
+         WHERE LOWER(e.email) = LOWER(:email)
+         ORDER BY e.id DESC
+         LIMIT 1"
+    );
+    $stmt->bindValue(':email', $email, SQLITE3_TEXT);
+    $res = $stmt->execute();
+    $envio = $res->fetchArray(SQLITE3_ASSOC);
+
+    if ($envio) {
+        $numAperturas = (int)($envio['num_aperturas'] ?? 0);
+        if ($numAperturas > 0) {
+            return 'Impactado / Abrio Email';
+        }
+        return 'Email Enviado / En Secuencia';
+    }
+
+    return 'Sin Contactar';
+}
