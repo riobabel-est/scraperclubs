@@ -276,6 +276,9 @@ $perPage = min(250, max(10, (int)($_GET['per_page'] ?? 50)));
     $where = [];
     $params = [];
 
+    // Exclusión estricta de Lista Negra y estados de baja
+    $where[] = "estado_lead NOT IN ('Lista Negra', 'Opt-Out', 'Unsubscribed', 'Email Inválido', 'Cerrado Perdido')";
+
     if ($search !== '') {
         $where[] = "(nombre_club LIKE :search OR email LIKE :search2)";
         $params[':search'] = "%{$search}%";
@@ -615,6 +618,98 @@ if ($action === 'validate_email') {
         'reason' => $hasMx ? 'ok' : 'no_mx_record',
         'domain' => $domain,
     ]);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_config — Devuelve un valor de config por clave
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_config') {
+    header('Content-Type: application/json');
+    $key = trim($_GET['key'] ?? '');
+    if ($key === '') {
+        ob_clean();
+        echo json_encode(['ok' => false, 'error' => 'Falta key']);
+        exit;
+    }
+    $valor = $db->querySingle("SELECT valor FROM config WHERE clave = '" . $db->escapeString($key) . "'");
+    ob_clean();
+    echo json_encode(['ok' => true, 'key' => $key, 'valor' => $valor]);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_estado_lanzadera — Estado completo del motor de envíos
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_estado_lanzadera') {
+    header('Content-Type: application/json');
+
+    $motorActivo = ($db->querySingle("SELECT valor FROM config WHERE clave = 'motor_estado'") === 'activo');
+    $delay = (int)($db->querySingle("SELECT valor FROM config WHERE clave = 'lanzadera_delay'") ?: 30);
+
+    $cola = [];
+    $resCola = $db->query("
+        SELECT c.id, c.nombre_club, c.email,
+               (SELECT e.cuenta_emision FROM envios e WHERE LOWER(e.email) = LOWER(c.email) ORDER BY e.id DESC LIMIT 1) AS ultimo_smtp
+        FROM clubes_crm c
+        WHERE c.estado_lead = 'Sin Contactar'
+          AND c.email IS NOT NULL AND c.email != ''
+          AND c.es_duplicado = 0
+        ORDER BY c.id ASC
+        LIMIT 10
+    ");
+    while ($r = $resCola->fetchArray(SQLITE3_ASSOC)) {
+        $cola[] = [
+            'id'    => $r['id'],
+            'club'  => $r['nombre_club'],
+            'email' => $r['email'],
+            'smtp'  => $r['ultimo_smtp'] ?: '—',
+        ];
+    }
+
+    $smtpCuentas = [];
+    $resSmtp = $db->query("SELECT id, email, enviados_hoy, limite_diario, activa, ultimo_error FROM cuentas_smtp ORDER BY email ASC");
+    while ($r = $resSmtp->fetchArray(SQLITE3_ASSOC)) {
+        $smtpCuentas[] = $r;
+    }
+
+    $logs = [];
+    $resLogs = $db->query("SELECT fecha_envio as fecha, club, email, cuenta_emision, estado FROM envios ORDER BY id DESC LIMIT 50");
+    while ($r = $resLogs->fetchArray(SQLITE3_ASSOC)) {
+        $estadoEmoji = $r['estado'] === 'enviado' ? '✅' : ($r['estado'] === 'error' ? '❌' : '⏳');
+        $logs[] = [
+            'fecha'   => $r['fecha'],
+            'mensaje' => $estadoEmoji . ' ' . $r['club'] . ' → ' . $r['email'] . ' [' . ($r['cuenta_emision'] ?: '?') . '] ' . $r['estado'],
+        ];
+    }
+
+    ob_clean();
+    echo json_encode([
+        'ok'           => true,
+        'motor_activo' => $motorActivo,
+        'delay'        => $delay,
+        'cola'         => $cola,
+        'smtp_cuentas' => $smtpCuentas,
+        'logs'         => $logs,
+    ]);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: toggle_lanzadera — Activa/desactiva el motor de envíos
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'toggle_lanzadera') {
+    header('Content-Type: application/json');
+    $activo = (int)($_POST['activo'] ?? 0);
+    $nuevoEstado = $activo ? 'activo' : 'pausado';
+    try {
+        $db->exec("INSERT INTO config (clave, valor) VALUES ('motor_estado', '" . $db->escapeString($nuevoEstado) . "') ON CONFLICT(clave) DO UPDATE SET valor = '" . $db->escapeString($nuevoEstado) . "'");
+        ob_clean();
+        echo json_encode(['ok' => true, 'motor_activo' => $activo === 1]);
+    } catch (\Exception $e) {
+        ob_clean();
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
     exit;
 }
 
