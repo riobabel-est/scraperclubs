@@ -545,7 +545,9 @@ if ($action === 'save_nuevo_lead') {
         }
 
         // Verificar si ya existe por email
-        $existente = $db->querySingle("SELECT id FROM clubes_crm WHERE LOWER(email) = LOWER(:email)", true, [':email' => $email]);
+        $stmtCheck = $db->prepare("SELECT id FROM clubes_crm WHERE LOWER(email) = LOWER(:email)");
+        $stmtCheck->bindValue(':email', $email, SQLITE3_TEXT);
+        $existente = $stmtCheck->execute()->fetchArray(SQLITE3_ASSOC);
         if ($existente) {
             ob_clean();
             echo json_encode(['ok' => false, 'error' => 'Ya existe un club con ese email (ID #' . $existente['id'] . ')']);
