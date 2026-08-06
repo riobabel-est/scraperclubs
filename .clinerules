@@ -54,6 +54,18 @@ No desviarse a features no relacionadas.
 
 ---
 
+## Compatibilidad SiteGround (obligatorio para /public_html/*)
+- Todo el código en `public_html/` debe ser compatible con SiteGround:
+  - **PHP 8.x nativo** — sin extensiones PECL externas
+  - **SQLite3** — habilitado en todos los planes
+  - **Sin Python, Node.js ni frameworks externos** — solo PHP + HTML + JS vanilla
+  - **Sin fsockopen()** en planes compartidos (StartUp/GrowBig) — solo GoGeek/Cloud
+  - **checkdnsrr(), filter_var(), mail()** — funciones PHP core, siempre disponibles
+  - **Scripts auxiliares en Python son SOLO para desarrollo local** (carpeta `scripts/`)
+- Los scripts en `scripts/` (Python, bash) son herramientas de desarrollo local y NO se ejecutan en el servidor
+
+---
+
 ## Validación mínima antes de cerrar cambios
 - Ejecutar compilación/sintaxis:
   - `python -m py_compile main.py scraper_nova.py scraper_rfcylf.py scraper_fcf_cat.py config.py`

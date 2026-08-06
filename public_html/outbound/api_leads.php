@@ -533,6 +533,9 @@ if ($action === 'save_nuevo_lead') {
         $nombre     = trim($_POST['nombre_club'] ?? '');
         $email      = trim($_POST['email'] ?? '');
         $telefono   = trim($_POST['telefono_movil'] ?? '');
+        $telefono_fijo = trim($_POST['telefono_fijo'] ?? '');
+        $tiene_whatsapp = (int)($_POST['tiene_whatsapp'] ?? 0);
+        $observaciones = trim($_POST['observaciones'] ?? '');
         $contacto   = trim($_POST['persona_contacto'] ?? '');
         $cargo      = trim($_POST['cargo_contacto'] ?? '');
         $federacion = trim($_POST['federacion'] ?? '');
@@ -555,16 +558,19 @@ if ($action === 'save_nuevo_lead') {
         }
 
         $stmt = $db->prepare(
-            "INSERT INTO clubes_crm (nombre_club, email, telefono_movil, persona_contacto, cargo_contacto, federacion, estado_lead, creado_el)
-             VALUES (:n, :e, :t, :p, :c, :f, :est, CURRENT_TIMESTAMP)"
+            "INSERT INTO clubes_crm (nombre_club, email, telefono_movil, telefono_fijo, persona_contacto, cargo_contacto, federacion, estado_lead, tiene_whatsapp, observaciones, creado_el)
+             VALUES (:n, :e, :tm, :tf, :p, :c, :f, :est, :tw, :obs, CURRENT_TIMESTAMP)"
         );
         $stmt->bindValue(':n', $nombre, SQLITE3_TEXT);
         $stmt->bindValue(':e', $email, SQLITE3_TEXT);
-        $stmt->bindValue(':t', $telefono, SQLITE3_TEXT);
+        $stmt->bindValue(':tm', $telefono, SQLITE3_TEXT);
+        $stmt->bindValue(':tf', $telefono_fijo, SQLITE3_TEXT);
         $stmt->bindValue(':p', $contacto, SQLITE3_TEXT);
         $stmt->bindValue(':c', $cargo, SQLITE3_TEXT);
         $stmt->bindValue(':f', $federacion, SQLITE3_TEXT);
         $stmt->bindValue(':est', $estado, SQLITE3_TEXT);
+        $stmt->bindValue(':tw', $tiene_whatsapp, SQLITE3_INTEGER);
+        $stmt->bindValue(':obs', $observaciones, SQLITE3_TEXT);
         $stmt->execute();
 
         $newId = $db->lastInsertRowID();
