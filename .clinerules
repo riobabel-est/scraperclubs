@@ -35,6 +35,7 @@ No desviarse a features no relacionadas.
 - No cambiar estructura de columnas de salida sin aprobación explícita.
 - **PROHIBICIÓN ABSOLUTA: NUNCA borrar, sobrescribir ni eliminar archivos en `output/` ni `checkpoints/` sin permiso EXPLÍCITO del usuario. Cualquier operación `rm`, `write_to_file` sobre output/, o `taskkill` que pueda interrumpir un scrapeo en curso requiere confirmación previa. Los datos de output son irrecuperables si se borran.**
 - No hardcodear credenciales, cookies privadas o secretos.
+- **PROTECCIÓN DE CREDENCIALES SMTP:** Las contraseñas del array `$CUENTAS_SMTP` en `public_html/outbound/enviar_smtp_random.php` son datos sensibles de producción. NUNCA deben sobrescribirse, eliminarse ni exponerse en logs/commits. Cualquier modificación del array de cuentas debe preservar las claves `email`, `user`, `pass`, `nombre`, `smtp`, `puerto` existentes sin alterar sus valores a menos que el usuario lo solicite explícitamente.
 
 ---
 

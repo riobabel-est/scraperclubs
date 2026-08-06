@@ -1,0 +1,366 @@
+<?php
+/**
+ * api_leads.php — API de gestión de leads: scanner de duplicados, merge y consultas.
+ * PHP 8.x nativo — SiteGround compatible.
+ */
+
+declare(strict_types=1);
+
+$DB_PATH = __DIR__ . '/stats.db';
+
+if (!file_exists($DB_PATH)) {
+    header('Content-Type: application/json');
+    echo json_encode(['ok' => false, 'error' => 'stats.db no encontrada']);
+    exit;
+}
+
+$db = new SQLite3($DB_PATH);
+$db->enableExceptions(true);
+$db->exec('PRAGMA journal_mode=WAL');
+$db->exec('PRAGMA busy_timeout=5000');
+
+$action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FUNCIONES DE NORMALIZACION
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Normaliza el nombre de un club eliminando prefijos comunes
+ * para mejorar la comparacion de similitud.
+ */
+function normalizar_nombre_club(string $nombre): string
+{
+    $prefijos = [
+        'Club Deportivo', 'Club Deportiva',
+        'C.D.', 'C. D.', 'CD ', 'CD. ',
+        'A.D.', 'A. D.', 'AD ', 'AD. ',
+        'C.F.', 'C. F.', 'CF ', 'CF. ',
+        'S.D.', 'S. D.', 'SD ', 'SD. ',
+        'U.D.', 'U. D.', 'UD ', 'UD. ',
+        'Asociacion Deportiva', 'Asociacion',
+        'Agrupacion Deportiva', 'Agrupacion',
+        'Escuela de Futbol', 'Escuela Futbol',
+        'Union Deportiva',
+    ];
+
+    $n = mb_strtoupper(trim($nombre), 'UTF-8');
+    foreach ($prefijos as $pref) {
+        $prefUpper = mb_strtoupper($pref, 'UTF-8');
+        $len = mb_strlen($prefUpper, 'UTF-8');
+        if (mb_substr($n, 0, $len, 'UTF-8') === $prefUpper) {
+            $n = trim(mb_substr($n, $len, null, 'UTF-8'));
+        }
+    }
+
+    // Quitar prefijos de 2-3 letras como palabras completas (solo al inicio)
+    $n = preg_replace('/^(CD|AD|CF|SD|UD|AC|EF)\s+/i', '', $n);
+
+    // Quitar S.A.D., SAD
+    $n = preg_replace('/\bS\.?A\.?D\.?\b/i', '', $n);
+    // Quitar puntos sueltos, comas, guiones
+    $n = str_replace(['.', ',', '-', '  '], [' ', ' ', ' ', ' '], $n);
+    $n = preg_replace('/\s+/', ' ', $n);
+
+    return trim($n);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: scan_duplicates — Escanea TODA la BD y guarda resultados
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'scan_duplicates') {
+    header('Content-Type: application/json');
+    set_time_limit(120);
+
+    try {
+        // Resetear flags de duplicado
+        $db->exec("UPDATE clubes_crm SET es_duplicado = 0, duplicado_id = NULL");
+
+        $clubes = [];
+        $res = $db->query("SELECT id, nombre_club, email, federacion FROM clubes_crm ORDER BY id ASC");
+        while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+            $clubes[] = $row;
+        }
+
+        $total = count($clubes);
+        $paresEncontrados = [];
+        $duplicadosMarcados = [];
+
+        // Match 1: emails identicos (ignorando vacios)
+        $emailMap = [];
+        foreach ($clubes as $c) {
+            $email = strtolower(trim($c['email']));
+            if ($email === '') continue;
+            $emailMap[$email][] = $c;
+        }
+
+        foreach ($emailMap as $email => $grupo) {
+            if (count($grupo) > 1) {
+                for ($i = 1; $i < count($grupo); $i++) {
+                    $paresEncontrados[] = [
+                        'keep_id' => $grupo[0]['id'],
+                        'dup_id'  => $grupo[$i]['id'],
+                        'tipo'    => 'email_exacto',
+                    ];
+                }
+            }
+        }
+
+        // Match 2: nombres similares (>80%) dentro de la misma federacion
+        $federacionMap = [];
+        foreach ($clubes as $c) {
+            $fed = trim($c['federacion']);
+            if ($fed === '') $fed = '_sin_federacion_';
+            $federacionMap[$fed][] = $c;
+        }
+
+        foreach ($federacionMap as $fed => $grupo) {
+            $n = count($grupo);
+            for ($i = 0; $i < $n; $i++) {
+                $normA = normalizar_nombre_club($grupo[$i]['nombre_club']);
+                $lenA = mb_strlen($normA, 'UTF-8');
+                if ($lenA < 5) continue;
+
+                for ($j = $i + 1; $j < $n; $j++) {
+                    $normB = normalizar_nombre_club($grupo[$j]['nombre_club']);
+                    $lenB = mb_strlen($normB, 'UTF-8');
+                    if ($lenB < 5) continue;
+
+                    // Solo comparar si longitudes similares (ratio < 2x)
+                    $lenRatio = max($lenA, $lenB) / max(1, min($lenA, $lenB));
+                    if ($lenRatio > 2.0) continue;
+
+                    similar_text($normA, $normB, $pct);
+                    if ($pct > 80) {
+                        $yaRegistrado = false;
+                        foreach ($paresEncontrados as $p) {
+                            if (($p['keep_id'] == $grupo[$i]['id'] && $p['dup_id'] == $grupo[$j]['id']) ||
+                                ($p['keep_id'] == $grupo[$j]['id'] && $p['dup_id'] == $grupo[$i]['id'])) {
+                                $yaRegistrado = true;
+                                break;
+                            }
+                        }
+                        if (!$yaRegistrado) {
+                            $paresEncontrados[] = [
+                                'keep_id' => $grupo[$i]['id'],
+                                'dup_id'  => $grupo[$j]['id'],
+                                'tipo'    => 'nombre_similar',
+                                'pct'     => round($pct, 1),
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+
+        // Guardar en BD
+        $stmtMark = $db->prepare("UPDATE clubes_crm SET es_duplicado = 1, duplicado_id = :dup WHERE id = :id");
+        foreach ($paresEncontrados as $p) {
+            $stmtMark->bindValue(':dup', $p['keep_id'], SQLITE3_INTEGER);
+            $stmtMark->bindValue(':id', $p['dup_id'], SQLITE3_INTEGER);
+            try { $stmtMark->execute(); } catch (\Exception) {}
+            $stmtMark->reset();
+            $duplicadosMarcados[] = $p;
+        }
+
+        echo json_encode([
+            'ok'       => true,
+            'total'    => $total,
+            'dups'     => count($duplicadosMarcados),
+            'pares'    => $duplicadosMarcados,
+        ]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_duplicates — Devuelve lista de duplicados detectados
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_duplicates') {
+    header('Content-Type: application/json');
+
+    $dups = [];
+    $res = $db->query("
+        SELECT dup.id as dup_id, dup.nombre_club as dup_nombre, dup.email as dup_email,
+               dup.federacion as dup_fed, dup.es_duplicado, dup.duplicado_id,
+               keep.id as keep_id, keep.nombre_club as keep_nombre, keep.email as keep_email,
+               keep.federacion as keep_fed
+        FROM clubes_crm dup
+        LEFT JOIN clubes_crm keep ON keep.id = dup.duplicado_id
+        WHERE dup.es_duplicado = 1
+        ORDER BY dup.nombre_club ASC
+    ");
+    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+        $dups[] = $row;
+    }
+
+    echo json_encode(['ok' => true, 'duplicados' => $dups, 'total' => count($dups)]);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: merge_leads — Fusiona dos leads y elimina el duplicado
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'merge_leads') {
+    header('Content-Type: application/json');
+
+    try {
+        $keepId  = (int)($_POST['keep_id'] ?? 0);
+        $dupId   = (int)($_POST['dup_id'] ?? 0);
+        $mergeNotes = ($_POST['merge_notes'] ?? '1') === '1';
+
+        if ($keepId <= 0 || $dupId <= 0 || $keepId === $dupId) {
+            echo json_encode(['ok' => false, 'error' => 'IDs inválidos']);
+            exit;
+        }
+
+        $keep = $db->querySingle("SELECT * FROM clubes_crm WHERE id = {$keepId}", true);
+        $dup  = $db->querySingle("SELECT * FROM clubes_crm WHERE id = {$dupId}", true);
+
+        if (!$keep || !$dup) {
+            echo json_encode(['ok' => false, 'error' => 'Registros no encontrados']);
+            exit;
+        }
+
+        // Fusionar observaciones si se solicita
+        if ($mergeNotes) {
+            $ts = date('d/m/Y H:i');
+            $mergedObs = ($keep['observaciones'] ?? '');
+            $dupObs = ($dup['observaciones'] ?? '');
+            if ($dupObs) {
+                $mergedObs .= ($mergedObs ? "\n" : '') . "[MERGE {$ts}] Notas de #{$dupId} ({$dup['nombre_club']}):\n{$dupObs}";
+            }
+            $mergedObs .= ($mergedObs ? "\n" : '') . "[MERGE {$ts}] Fusionado con #{$dupId} ({$dup['nombre_club']})";
+            $db->exec("UPDATE clubes_crm SET observaciones = '" . $db->escapeString(trim($mergedObs)) . "' WHERE id = {$keepId}");
+        }
+
+        // Eliminar duplicado
+        $db->exec("DELETE FROM clubes_crm WHERE id = {$dupId}");
+
+        // Actualizar referencias: si otro club tenia duplicado_id apuntando al eliminado
+        $db->exec("UPDATE clubes_crm SET duplicado_id = {$keepId} WHERE duplicado_id = {$dupId}");
+        // Limpiar flag en el conservado
+        $db->exec("UPDATE clubes_crm SET es_duplicado = 0, duplicado_id = NULL WHERE id = {$keepId}");
+
+        echo json_encode(['ok' => true, 'merged' => true]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_leads_table — Datos paginados para la tabla gestor
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_leads_table') {
+    header('Content-Type: application/json');
+
+    $page   = max(1, (int)($_GET['page'] ?? 1));
+$perPage = min(250, max(10, (int)($_GET['per_page'] ?? 50)));
+    $sort    = $_GET['sort'] ?? 'nombre_club';
+    $order   = strtoupper($_GET['order'] ?? 'ASC') === 'DESC' ? 'DESC' : 'ASC';
+    $search  = trim($_GET['search'] ?? '');
+    $filterEstado = trim($_GET['estado'] ?? '');
+    $filterFed    = trim($_GET['federacion'] ?? '');
+
+    $allowedSorts = ['nombre_club', 'email', 'estado_lead', 'federacion', 'creado_el', 'telefono_movil'];
+    if (!in_array($sort, $allowedSorts, true)) $sort = 'nombre_club';
+
+    $where = [];
+    $params = [];
+
+    if ($search !== '') {
+        $where[] = "(nombre_club LIKE :search OR email LIKE :search2)";
+        $params[':search'] = "%{$search}%";
+        $params[':search2'] = "%{$search}%";
+    }
+    if ($filterEstado !== '') {
+        $where[] = "estado_lead = :estado";
+        $params[':estado'] = $filterEstado;
+    }
+    if ($filterFed !== '') {
+        $where[] = "federacion = :fed";
+        $params[':fed'] = $filterFed;
+    }
+
+    $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+    // Count
+    $sqlCount = "SELECT COUNT(*) as cnt FROM clubes_crm {$whereSQL}";
+    $stmtCount = $db->prepare($sqlCount);
+    foreach ($params as $k => $v) {
+        $stmtCount->bindValue($k, $v, SQLITE3_TEXT);
+    }
+    $total = (int)$stmtCount->execute()->fetchArray(SQLITE3_NUM)[0];
+    $totalPages = max(1, (int)ceil($total / $perPage));
+    $offset = ($page - 1) * $perPage;
+
+    // Data
+    $sqlData = "SELECT * FROM clubes_crm {$whereSQL} ORDER BY {$sort} {$order} LIMIT :limit OFFSET :offset";
+    $stmtData = $db->prepare($sqlData);
+    foreach ($params as $k => $v) {
+        $stmtData->bindValue($k, $v, SQLITE3_TEXT);
+    }
+    $stmtData->bindValue(':limit', $perPage, SQLITE3_INTEGER);
+    $stmtData->bindValue(':offset', $offset, SQLITE3_INTEGER);
+
+    $res = $stmtData->execute();
+    $rows = [];
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
+        $rows[] = $r;
+    }
+
+    // Lista unica de federaciones para filtro
+    $federaciones = [];
+    $resFed = $db->query("SELECT DISTINCT federacion FROM clubes_crm ORDER BY federacion ASC");
+    while ($r = $resFed->fetchArray(SQLITE3_ASSOC)) {
+        if (trim($r['federacion']) !== '') {
+            $federaciones[] = $r['federacion'];
+        }
+    }
+
+    echo json_encode([
+        'ok'          => true,
+        'data'        => $rows,
+        'total'       => $total,
+        'page'        => $page,
+        'total_pages' => $totalPages,
+        'federaciones' => $federaciones,
+    ]);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_estadisticas_estado — Desglose de clubes por estado
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_estadisticas_estado') {
+    header('Content-Type: application/json');
+
+    $estadisticas = [];
+    $res = $db->query("SELECT estado_lead, COUNT(*) as cnt FROM clubes_crm GROUP BY estado_lead ORDER BY cnt DESC");
+    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+        $estadisticas[] = $row;
+    }
+
+    $total = 0;
+    foreach ($estadisticas as $e) {
+        $total += (int)$e['cnt'];
+    }
+
+    // Duplicados
+    $dups = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE es_duplicado = 1");
+
+    echo json_encode([
+        'ok'           => true,
+        'total'        => $total,
+        'duplicados'   => $dups,
+        'estadisticas' => $estadisticas,
+    ]);
+    exit;
+}
+
+// Default
+header('Content-Type: application/json');
+echo json_encode(['ok' => false, 'error' => 'Acción no reconocida']);
