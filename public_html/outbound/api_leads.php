@@ -576,6 +576,40 @@ if ($action === 'save_nuevo_lead') {
     exit;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: validate_email — Valida sintaxis + registro MX de un email
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'validate_email') {
+    header('Content-Type: application/json');
+    $email = trim($_GET['email'] ?? $_POST['email'] ?? '');
+
+    if ($email === '') {
+        ob_clean();
+        echo json_encode(['ok' => false, 'valid' => false, 'reason' => 'empty']);
+        exit;
+    }
+
+    // Validación sintáctica
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        ob_clean();
+        echo json_encode(['ok' => true, 'valid' => false, 'reason' => 'syntax_invalid']);
+        exit;
+    }
+
+    // Validación de registro MX
+    $domain = substr($email, strrpos($email, '@') + 1);
+    $hasMx = checkdnsrr($domain, 'MX');
+
+    ob_clean();
+    echo json_encode([
+        'ok'     => true,
+        'valid'  => $hasMx,
+        'reason' => $hasMx ? 'ok' : 'no_mx_record',
+        'domain' => $domain,
+    ]);
+    exit;
+}
+
 // Default
 header('Content-Type: application/json');
 ob_clean();
