@@ -138,7 +138,7 @@ $cuerpo = str_replace(
 $trackingId = bin2hex(random_bytes(16));
 
 // Incluir pixel de tracking en el cuerpo HTML
-$pixelUrl = "https://" . ($_SERVER['HTTP_HOST'] ?? 'getfutprotec.com') . "/outbound/tracking.php?id={$trackingId}";
+$pixelUrl = "https://" . ($_SERVER['HTTP_HOST'] ?? 'getfutprotec.com') . "/outbound/track.php?id={$trackingId}";
 $cuerpo .= "\n<img src=\"{$pixelUrl}\" width=\"1\" height=\"1\" alt=\"\" style=\"display:none;\">";
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -208,23 +208,27 @@ if ($modoEntorno === 'produccion') {
 if ($enviado) {
     // Registrar en tabla envios
     $stmt = $db->prepare(
-        "INSERT INTO envios (email, tracking_id, smtp_id, plantilla_id, estado, asunto, fecha_envio)
-         VALUES (:email, :tid, :sid, :pid, 'enviado', :asunto, CURRENT_TIMESTAMP)"
+        "INSERT INTO envios (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje)
+         VALUES (:club, :email, :fed, :cuenta, 'enviado', :tid, :asunto, :cuerpo)"
     );
-    $stmt->bindValue(':email', $leadRow['email'], SQLITE3_TEXT);
-    $stmt->bindValue(':tid', $trackingId, SQLITE3_TEXT);
-    $stmt->bindValue(':sid', $cuentaRow['id'], SQLITE3_INTEGER);
-    $stmt->bindValue(':pid', $plantilla['id'], SQLITE3_INTEGER);
-    $stmt->bindValue(':asunto', $asunto, SQLITE3_TEXT);
+    $stmt->bindValue(':club',   $leadRow['nombre_club'], SQLITE3_TEXT);
+    $stmt->bindValue(':email',  $leadRow['email'],       SQLITE3_TEXT);
+    $stmt->bindValue(':fed',    $leadRow['federacion'] ?? '', SQLITE3_TEXT);
+    $stmt->bindValue(':cuenta', $cuentaRow['email'],     SQLITE3_TEXT);
+    $stmt->bindValue(':tid',    $trackingId,             SQLITE3_TEXT);
+    $stmt->bindValue(':asunto', $asunto,                 SQLITE3_TEXT);
+    $stmt->bindValue(':cuerpo', $cuerpo,                 SQLITE3_TEXT);
     $stmt->execute();
 
     // Registrar en comunicaciones_log
     $stmtLog = $db->prepare(
-        "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
-         VALUES (:lid, :cid, 'email_enviado', :det, CURRENT_TIMESTAMP)"
+        "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, plantilla_id, id_cuenta_smtp, tipo, resultado, detalles, fecha)
+         VALUES (:lid, :cid, 'envio_email', :pid, :sid, 'email', 'exito', :det, CURRENT_TIMESTAMP)"
     );
     $stmtLog->bindValue(':lid', $leadRow['id'], SQLITE3_INTEGER);
     $stmtLog->bindValue(':cid', $leadRow['id'], SQLITE3_INTEGER);
+    $stmtLog->bindValue(':pid', $plantilla['id'], SQLITE3_INTEGER);
+    $stmtLog->bindValue(':sid', $cuentaRow['id'], SQLITE3_INTEGER);
     $stmtLog->bindValue(':det', "Email enviado vía {$cuentaRow['email']} (tracking: {$trackingId})", SQLITE3_TEXT);
     $stmtLog->execute();
 
