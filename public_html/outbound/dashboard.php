@@ -172,15 +172,21 @@ if ($action === 'save_template') {
         $id  = (int)($_POST['id'] ?? 0);
         $n   = $_POST['nombre'] ?? '';
         $a   = $_POST['asunto'] ?? '';
+        $ab  = $_POST['asunto_b'] ?? '';
         $c   = $_POST['cuerpo'] ?? '';
         $t   = $_POST['tipo'] ?? 'html';
         $cat = $_POST['categoria'] ?? 'prospeccion';
         $act = $_POST['activo'] ?? 1;
+        $tab = (int)($_POST['test_ab'] ?? 0);
         if ($id > 0) {
-            $stmt = $db->prepare("UPDATE plantillas SET nombre = :n, asunto = :a, cuerpo = :c, tipo = :t, categoria = :cat, activo = :act WHERE id = :id");
+            $stmt = $db->prepare("UPDATE plantillas SET nombre = :n, asunto = :a, asunto_b = :ab, cuerpo = :c, tipo = :t, categoria = :cat, activo = :act, test_ab = :tab WHERE id = :id");
             $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+            $stmt->bindValue(':ab', $ab, SQLITE3_TEXT);
+            $stmt->bindValue(':tab', $tab, SQLITE3_INTEGER);
         } else {
-            $stmt = $db->prepare("INSERT INTO plantillas (nombre, asunto, cuerpo, tipo, categoria, activo, fecha_creacion) VALUES (:n, :a, :c, :t, :cat, :act, DATETIME('now'))");
+            $stmt = $db->prepare("INSERT INTO plantillas (nombre, asunto, asunto_b, cuerpo, tipo, categoria, activo, test_ab, fecha_creacion) VALUES (:n, :a, :ab, :c, :t, :cat, :act, :tab, DATETIME('now'))");
+            $stmt->bindValue(':ab', $ab, SQLITE3_TEXT);
+            $stmt->bindValue(':tab', $tab, SQLITE3_INTEGER);
         }
         $stmt->bindValue(':n',   $n,   SQLITE3_TEXT);
         $stmt->bindValue(':a',   $a,   SQLITE3_TEXT);
@@ -218,7 +224,7 @@ if ($action === 'delete_template') {
 if ($action === 'get_templates') {
     header('Content-Type: application/json');
     $cat = $_GET['categoria'] ?? '';
-    $sql = "SELECT id, nombre, asunto, cuerpo, tipo, categoria, activo FROM plantillas";
+    $sql = "SELECT id, nombre, asunto, asunto_b, test_ab, cuerpo, tipo, categoria, activo FROM plantillas";
     if ($cat !== '') {
         $sql .= " WHERE categoria = '" . $db->escapeString($cat) . "'";
     }
@@ -297,12 +303,14 @@ while ($r = $resCfg->fetchArray(SQLITE3_ASSOC)) {
 $motorActivo  = ($config['motor_estado'] ?? 'pausado') === 'activo';
 $modoPruebas  = ($config['modo_entorno'] ?? 'test') === 'test';
 
-// KPIs
+// KPIs — Históricos y Globales
 $totalLeads      = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm");
-$totalDups       = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE es_duplicado = 1");
 $totalEnviados   = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE estado = 'enviado'");
 $totalAperturas  = (int)$db->querySingle("SELECT COUNT(DISTINCT tracking_id) FROM aperturas");
 $tasaApertura    = $totalEnviados > 0 ? round(($totalAperturas / $totalEnviados) * 100, 1) : 0;
+$totalRebotes    = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes");
+$tasaRebote      = $totalEnviados > 0 ? round(($totalRebotes / $totalEnviados) * 100, 1) : 0;
+$totalBajas      = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('Opt-Out', 'Unsubscribed', 'Lista Negra')");
 $smtpActivas     = (int)$db->querySingle("SELECT COUNT(*) FROM cuentas_smtp WHERE activa = 1");
 $smtpEnviadosHoy = (int)$db->querySingle("SELECT COALESCE(SUM(enviados_hoy), 0) FROM cuentas_smtp");
 
@@ -372,7 +380,13 @@ function escHtml(string $s): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FutProtec — Outbound CRM</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>tailwind.config = { darkMode: 'class', theme: { extend: { colors: { slate: { 950: '#0a0f1a' } } } } };</script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            safelist: ['bg-emerald-400', 'bg-amber-400', 'bg-rose-500', 'text-emerald-400', 'text-amber-400', 'text-rose-400', 'animate-pulse', 'border-emerald-500/30', 'border-amber-500/30', 'border-rose-500/30', 'border-emerald-400', 'border-rose-400', 'bg-emerald-500/20', 'bg-amber-500/20', 'bg-rose-500/20', 'bg-blue-500/20', 'bg-blue-500/30', 'text-blue-400', 'border-blue-500/30', 'border-l-2', 'border-l-amber-400', 'bg-amber-500/10'],
+            theme: { extend: { colors: { slate: { 950: '#0a0f1a' } } } }
+        };
+    </script>
     <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -393,13 +407,10 @@ function escHtml(string $s): string {
             <span class="font-bold text-slate-100 text-sm tracking-tight">FutProtec Outbound CRM</span>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
-            <span class="flex items-center gap-2 text-xs">
-                <span class="w-2 h-2 rounded-full" :class="killSwitch ? 'bg-emerald-400' : 'bg-rose-500'"></span>
-                <button @click="toggleKS()"
-                    class="px-3 py-1 rounded-full text-xs font-semibold transition"
-                    :class="killSwitch ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'"
-                    x-text="killSwitch ? 'MOTOR ACTIVO' : 'MOTOR PAUSADO'"></button>
-            </span>
+            <button @click="toggleRandom()"
+                class="px-3 py-1 rounded-full text-xs font-semibold transition border"
+                :class="randomMode ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-slate-700 text-slate-400 border-slate-600'"
+                x-text="randomMode ? '🎲 ALEATORIO ON' : '🎲 ALEATORIO OFF'"></button>
             <button @click="toggleModo()"
                 class="px-3 py-1 rounded-full text-xs font-semibold transition"
                 :class="modeTest ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'"
@@ -412,38 +423,46 @@ function escHtml(string $s): string {
 </header>
 
 <!-- ═══════════ SCORECARDS ═══════════ -->
-<div class="max-w-full mx-auto px-4 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+<div class="max-w-full mx-auto px-4 py-4 grid grid-cols-2 md:grid-cols-5 gap-3">
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <div class="flex items-center justify-between">
-            <span class="text-slate-500 text-xs uppercase tracking-wider">Total Clubes</span>
-            <i data-lucide="users" class="w-4 h-4 text-slate-600"></i>
+            <span class="text-slate-400 text-xs uppercase tracking-wider">Total Leads</span>
+            <i data-lucide="users" class="w-4 h-4 text-slate-500"></i>
         </div>
-        <div class="text-2xl font-bold text-slate-100 mt-1 font-mono"><?= number_format($totalLeads) ?></div>
-        <div class="text-xs text-slate-600 mt-1"><?= $totalLeads ?> registros</div>
+        <div class="text-2xl font-semibold text-slate-200 mt-1"><?= number_format($totalLeads) ?></div>
+        <div class="text-xs text-slate-500 mt-1">Histórico global</div>
     </div>
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <div class="flex items-center justify-between">
-            <span class="text-slate-500 text-xs uppercase tracking-wider">Envios Hoy</span>
-            <i data-lucide="send" class="w-4 h-4 text-slate-600"></i>
+            <span class="text-slate-400 text-xs uppercase tracking-wider">Envíos Totales</span>
+            <i data-lucide="send" class="w-4 h-4 text-slate-500"></i>
         </div>
-        <div class="text-2xl font-bold text-blue-400 mt-1 font-mono"><?= $smtpEnviadosHoy ?></div>
-        <div class="text-xs text-slate-600 mt-1"><?= $smtpActivas ?> cuentas activas</div>
+        <div class="text-2xl font-semibold text-blue-400 mt-1"><?= number_format($totalEnviados) ?></div>
+        <div class="text-xs text-slate-500 mt-1"><?= $smtpActivas ?> cuentas activas</div>
     </div>
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <div class="flex items-center justify-between">
-            <span class="text-slate-500 text-xs uppercase tracking-wider">Tasa Apertura</span>
-            <i data-lucide="eye" class="w-4 h-4 text-slate-600"></i>
+            <span class="text-slate-400 text-xs uppercase tracking-wider">Tasa Apertura</span>
+            <i data-lucide="eye" class="w-4 h-4 text-slate-500"></i>
         </div>
-        <div class="text-2xl font-bold text-cyan-400 mt-1 font-mono"><?= $tasaApertura ?>%</div>
-        <div class="text-xs text-slate-600 mt-1"><?= $totalAperturas ?> aperturas</div>
+        <div class="text-2xl font-semibold text-cyan-400 mt-1"><?= $tasaApertura ?>%</div>
+        <div class="text-xs text-slate-500 mt-1"><?= $totalAperturas ?> aperturas</div>
     </div>
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <div class="flex items-center justify-between">
-            <span class="text-slate-500 text-xs uppercase tracking-wider">Duplicados</span>
-            <i data-lucide="git-compare" class="w-4 h-4 text-slate-600"></i>
+            <span class="text-slate-400 text-xs uppercase tracking-wider">Tasa Rebote</span>
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-slate-500"></i>
         </div>
-        <div class="text-2xl font-bold mt-1 font-mono <?= $totalDups > 0 ? 'text-amber-400' : 'text-slate-500' ?>"><?= $totalDups ?></div>
-        <div class="text-xs <?= $totalDups > 0 ? 'text-amber-500' : 'text-slate-600' ?> mt-1"><?= $totalDups > 0 ? 'Pendientes' : 'Sin duplicados' ?></div>
+        <div class="text-2xl font-semibold mt-1 <?= $tasaRebote > 5 ? 'text-rose-400' : ($tasaRebote > 2 ? 'text-amber-400' : 'text-emerald-400') ?>"><?= $tasaRebote ?>%</div>
+        <div class="text-xs text-slate-500 mt-1"><?= $totalRebotes ?> rebotes</div>
+    </div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="flex items-center justify-between">
+            <span class="text-slate-400 text-xs uppercase tracking-wider">Leads de Baja</span>
+            <i data-lucide="user-minus" class="w-4 h-4 text-slate-500"></i>
+        </div>
+        <div class="text-2xl font-semibold mt-1 <?= $totalBajas > 0 ? 'text-amber-400' : 'text-slate-500' ?>"><?= $totalBajas ?></div>
+        <div class="text-xs text-slate-500 mt-1">Opt-Out / Unsubscribed / Lista Negra</div>
     </div>
 </div>
 
@@ -526,7 +545,8 @@ var app = function() {
 
         // SMTP
         se: 0,
-        sf: { email: '', host: 'mail.getfutprotec.com', puerto: 465, usuario: '', password: '', seguridad: 'ssl', limite_diario: 50 },
+        randomMode: false,             // 🎲 modo aleatorio (anti-blacklist)
+        sf: { email: '', host: 'mail.getfutprotec.com', puerto: 465, usuario: '', password: '', seguridad: 'ssl', limite_diario: 50, nombre_emisor: '', cargo_emisor: '' },
 
         // Add Lead
         af: { nombre: '', email: '', federacion: '', movil: '', fijo: '', persona: '', cargo: '' },
@@ -537,12 +557,40 @@ var app = function() {
         // Editor
         ec: '', et: '', en: false,
         categorias: [], templates: [],
-        edNombre: '', edAsunto: '', edCuerpo: '', edTipo: 'html',
+        edNombre: '', edAsunto: '', edAsuntoB: '', edTestAb: 0,
+        edCuerpo: '', edTipo: 'html',
         previewClubId: '', debounceTimer: null,
 
-        // Lanzadera
-        lzMotorActivo: false, lzDelay: 30, lzInterval: null,
-        lzLogs: [], lzLogCount: 0, lzCola: [], lzSmtpData: [],
+        // Lanzadera v2
+        lzMotorEstado: 'PAUSADO',      // PAUSADO | ACTIVO | DETENIDO
+        lzDelay: 5,                     // segundos (default 5s)
+        lzInterval: null,               // timer del motor
+        lzAbortController: null,        // para cancelar envíos
+        testEmails: '',                // 🧪 campo de texto con emails de prueba
+        lzCola: [],                     // array completo de leads con SMTP asignada
+        lzColaIndex: 0,                // índice del lead actual en proceso
+        lzColaPaginada: [],            // subconjunto visible (infinite scroll)
+        lzColaPageSize: 50,           // cuántos items cargar por scroll
+        lzColaPageCurrent: 0,         // página actual de scroll
+        lzColaCompletados: {},         // objeto: { [clubId]: true } para leads ya enviados
+        lzLogEnviados: [],             // log completo de envíos realizados en esta sesión
+        lzLogEnviadosPaginados: [],    // subconjunto visible del log
+        lzLogPageSize: 30,            // cuántos items del log cargar por scroll
+        lzLogPageCurrent: 0,          // página actual de scroll del log
+        lzCuentasSmtp: [],             // estado de cuentas SMTP
+        lzCategoria: '',               // 1.1 Tipo de Comunicación
+        lzFederacion: '',              // 1.2 Federación Específica
+        lzIdPlantillaEmail: '',        // 1.3 Plantilla de Email
+        lzIdPlantillaWa: '',           // 1.4 Plantilla WA
+        lzWhatsappOn: false,           // 1.4 Toggle WA
+        lzCategorias: [],              // opciones del dropdown 1.1
+        lzFederaciones: [],            // opciones del dropdown 1.2
+        lzTemplatesEmail: [],          // plantillas email filtradas
+        lzTemplatesWa: [],             // plantillas whatsapp filtradas
+        lzTabMonitor: 'cola',          // cola | log
+        lzKpiClubes: 0,                // KPI: total clubes
+        lzKpiSmtpActivas: 0,          // KPI: SMTP activas
+        lzKpiEnviosHoy: 0,            // KPI: envíos hoy
 
         // ─── Computed ─────────────────────────────────────────────────────────
         get waLink() {
@@ -554,13 +602,44 @@ var app = function() {
             return this.templates.filter(t => t.categoria === this.ec);
         },
 
+        // ─── Analytics de Sesión (Lanzadera) ────────────────────────────────
+        get lzEnvioOkCount() {
+            return this.lzLogEnviados.filter(l => l.envio_exitoso).length;
+        },
+        get lzEnvioErrorCount() {
+            return this.lzLogEnviados.filter(l => !l.envio_exitoso).length;
+        },
+        get lzTotalProcesados() {
+            return this.lzLogEnviados.length;
+        },
+        get lzTasaExito() {
+            return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioOkCount / this.lzTotalProcesados) * 100) : 0;
+        },
+        get lzEnvioOkPct() {
+            return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioOkCount / this.lzTotalProcesados) * 100) : 0;
+        },
+        get lzEnvioErrorPct() {
+            return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioErrorCount / this.lzTotalProcesados) * 100) : 0;
+        },
+
+        // ─── 🧪 Parser de emails de prueba ────────────────────────────────
+        get testEmailsList() {
+            if (!this.testEmails || !this.testEmails.trim()) return [];
+            return this.testEmails
+                .split(/[\n,]+/)
+                .map(e => e.trim())
+                .filter(e => e.length > 0 && e.includes('@'));
+        },
+
         // ─── Boot ─────────────────────────────────────────────────────────────
         async boot() {
             window.app = this;
             lucide.createIcons();
-            await this.loadGestor();
-            await this.loadSmtp();
-            await this.bootLanzadera();
+            // Cada inicialización es independiente para que un fallo no
+            // bloquee el resto del panel (ej: SMTP no depende de Gestor)
+            try { await this.loadGestor(); } catch (e) { console.error('boot: loadGestor falló', e); }
+            try { await this.loadSmtp(); } catch (e) { console.error('boot: loadSmtp falló', e); }
+            try { await this.bootLanzadera(); } catch (e) { console.error('boot: bootLanzadera falló', e); }
         },
 
         // ─── Config ───────────────────────────────────────────────────────────
@@ -579,6 +658,9 @@ var app = function() {
             f.append('key', 'modo_entorno');
             f.append('value', this.modeTest ? 'test' : 'produccion');
             await fetch('', { method: 'POST', body: f });
+        },
+        toggleRandom() {
+            this.randomMode = !this.randomMode;
         },
 
         // ─── Lead Modal ───────────────────────────────────────────────────────
@@ -769,6 +851,8 @@ var app = function() {
             if (t) {
                 this.edNombre = t.nombre;
                 this.edAsunto = t.asunto || '';
+                this.edAsuntoB = t.asunto_b || '';
+                this.edTestAb = parseInt(t.test_ab) || 0;
                 this.edCuerpo = t.cuerpo || '';
                 this.edTipo = t.tipo || 'html';
                 this.en = false;
@@ -778,7 +862,8 @@ var app = function() {
         },
         nuevaPlantilla() {
             this.et = ''; this.en = true;
-            this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edCuerpo = ''; this.edTipo = 'html';
+            this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edAsuntoB = ''; this.edTestAb = 0;
+            this.edCuerpo = ''; this.edTipo = 'html';
             setTimeout(() => lucide.createIcons(), 50);
         },
         async eliminarPlantilla() {
@@ -797,6 +882,8 @@ var app = function() {
             if (this.et && !this.en) f.append('id', this.et);
             f.append('nombre', this.edNombre);
             f.append('asunto', this.edAsunto);
+            f.append('asunto_b', this.edAsuntoB);
+            f.append('test_ab', this.edTestAb);
             f.append('cuerpo', this.edCuerpo);
             f.append('tipo', this.edTipo);
             f.append('categoria', this.ec);
@@ -830,110 +917,280 @@ var app = function() {
             }
         },
 
-        // ─── Lanzadera ────────────────────────────────────────────────────────
+        // ═══════════════════════════════════════════════════════════════════════
+        // LANZADERA OUTBOUND v2 — Motor de Envíos Secuencial
+        // ═══════════════════════════════════════════════════════════════════════
+
         async bootLanzadera() {
             // Cargar delay guardado
             try {
                 const r = await fetch('api_leads.php?action=get_config&key=lanzadera_delay');
                 const j = await r.json();
-                if (j.ok && j.valor) this.lzDelay = parseInt(j.valor) || 30;
-            } catch (e) {}
-            await this.loadEstadoLanzadera();
-            // Polling cada 5s si el motor está activo
-            if (this.lzInterval) clearInterval(this.lzInterval);
-            this.lzInterval = setInterval(() => {
-                if (this.tab === 'lanza') this.loadEstadoLanzadera();
-            }, 5000);
-        },
-        async loadEstadoLanzadera() {
+                if (j.ok && j.valor) this.lzDelay = parseInt(j.valor) || 5;
+            } catch (e) { this.lzDelay = 5; }
+
+            // Cargar datos iniciales (federaciones, categorías)
             try {
-                const r = await fetch('api_leads.php?action=get_estado_lanzadera');
+                const r = await fetch('get_cola.php');
                 const j = await r.json();
-                if (!j.ok) return;
-                this.lzMotorActivo = j.motor_activo || false;
-                this.lzLogs = j.logs || [];
-                this.lzLogCount = this.lzLogs.length;
-                // Cola de envíos
-                let colaHtml = '';
-                if (j.cola && j.cola.length > 0) {
-                    colaHtml = j.cola.map((c, i) =>
-                        '<tr class="border-b border-slate-800/50">'
-                        + '<td class="px-2 py-1.5 text-[10px] text-slate-500">' + (i + 1) + '</td>'
-                        + '<td class="px-2 py-1.5 text-[10px] text-slate-300">' + this.esc(c.club || '') + '</td>'
-                        + '<td class="px-2 py-1.5 text-[10px] text-slate-500">' + this.esc(c.email || '') + '</td>'
-                        + '<td class="px-2 py-1.5 text-[10px] text-slate-500">' + this.esc(c.smtp || '—') + '</td>'
-                        + '</tr>'
-                    ).join('');
-                } else {
-                    colaHtml = '<tr><td colspan="4" class="px-2 py-6 text-center text-slate-600">Sin envíos pendientes</td></tr>';
-                }
-                const colaEl = document.getElementById('lzColaBody');
-                if (colaEl) colaEl.innerHTML = colaHtml;
-                // Grid SMTP
-                let smtpHtml = '';
-                if (j.smtp_cuentas && j.smtp_cuentas.length > 0) {
-                    smtpHtml = j.smtp_cuentas.map(a => {
-                        const pct = a.limite_diario > 0 ? Math.round((a.enviados_hoy / a.limite_diario) * 100) : 0;
-                        const barColor = pct > 80 ? 'bg-rose-500' : pct > 50 ? 'bg-amber-500' : 'bg-emerald-500';
-                        const activa = parseInt(a.activa) === 1;
-                        const tieneError = a.ultimo_error && a.ultimo_error.trim() !== '';
-                        let statusIcon = '';
-                        let statusColor = '';
-                        if (!activa) {
-                            statusIcon = '⏸️';
-                            statusColor = 'text-slate-500';
-                        } else if (tieneError) {
-                            statusIcon = '⚠️';
-                            statusColor = 'text-rose-400';
-                        } else {
-                            statusIcon = '✅';
-                            statusColor = 'text-emerald-400';
-                        }
-                        const errorTitle = tieneError ? ' title="' + this.esc(a.ultimo_error) + '"' : '';
-                        return '<div class="bg-slate-800 rounded-lg p-2 text-[10px]">'
-                            + '<div class="flex justify-between mb-1"><span class="text-slate-400 truncate max-w-[100px] flex items-center gap-1">'
-                            + '<span class="' + statusColor + '"' + errorTitle + '>' + statusIcon + '</span>'
-                            + this.esc(a.email) + '</span>'
-                            + '<span class="text-slate-300 font-mono">' + a.enviados_hoy + '/' + a.limite_diario + '</span></div>'
-                            + '<div class="w-full bg-slate-700 rounded-full h-1.5"><div class="' + barColor + ' h-1.5 rounded-full" style="width:' + pct + '%"></div></div>'
-                            + '</div>';
-                    }).join('');
-                } else {
-                    smtpHtml = '<div class="text-xs text-slate-600 text-center py-4 col-span-full">Sin cuentas SMTP</div>';
-                }
-                const gridEl = document.getElementById('gridCuentasSmtp');
-                if (gridEl) gridEl.innerHTML = smtpHtml;
-                // Consola de logs
-                const consoleEl = document.getElementById('consoleLogOutbound');
-                if (consoleEl && j.logs && j.logs.length > 0) {
-                    consoleEl.innerHTML = j.logs.map(l =>
-                        '<div class="text-[10px] leading-relaxed"><span class="text-slate-600">[' + (l.fecha || '').substring(11, 19) + ']</span> ' + this.esc(l.mensaje || l) + '</div>'
-                    ).join('');
-                    consoleEl.scrollTop = consoleEl.scrollHeight;
+                if (j.ok) {
+                    this.lzFederaciones = j.federaciones || [];
+                    this.lzCategorias = j.categorias || [];
+                    this.lzCuentasSmtp = j.cuentas_smtp || [];
+                    this.lzKpiClubes = j.kpi_clubes || 0;
+                    this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0;
+                    this.lzKpiEnviosHoy = j.kpi_envios_hoy || 0;
                 }
             } catch (e) {}
-            setTimeout(() => lucide.createIcons(), 50);
         },
-        async toggleMotor() {
-            const nuevoEstado = this.lzMotorActivo ? 0 : 1;
-            const f = new FormData();
-            f.append('action', 'toggle_lanzadera');
-            f.append('activo', nuevoEstado);
-            const r = await fetch('api_leads.php', { method: 'POST', body: f });
-            const j = await r.json();
-            if (j.ok) {
-                this.lzMotorActivo = !!nuevoEstado;
-                await this.loadEstadoLanzadera();
-            } else {
-                alert('Error: ' + (j.error || 'Desconocido'));
+
+        // ─── 1.1 Cambio de Categoría (Lanzadera) → cargar plantillas ─────────
+        async lzOnCategoriaChange() {
+            this.lzIdPlantillaEmail = '';
+            this.lzIdPlantillaWa = '';
+            this.lzTemplatesEmail = [];
+            this.lzTemplatesWa = [];
+            if (!this.lzCategoria) return;
+            try {
+                const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.lzCategoria));
+                const j = await r.json();
+                if (j.ok && j.templates) {
+                    this.lzTemplatesEmail = j.templates.filter(t => t.tipo !== 'whatsapp');
+                    this.lzTemplatesWa = j.templates.filter(t => t.tipo === 'whatsapp');
+                }
+            } catch (e) {}
+        },
+
+        // ─── Validar si puede cargar cola ──────────────────────────────────────
+        puedeCargarCola() {
+            return this.lzCategoria !== '' && this.lzIdPlantillaEmail !== '';
+        },
+
+        // ─── 5.1 Cargar Cola de Envíos ────────────────────────────────────────
+        async cargarCola() {
+            if (!this.puedeCargarCola()) {
+                alert('Selecciona al menos Tipo de Comunicación y Plantilla de Email');
+                return;
+            }
+            this.lzCola = [];
+            this.lzColaPaginada = [];
+            this.lzColaPageCurrent = 0;
+            this.lzColaIndex = 0;
+            this.lzColaCompletados = {};
+            this.lzLogEnviados = [];
+            this.lzLogEnviadosPaginados = [];
+            this.lzLogPageCurrent = 0;
+            this.lzMotorEstado = 'PAUSADO';
+
+            const params = new URLSearchParams({
+                categoria: this.lzCategoria,
+                federacion: this.lzFederacion,
+                id_plantilla_email: this.lzIdPlantillaEmail,
+                id_plantilla_wa: this.lzIdPlantillaWa,
+                habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0',
+                random_mode: this.randomMode ? '1' : '0',
+            });
+
+            try {
+                const r = await fetch('get_cola.php?' + params.toString());
+                const j = await r.json();
+                if (!j.ok) { alert('Error: ' + (j.error || 'Desconocido')); return; }
+                this.lzCola = j.cola || [];
+                // Cargar primeros 50 items para infinite scroll
+                if (this.lzCola.length > 0) {
+                    this.lzColaPaginada = this.lzCola.slice(0, Math.min(this.lzColaPageSize, this.lzCola.length));
+                    this.lzColaPageCurrent = 1;
+                }
+                this.lzCuentasSmtp = j.cuentas_smtp || [];
+                this.lzKpiClubes = j.kpi_clubes || 0;
+                this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0;
+                this.lzKpiEnviosHoy = j.kpi_envios_hoy || 0;
+                this.lzDelay = j.delay_segundos || 5;
+                if (this.lzCola.length === 0) {
+                    alert('No hay leads pendientes con los filtros seleccionados.');
+                }
+            } catch (e) {
+                alert('Error de conexión al cargar la cola.');
+            }
+            setTimeout(() => lucide.createIcons(), 100);
+        },
+
+        // ─── 5.2 INICIAR LANZADERA — Motor secuencial async/await ─────────────
+        async iniciarMotor() {
+            if (this.lzCola.length === 0) return;
+            this.lzMotorEstado = 'ACTIVO';
+            this.lzAbortController = new AbortController();
+            const signal = this.lzAbortController.signal;
+
+            for (let i = this.lzColaIndex; i < this.lzCola.length; i++) {
+                // Verificar si se pausó o detuvo
+                if (signal.aborted) break;
+                if (this.lzMotorEstado === 'PAUSADO') break;
+                if (this.lzMotorEstado === 'DETENIDO') break;
+
+                this.lzColaIndex = i;
+                const lead = this.lzCola[i];
+                if (!lead) continue;
+
+                // Enviar email (con variante A/B aleatoria 50%)
+                const vAb = Math.random() < 0.5 ? 'A' : 'B';
+                const fd = new FormData();
+                fd.append('id_club', lead.id);
+                fd.append('id_plantilla', this.lzIdPlantillaEmail);
+                fd.append('id_cuenta_smtp', lead.smtp_asignada_id);
+                fd.append('modo_test', this.modeTest ? '1' : '0');
+                fd.append('variante_ab', vAb);
+                // 🧪 Si modo test y hay emails de prueba, rotar entre ellos
+                if (this.modeTest && this.testEmailsList.length > 0) {
+                    fd.append('test_email', this.testEmailsList[i % this.testEmailsList.length]);
+                }
+
+                try {
+                    const r = await fetch('enviar_lote.php', {
+                        method: 'POST',
+                        body: fd,
+                        signal: signal
+                    });
+                    const j = await r.json();
+                    // Marcar como completado (grisado en la cola)
+                    this.lzColaCompletados[lead.id] = true;
+
+                    // Registrar en log
+                    this.lzLogEnviados.unshift({
+                        timestamp: j.timestamp || new Date().toISOString(),
+                        club: j.club || lead.nombre_club,
+                        email: j.email || lead.email,
+                        cuenta_smtp: j.cuenta_smtp || lead.smtp_asignada_email,
+                        envio_exitoso: j.envio_exitoso || false,
+                        error_smtp: j.error_smtp || '',
+                    });
+                    // Mostrar primeros logs automáticamente
+                    if (this.lzLogEnviadosPaginados.length === 0) {
+                        this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length));
+                        this.lzLogPageCurrent = 1;
+                    }
+
+                    // Actualizar barra SMTP
+                    const smtpIdx = this.lzCuentasSmtp.findIndex(c => c.id == lead.smtp_asignada_id);
+                    if (smtpIdx >= 0 && j.envio_exitoso) {
+                        this.lzCuentasSmtp[smtpIdx].enviados_hoy = (this.lzCuentasSmtp[smtpIdx].enviados_hoy || 0) + 1;
+                    } else if (smtpIdx >= 0 && j.error_smtp) {
+                        this.lzCuentasSmtp[smtpIdx].ultimo_error = j.error_smtp;
+                    }
+
+                    // Actualizar KPIs
+                    if (j.envio_exitoso) {
+                        this.lzKpiEnviosHoy = (this.lzKpiEnviosHoy || 0) + 1;
+                    }
+                } catch (e) {
+                    if (e.name === 'AbortError') break;
+                    this.lzColaCompletados[lead.id] = true;
+                    this.lzLogEnviados.unshift({
+                        timestamp: new Date().toISOString(),
+                        club: lead.nombre_club,
+                        email: lead.email,
+                        cuenta_smtp: lead.smtp_asignada_email || '—',
+                        envio_exitoso: false,
+                        error_smtp: e.message || 'Error de red',
+                    });
+                    if (this.lzLogEnviadosPaginados.length === 0) {
+                        this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length));
+                        this.lzLogPageCurrent = 1;
+                    }
+                }
+
+                // Delay entre envíos (con jitter aleatorio si 🎲 activo)
+                if (i < this.lzCola.length - 1 && this.lzMotorEstado === 'ACTIVO') {
+                    const baseMs = this.lzDelay * 1000;
+                    const ms = this.randomMode
+                        ? baseMs + Math.floor(Math.random() * this.lzDelay * 1000) - (this.lzDelay * 500)
+                        : baseMs;
+                    await this.delay(Math.max(500, ms));
+                }
+            }
+
+            // Si terminó la cola normalmente
+            if (this.lzColaIndex >= this.lzCola.length - 1 && this.lzMotorEstado === 'ACTIVO') {
+                this.lzMotorEstado = 'PAUSADO';
+            }
+            this.lzAbortController = null;
+            setTimeout(() => lucide.createIcons(), 100);
+        },
+
+        // ─── 5.3 PAUSAR MOTOR ─────────────────────────────────────────────────
+        pausarMotor() {
+            this.lzMotorEstado = 'PAUSADO';
+            if (this.lzAbortController) {
+                this.lzAbortController.abort();
+                this.lzAbortController = null;
             }
         },
+
+        // ─── 5.4 DETENER MOTOR ────────────────────────────────────────────────
+        detenerMotor() {
+            this.lzMotorEstado = 'DETENIDO';
+            if (this.lzAbortController) {
+                this.lzAbortController.abort();
+                this.lzAbortController = null;
+            }
+            this.lzCola = [];
+            this.lzColaIndex = 0;
+            this.lzLogEnviados = [];
+        },
+
+        // ─── Infinite Scroll: Cola ──────────────────────────────────────────
+        lzOnColaScroll() {
+            const el = document.getElementById('lzColaScroll');
+            if (!el) return;
+            const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+            if (nearBottom && this.lzColaPaginada.length < this.lzCola.length) {
+                this.lzLoadMoreCola();
+            }
+        },
+        lzLoadMoreCola() {
+            const next = (this.lzColaPageCurrent + 1) * this.lzColaPageSize;
+            if (next >= this.lzColaPaginada.length) {
+                const end = Math.min(this.lzCola.length, (this.lzColaPageCurrent + 1) * this.lzColaPageSize + this.lzColaPageSize);
+                const start = this.lzColaPageCurrent * this.lzColaPageSize;
+                if (start < this.lzCola.length) {
+                    const slice = this.lzCola.slice(start, end);
+                    this.lzColaPaginada.push(...slice);
+                    this.lzColaPageCurrent++;
+                }
+            }
+        },
+
+        // ─── Infinite Scroll: Log ────────────────────────────────────────────
+        lzOnLogScroll() {
+            const el = document.getElementById('lzLogScroll');
+            if (!el) return;
+            const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+            if (nearBottom && this.lzLogEnviadosPaginados.length < this.lzLogEnviados.length) {
+                this.lzLoadMoreLog();
+            }
+        },
+        lzLoadMoreLog() {
+            const start = this.lzLogPageCurrent * this.lzLogPageSize;
+            if (start < this.lzLogEnviados.length) {
+                const end = Math.min(this.lzLogEnviados.length, start + this.lzLogPageSize);
+                const slice = this.lzLogEnviados.slice(start, end);
+                this.lzLogEnviadosPaginados.push(...slice);
+                this.lzLogPageCurrent++;
+            }
+        },
+
+        // ─── Guardar delay en BD ───────────────────────────────────────────────
         async lzSaveDelay() {
             const f = new FormData();
             f.append('action', 'update_config');
             f.append('key', 'lanzadera_delay');
             f.append('value', this.lzDelay);
             await fetch('', { method: 'POST', body: f });
+        },
+
+        // ─── Helper: delay asíncrono ──────────────────────────────────────────
+        delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
         },
 
         // ─── SMTP ─────────────────────────────────────────────────────────────
@@ -967,7 +1224,7 @@ var app = function() {
                 const j = await r.json();
                 const a = j.accounts.find(x => x.id == id);
                 if (a) {
-                    this.sf = { email: a.email, host: a.host, puerto: a.puerto, usuario: a.usuario, password: a.password, seguridad: a.seguridad, limite_diario: a.limite_diario };
+                    this.sf = { email: a.email, host: a.host, puerto: a.puerto, usuario: a.usuario, password: a.password, seguridad: a.seguridad, limite_diario: a.limite_diario, nombre_emisor: a.nombre_emisor || '', cargo_emisor: a.cargo_emisor || '' };
                 }
             } else {
                 this.sf = { email: '', host: 'mail.getfutprotec.com', puerto: 465, usuario: '', password: '', seguridad: 'ssl', limite_diario: 50 };
@@ -980,6 +1237,7 @@ var app = function() {
             f.append('email', this.sf.email); f.append('host', this.sf.host); f.append('puerto', this.sf.puerto);
             f.append('usuario', this.sf.usuario); f.append('password', this.sf.password);
             f.append('seguridad', this.sf.seguridad); f.append('limite_diario', this.sf.limite_diario);
+            f.append('nombre_emisor', this.sf.nombre_emisor || ''); f.append('cargo_emisor', this.sf.cargo_emisor || '');
             const r = await fetch('api_smtp.php', { method: 'POST', body: f });
             const j = await r.json();
             if (j.ok) { this.sm = false; this.loadSmtp(); }
