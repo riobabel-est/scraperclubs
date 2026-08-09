@@ -272,11 +272,19 @@ function enviarSMTP(
         $errno = 0;
         $errstr = '';
 
-        if ($secure === 'ssl') {
-            $host = 'ssl://' . $host;
-        }
+        $ctx = stream_context_create([
+            'ssl' => [
+                'verify_peer'       => false,
+                'verify_peer_name'  => false,
+                'allow_self_signed' => true,
+            ]
+        ]);
 
-        $socket = fsockopen($host, $port, $errno, $errstr, 30);
+        $remote = ($secure === 'ssl')
+            ? "ssl://{$host}:{$port}"
+            : "tcp://{$host}:{$port}";
+
+        $socket = @stream_socket_client($remote, $errno, $errstr, 30, STREAM_CLIENT_CONNECT, $ctx);
         if (!$socket) {
             throw new \RuntimeException("No se pudo conectar a {$host}:{$port} — {$errstr} ({$errno})");
         }
