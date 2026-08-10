@@ -287,6 +287,38 @@ if ($action === 'get_last_envios') {
     exit;
 }
 
+// ─── get_analytics ───────────────────────────────────────────────────────────
+if ($action === 'get_analytics') {
+    header('Content-Type: application/json');
+    $tab = $_GET['tab'] ?? 'envios';
+    $data = ['ok' => true, 'tab' => $tab];
+    if ($tab === 'envios') {
+        $data['total'] = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE estado='enviado'");
+        $data['hoy']   = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE DATE(fecha_envio)=DATE('now')");
+        $data['ultimos'] = [];
+        $r2 = $db->query("SELECT id, club, email, cuenta_emision, fecha_envio, estado, asunto FROM envios ORDER BY id DESC LIMIT 50");
+        while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
+    } elseif ($tab === 'aperturas') {
+        $data['total']    = (int)$db->querySingle("SELECT COUNT(DISTINCT tracking_id) FROM aperturas");
+        $data['hoy']      = (int)$db->querySingle("SELECT COUNT(*) FROM aperturas WHERE DATE(fecha_apertura)=DATE('now')");
+        $data['ultimos']  = [];
+        $r2 = $db->query("SELECT a.*, e.club, e.email FROM aperturas a LEFT JOIN envios e ON a.tracking_id=e.tracking_id ORDER BY a.id DESC LIMIT 50");
+        while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
+    } elseif ($tab === 'rebotes') {
+        $data['total']   = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes");
+        $data['ultimos'] = [];
+        $r2 = $db->query("SELECT * FROM rebotes ORDER BY id DESC LIMIT 50");
+        while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
+    } elseif ($tab === 'bajas') {
+        $data['total']   = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra')");
+        $data['ultimos'] = [];
+        $r2 = $db->query("SELECT id, nombre_club, email, estado_lead, observaciones FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra') ORDER BY id DESC LIMIT 50");
+        while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
+    }
+    echo json_encode($data);
+    exit;
+}
+
 // ─── AUTENTICACIÓN ───────────────────────────────────────────────────────────
 if (empty($_SESSION['auth_outbound'])) {
     $db->close();
@@ -422,9 +454,9 @@ function escHtml(string $s): string {
     </div>
 </header>
 
-<!-- ═══════════ SCORECARDS ═══════════ -->
+<!-- ═══════════ SCORECARDS CLICKEABLES ═══════════ -->
 <div class="max-w-full mx-auto px-4 py-4 grid grid-cols-2 md:grid-cols-5 gap-3">
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div @click="tab='gestor'" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-amber-500/30 hover:bg-slate-800/50 transition">
         <div class="flex items-center justify-between">
             <span class="text-slate-400 text-xs uppercase tracking-wider">Total Leads</span>
             <i data-lucide="users" class="w-4 h-4 text-slate-500"></i>
@@ -432,7 +464,7 @@ function escHtml(string $s): string {
         <div class="text-2xl font-semibold text-slate-200 mt-1"><?= number_format($totalLeads) ?></div>
         <div class="text-xs text-slate-500 mt-1">Histórico global</div>
     </div>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div @click="abrirAnalytics('envios')" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-blue-500/30 hover:bg-slate-800/50 transition">
         <div class="flex items-center justify-between">
             <span class="text-slate-400 text-xs uppercase tracking-wider">Envíos Totales</span>
             <i data-lucide="send" class="w-4 h-4 text-slate-500"></i>
@@ -440,7 +472,7 @@ function escHtml(string $s): string {
         <div class="text-2xl font-semibold text-blue-400 mt-1"><?= number_format($totalEnviados) ?></div>
         <div class="text-xs text-slate-500 mt-1"><?= $smtpActivas ?> cuentas activas</div>
     </div>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div @click="abrirAnalytics('aperturas')" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-cyan-500/30 hover:bg-slate-800/50 transition">
         <div class="flex items-center justify-between">
             <span class="text-slate-400 text-xs uppercase tracking-wider">Tasa Apertura</span>
             <i data-lucide="eye" class="w-4 h-4 text-slate-500"></i>
@@ -448,7 +480,7 @@ function escHtml(string $s): string {
         <div class="text-2xl font-semibold text-cyan-400 mt-1"><?= $tasaApertura ?>%</div>
         <div class="text-xs text-slate-500 mt-1"><?= $totalAperturas ?> aperturas</div>
     </div>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div @click="abrirAnalytics('rebotes')" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-rose-500/30 hover:bg-slate-800/50 transition">
         <div class="flex items-center justify-between">
             <span class="text-slate-400 text-xs uppercase tracking-wider">Tasa Rebote</span>
             <i data-lucide="alert-triangle" class="w-4 h-4 text-slate-500"></i>
@@ -456,7 +488,7 @@ function escHtml(string $s): string {
         <div class="text-2xl font-semibold mt-1 <?= $tasaRebote > 5 ? 'text-rose-400' : ($tasaRebote > 2 ? 'text-amber-400' : 'text-emerald-400') ?>"><?= $tasaRebote ?>%</div>
         <div class="text-xs text-slate-500 mt-1"><?= $totalRebotes ?> rebotes</div>
     </div>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div @click="abrirAnalytics('bajas')" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-amber-500/30 hover:bg-slate-800/50 transition">
         <div class="flex items-center justify-between">
             <span class="text-slate-400 text-xs uppercase tracking-wider">Leads de Baja</span>
             <i data-lucide="user-minus" class="w-4 h-4 text-slate-500"></i>
@@ -566,6 +598,12 @@ var app = function() {
 
         // Buscador en listado
         edSearch: '',                // texto de busqueda en el listado
+
+        // Analytics modal
+        aq: false,                    // analytics modal abierto
+        aqTab: 'envios',             // tab activo: envios | aperturas | rebotes | bajas | cuentas
+        aqData: null,                // datos del endpoint
+        aqLoading: false,            // spinner
 
         // Lanzadera v2 — variables originales continúan...
         lzMotorEstado: 'PAUSADO',
@@ -1411,6 +1449,24 @@ var app = function() {
             alert((ok ? 'CONEXION EXITOSA: ' : 'ERROR: ') + j.message);
             if (btn) { btn.disabled = false; btn.innerHTML = orig; }
             this.loadSmtp();
+        },
+
+        // ─── Analytics ──────────────────────────────────────────────────────────
+        async abrirAnalytics(tab) {
+            this.aqTab = tab;
+            this.aq = true;
+            this.aqLoading = true;
+            this.aqData = null;
+            try {
+                const r = await fetch('?action=get_analytics&tab=' + tab);
+                this.aqData = await r.json();
+            } catch(e) { this.aqData = { ok: false }; }
+            this.aqLoading = false;
+            setTimeout(() => lucide.createIcons(), 100);
+        },
+        aqTitulo(tab) {
+            const mapa = { envios: 'Envíos Realizados', aperturas: 'Aperturas (Tracking)', rebotes: 'Rebotes', bajas: 'Leads de Baja' };
+            return mapa[tab] || tab;
         },
 
         // ─── Util ─────────────────────────────────────────────────────────────
