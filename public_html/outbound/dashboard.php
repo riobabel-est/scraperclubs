@@ -559,7 +559,7 @@ var app = function() {
          estadosLead: [
              '01 Sin Contactar',
              '02 Email/WhatsApp Enviado',
-             '03 Email Enviado',
+             '03 Email Abierto',
              '04 En Conversacion',
              '05 Propuesta Enviada',
              '06 Cerrado Ganado',
@@ -596,7 +596,7 @@ var app = function() {
         lzEstadosLead: [               // opciones del dropdown 1.2 (estados fijos)
             '01 Sin Contactar',
             '02 Email/WhatsApp Enviado',
-            '03 Email Enviado',
+            '03 Email Abierto',
             '04 En Conversacion',
             '05 Propuesta Enviada',
             '06 Cerrado Ganado',

@@ -267,7 +267,7 @@ function mapearEstadoLead(string $codigo): string
     $mapa = [
         '01 Sin Contactar'          => 'Sin Contactar',
         '02 Email/WhatsApp Enviado'  => 'Email Enviado / En Secuencia',
-        '03 Email Enviado'           => 'Impactado / Abrio Email',
+        '03 Email Abierto'           => 'Impactado / Abrio Email',
         '04 En Conversacion'         => 'En Conversacion / WhatsApp',
         '05 Propuesta Enviada'       => 'Muestra / Propuesta Enviada',
         '06 Cerrado Ganado'          => 'Cerrado Ganado',
