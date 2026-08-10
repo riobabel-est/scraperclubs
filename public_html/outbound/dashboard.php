@@ -982,12 +982,25 @@ var app = function() {
                 const t = j.templates.find(x => x.id == this.et); return t ? t.cuerpo : '';
             }) : '');
             if (!body) { document.getElementById('previewContainer').innerHTML = '<p class="text-slate-400 text-center py-8">Sin contenido para previsualizar</p>'; return; }
-            const r = await fetch('?action=get_lead&id=' + ci);
+            const [r, rs] = await Promise.all([
+                fetch('?action=get_lead&id=' + ci),
+                fetch('api/smtp.php?action=get_accounts')
+            ]);
             const club = await r.json(); if (!club) return;
+            const jss = await rs.json();
+            const cuenta = (jss.ok && jss.accounts && jss.accounts.length > 0)
+                ? jss.accounts.find(a => a.activa == 1 || a.activa == '1') || jss.accounts[0]
+                : {};
+            const senderName = cuenta.nombre_emisor || (cuenta.email ? cuenta.email.split('@')[0] : 'Nombre Remitente');
+            const senderTitle = cuenta.cargo_emisor || 'Equipo Comercial';
+            const senderEmail = cuenta.email || 'email@ejemplo.com';
             const html = body.replace(/{{CLUB}}/g, club.nombre_club || '')
                              .replace(/{{CONTACTO}}/g, club.persona_contacto || 'responsable')
                              .replace(/{{FEDERACION}}/g, club.federacion || '')
-                             .replace(/{{ANIO}}/g, new Date().getFullYear());
+                             .replace(/{{ANIO}}/g, new Date().getFullYear())
+                             .replace(/{{SENDER_NAME}}/g, senderName)
+                             .replace(/{{SENDER_TITLE}}/g, senderTitle)
+                             .replace(/{{SENDER_EMAIL}}/g, senderEmail);
             const container = document.getElementById('previewContainer');
             if (this.edTipo === 'whatsapp') {
                 container.innerHTML = '<div style="background:#e5ddd5;padding:16px;border-radius:8px;max-width:400px;font-family:sans-serif;font-size:14px;white-space:pre-wrap">' + this.esc(html) + '</div>';
