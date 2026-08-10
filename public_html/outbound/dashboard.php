@@ -602,7 +602,7 @@ var app = function() {
         // Analytics modal
         aq: false,                    // analytics modal abierto
         aqTab: 'envios',             // tab activo: envios | aperturas | rebotes | bajas | cuentas
-        aqData: null,                // datos del endpoint
+        aqData: { total: 0, ultimos: [] }, // datos del endpoint (inicializado para evitar errores)
         aqLoading: false,            // spinner
 
         // Lanzadera v2 — variables originales continúan...
