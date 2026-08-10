@@ -21,6 +21,7 @@ declare(strict_types=1);
 // ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
 $DB_PATH     = __DIR__ . '/../data/stats.db';
 $CLUBES_JSON = __DIR__ . '/../clubes.json';
+$LOG_DIR     = __DIR__ . '/../logs';
 $TRACK_URL   = 'https://getfutprotec.com/outbound/track.php';
 
 /**
@@ -171,14 +172,27 @@ $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
 // ─── CARGAR PLANTILLA DESDE BD ───────────────────────────────────────────────
-$tpl = $db->querySingle("SELECT asunto, cuerpo FROM plantillas WHERE activo=1 LIMIT 1", true);
+$tpl = $db->querySingle("SELECT asunto, asunto_b, asunto_c, test_ab, cuerpo FROM plantillas WHERE activo=1 LIMIT 1", true);
 if ($tpl) {
-    $ASUNTO = $tpl['asunto'];
+    $ASUNTO              = $tpl['asunto'];
+    $ASUNTO_B            = $tpl['asunto_b'] ?? '';
+    $ASUNTO_C            = $tpl['asunto_c'] ?? '';
+    $TEST_AB             = (int)($tpl['test_ab'] ?? 0);
     $CUERPO_HTML_TEMPLATE = $tpl['cuerpo'];
+    $tieneC              = !empty($ASUNTO_C);
     echo "📧 Plantilla cargada desde BD: " . substr($ASUNTO, 0, 50) . "...\n";
+    if ($TEST_AB && $tieneC) {
+        echo "🧪 Test A/B/C activo en esta plantilla\n";
+    } elseif ($TEST_AB && !empty($ASUNTO_B)) {
+        echo "🧪 Test A/B activo en esta plantilla\n";
+    }
 } else {
     // Fallback ultra-basico si no hay plantilla en BD
     $ASUNTO = 'Espinilleras personalizadas para {{CLUB}} | FutProtec';
+    $ASUNTO_B = '';
+    $ASUNTO_C = '';
+    $TEST_AB  = 0;
+    $tieneC   = false;
     $CUERPO_HTML_TEMPLATE = '<p>Estimado/a {{CLUB}}, solicita info en getfutprotec.com</p>';
     echo "⚠️ Sin plantilla en BD — usando fallback.\n";
 }
@@ -393,11 +407,35 @@ for ($i = 0; $i < $lote; $i++) {
     // Generar tracking_id único: fut_<timestamp>_<random>
     $trackingId = 'fut_' . dechex(time()) . '_' . bin2hex(random_bytes(6));
 
+    // Seleccionar variante A/B/C del asunto
+    $asuntoBase = $ASUNTO;
+    $varianteAb = 'A';
+    if ($TEST_AB === 1) {
+        if ($tieneC) {
+            // Modo A/B/C: 33% cada variante
+            $r = mt_rand(1, 100);
+            if ($r <= 33) {
+                $varianteAb = 'A';
+                $asuntoBase = $ASUNTO;
+            } elseif ($r <= 66 && !empty($ASUNTO_B)) {
+                $varianteAb = 'B';
+                $asuntoBase = $ASUNTO_B;
+            } else {
+                $varianteAb = 'C';
+                $asuntoBase = $ASUNTO_C;
+            }
+        } elseif (!empty($ASUNTO_B)) {
+            // Modo A/B clásico: 50% cada variante
+            $varianteAb = (mt_rand(1, 100) <= 50) ? 'A' : 'B';
+            $asuntoBase = ($varianteAb === 'B') ? $ASUNTO_B : $ASUNTO;
+        }
+    }
+
     // Preparar contenido del email usando placeholders del editor ({{CLUB}}, etc.)
     $asunto = str_replace(
         ['{{CLUB}}', '{{CONTACTO}}', '{{FEDERACION}}', '{{ANIO}}'],
         [$nombreClub, 'responsable', $federacion, date('Y')],
-        $ASUNTO
+        $asuntoBase
     );
     $cuerpo = str_replace(
         ['{{CLUB}}', '{{CONTACTO}}', '{{FEDERACION}}', '{{ANIO}}'],
@@ -460,6 +498,17 @@ for ($i = 0; $i < $lote; $i++) {
         }
     }
 
+    // Escribir log en archivo
+    escribirLogEnvio(
+        $LOG_DIR,
+        $resultado['ok'] ? 'OK' : 'ERROR',
+        $nombreClub,
+        $emailClub,
+        $cuenta['email'],
+        $trackingId,
+        $resultado['ok'] ? '' : ($resultado['error'] ?? 'Error desconocido')
+    );
+
     // Mostrar progreso
     $icono = $resultado['ok'] ? '✅' : '❌';
     $progreso = "[" . ($i + 1) . "/{$lote}]";
@@ -497,3 +546,32 @@ echo "  📊 Acumulado BD → Enviados: {$totalEnviados} | Errores: {$totalError
 echo "══════════════════════════════════════════════\n";
 
 $db->close();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCIÓN: Escribir log de envío en archivo
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Escribe una línea de log de envío en el archivo diario.
+ * Formato: [YYYY-MM-DD HH:MM:SS] RESULTADO | CLUB | EMAIL | CUENTA_SMTP | TRACKING_ID | ERROR (si aplica)
+ */
+function escribirLogEnvio(string $logDir, string $resultado, string $club, string $email, string $cuentaSmtp, string $trackingId, string $error): void
+{
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0755, true);
+    }
+    $archivo = $logDir . '/envios_' . date('Y-m-d') . '.log';
+    $icono   = $resultado === 'OK' ? '✅' : '❌';
+    $linea   = sprintf(
+        "[%s] %s %s | Club: %s | Email: %s | SMTP: %s | Tracking: %s%s\n",
+        date('Y-m-d H:i:s'),
+        $icono,
+        $resultado,
+        $club,
+        $email,
+        $cuentaSmtp,
+        $trackingId,
+        $error ? ' | Error: ' . $error : ''
+    );
+    @file_put_contents($archivo, $linea, FILE_APPEND | LOCK_EX);
+}

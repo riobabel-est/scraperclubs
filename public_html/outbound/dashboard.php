@@ -173,19 +173,22 @@ if ($action === 'save_template') {
         $n   = $_POST['nombre'] ?? '';
         $a   = $_POST['asunto'] ?? '';
         $ab  = $_POST['asunto_b'] ?? '';
+        $ac  = $_POST['asunto_c'] ?? '';
         $c   = $_POST['cuerpo'] ?? '';
         $t   = $_POST['tipo'] ?? 'html';
         $cat = $_POST['categoria'] ?? 'prospeccion';
         $act = $_POST['activo'] ?? 1;
         $tab = (int)($_POST['test_ab'] ?? 0);
         if ($id > 0) {
-            $stmt = $db->prepare("UPDATE plantillas SET nombre = :n, asunto = :a, asunto_b = :ab, cuerpo = :c, tipo = :t, categoria = :cat, activo = :act, test_ab = :tab WHERE id = :id");
+            $stmt = $db->prepare("UPDATE plantillas SET nombre = :n, asunto = :a, asunto_b = :ab, asunto_c = :ac, cuerpo = :c, tipo = :t, categoria = :cat, activo = :act, test_ab = :tab WHERE id = :id");
             $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
             $stmt->bindValue(':ab', $ab, SQLITE3_TEXT);
+            $stmt->bindValue(':ac', $ac, SQLITE3_TEXT);
             $stmt->bindValue(':tab', $tab, SQLITE3_INTEGER);
         } else {
-            $stmt = $db->prepare("INSERT INTO plantillas (nombre, asunto, asunto_b, cuerpo, tipo, categoria, activo, test_ab, fecha_creacion) VALUES (:n, :a, :ab, :c, :t, :cat, :act, :tab, DATETIME('now'))");
+            $stmt = $db->prepare("INSERT INTO plantillas (nombre, asunto, asunto_b, asunto_c, cuerpo, tipo, categoria, activo, test_ab, fecha_creacion) VALUES (:n, :a, :ab, :ac, :c, :t, :cat, :act, :tab, DATETIME('now'))");
             $stmt->bindValue(':ab', $ab, SQLITE3_TEXT);
+            $stmt->bindValue(':ac', $ac, SQLITE3_TEXT);
             $stmt->bindValue(':tab', $tab, SQLITE3_INTEGER);
         }
         $stmt->bindValue(':n',   $n,   SQLITE3_TEXT);
@@ -224,7 +227,7 @@ if ($action === 'delete_template') {
 if ($action === 'get_templates') {
     header('Content-Type: application/json');
     $cat = $_GET['categoria'] ?? '';
-    $sql = "SELECT id, nombre, asunto, asunto_b, test_ab, cuerpo, tipo, categoria, activo FROM plantillas";
+    $sql = "SELECT id, nombre, asunto, asunto_b, asunto_c, test_ab, cuerpo, tipo, categoria, activo FROM plantillas";
     if ($cat !== '') {
         $sql .= " WHERE categoria = '" . $db->escapeString($cat) . "'";
     }
@@ -319,9 +322,26 @@ if ($action === 'get_analytics') {
         $data['pipeline'] = [];
         $rs = $db->query("SELECT estado_lead, COUNT(*) as cnt FROM clubes_crm GROUP BY estado_lead ORDER BY cnt DESC");
         while ($r = $rs->fetchArray(SQLITE3_ASSOC)) { $data['pipeline'][] = $r; }
-        // A/B test
+        // A/B/C test — query simplificada desde comunicaciones_log
         $data['ab'] = [];
-        $rs2 = $db->query("SELECT e.asunto, COUNT(*) as envios, COUNT(a.tracking_id) as aperturas, ROUND(CAST(COUNT(a.tracking_id) AS FLOAT)/MAX(COUNT(*),1)*100,1) as tasa FROM envios e LEFT JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE e.estado='enviado' AND e.asunto!='' GROUP BY SUBSTR(e.asunto,1,30) ORDER BY envios DESC LIMIT 15");
+        $rs2 = $db->query("
+            SELECT p.nombre AS plantilla, cl.variante_ab, COUNT(*) AS envios,
+                   COUNT(DISTINCT a.tracking_id) AS aperturas,
+                   ROUND(CAST(COUNT(DISTINCT a.tracking_id) AS FLOAT)/MAX(COUNT(*),1)*100,1) AS tasa
+            FROM comunicaciones_log cl
+            JOIN plantillas p ON p.id = cl.plantilla_id
+            LEFT JOIN envios e ON e.tracking_id = (
+                SELECT e2.tracking_id FROM envios e2
+                WHERE LOWER(e2.email) = (SELECT LOWER(c.email) FROM clubes_crm c WHERE c.id = cl.lead_id)
+                  AND e2.estado = 'enviado'
+                ORDER BY e2.id DESC LIMIT 1
+            )
+            LEFT JOIN aperturas a ON a.tracking_id = e.tracking_id
+            WHERE cl.tipo_evento = 'envio_email' AND cl.variante_ab != ''
+            GROUP BY cl.plantilla_id, cl.variante_ab
+            ORDER BY envios DESC
+            LIMIT 30
+        ");
         while ($r = $rs2->fetchArray(SQLITE3_ASSOC)) { $data['ab'][] = $r; }
         // Timeline 30 días
         $data['timeline'] = [];
@@ -709,9 +729,9 @@ var app = function() {
              '07 Cerrado Perdido'
          ],
          categorias: [], templates: [],
-        edNombre: '', edAsunto: '', edAsuntoB: '', edTestAb: 0,
-        edCuerpo: '', edTipo: 'html',
-        previewClubId: '', debounceTimer: null,
+         edNombre: '', edAsunto: '', edAsuntoB: '', edAsuntoC: '', edTestAb: 0,
+         edCuerpo: '', edTipo: 'html',
+         previewClubId: '', debounceTimer: null,
 
         // Lanzadera v2
         lzMotorEstado: 'PAUSADO',      // PAUSADO | ACTIVO | DETENIDO
@@ -770,11 +790,12 @@ var app = function() {
             this.et = t.id;
             this.edNombre = t.nombre;
             this.edAsunto = t.asunto || '';
-            this.edAsuntoB = t.asunto_b || '';
-            this.edTestAb = parseInt(t.test_ab) || 0;
-            this.edCuerpo = t.cuerpo || '';
-            this.edTipo = t.tipo || 'html';
-            this.edPlataforma = (t.tipo === 'whatsapp') ? 'whatsapp' : 'email';
+             this.edAsuntoB = t.asunto_b || '';
+             this.edAsuntoC = t.asunto_c || '';
+             this.edTestAb = parseInt(t.test_ab) || 0;
+             this.edCuerpo = t.cuerpo || '';
+             this.edTipo = t.tipo || 'html';
+             this.edPlataforma = (t.tipo === 'whatsapp') ? 'whatsapp' : 'email';
             this.ec = t.categoria || this.ec;
             this.en = false;
             this.autoPreview();
@@ -1081,19 +1102,20 @@ var app = function() {
             if (t) {
                 this.edNombre = t.nombre;
                 this.edAsunto = t.asunto || '';
-                this.edAsuntoB = t.asunto_b || '';
-                this.edTestAb = parseInt(t.test_ab) || 0;
-                this.edCuerpo = t.cuerpo || '';
-                this.edTipo = t.tipo || 'html';
-                this.en = false;
+                 this.edAsuntoB = t.asunto_b || '';
+                 this.edAsuntoC = t.asunto_c || '';
+                 this.edTestAb = parseInt(t.test_ab) || 0;
+                 this.edCuerpo = t.cuerpo || '';
+                 this.edTipo = t.tipo || 'html';
+                 this.en = false;
                 this.autoPreview();
             }
             setTimeout(() => lucide.createIcons(), 50);
         },
         nuevaPlantilla() {
             this.et = ''; this.en = true;
-            this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edAsuntoB = ''; this.edTestAb = 0;
-            this.edCuerpo = ''; this.edTipo = this.edPlataforma === 'whatsapp' ? 'whatsapp' : 'html';
+             this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edAsuntoB = ''; this.edAsuntoC = ''; this.edTestAb = 0;
+             this.edCuerpo = ''; this.edTipo = this.edPlataforma === 'whatsapp' ? 'whatsapp' : 'html';
             setTimeout(() => lucide.createIcons(), 50);
         },
         async eliminarPlantilla() {
@@ -1112,8 +1134,9 @@ var app = function() {
             if (this.et && !this.en) f.append('id', this.et);
             f.append('nombre', this.edNombre);
             f.append('asunto', this.edAsunto);
-            f.append('asunto_b', this.edAsuntoB);
-            f.append('test_ab', this.edTestAb);
+             f.append('asunto_b', this.edAsuntoB);
+             f.append('asunto_c', this.edAsuntoC);
+             f.append('test_ab', this.edTestAb);
             f.append('cuerpo', this.edCuerpo);
             f.append('tipo', this.edPlataforma === 'whatsapp' ? 'whatsapp' : (this.edTipo || 'html'));
             f.append('categoria', this.ec);
@@ -1312,8 +1335,9 @@ var app = function() {
                 const lead = this.lzCola[i];
                 if (!lead) continue;
 
-                // Enviar email (con variante A/B aleatoria 50%)
-                const vAb = Math.random() < 0.5 ? 'A' : 'B';
+                // Enviar email (con variante A/B/C equitativa: 33% cada una)
+                const r = Math.random();
+                const vAb = r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C');
                 const fd = new FormData();
                 fd.append('id_club', lead.id);
                 fd.append('id_plantilla', this.lzIdPlantillaEmail);

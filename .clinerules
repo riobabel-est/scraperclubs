@@ -57,7 +57,7 @@ No desviarse a features no relacionadas.
 ## Módulo Outbound CRM (`public_html/outbound/`)
 
 ## Regla obligatoria de deploy
-- **PROHIBIDO hacer `git push` sin permiso EXPLÍCITO del usuario.** Todos los cambios se trabajan en local. Solo se suben a GitHub cuando el usuario lo solicite expresamente.
+- **PROHIBIDO hacer `git push` sin pedido EXPLÍCITO del usuario.** Todos los cambios se trabajan en local. Solo se suben a GitHub cuando el usuario lo solicita.
 - **Archivos bajo control activo**: `dashboard.php`, `api_leads.php`, `api_smtp.php`, `init_db.php`, `enviar_smtp_random.php`, `track.php`, `baja.php`, `.htaccess`
 - **Regla de oro**: Centrarse EXCLUSIVAMENTE en el archivo que se está modificando. NO tocar otros archivos del módulo outbound a menos que sea estrictamente necesario para la feature solicitada.
 - **No deshacer features ya terminadas**: Si una funcionalidad ya estaba operativa (validación MX, validación WhatsApp, modales, etc.), NO eliminarla ni regresionarla durante refactors.

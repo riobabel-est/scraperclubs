@@ -130,22 +130,26 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 </button>
 </div>
 
-<!-- ═══ A/B TESTING (solo Email) ═══ -->
+<!-- ═══ A/B/C TESTING (solo Email) ═══ -->
 <div x-show="edPlataforma==='email'" class="mb-3 bg-slate-800/30 rounded-lg p-3 border border-slate-700/50">
 <div class="flex items-center justify-between mb-2">
-<label class="text-xs text-slate-400 font-semibold">🧪 Test A/B de Asunto</label>
+<label class="text-xs text-slate-400 font-semibold">🧪 Test A/B/C de Asunto</label>
 <button @click="edTestAb = edTestAb ? 0 : 1" class="relative inline-flex h-6 w-11 items-center rounded-full transition" :class="edTestAb ? 'bg-purple-500' : 'bg-slate-600'">
 <span class="inline-block h-4 w-4 transform rounded-full bg-white transition" :class="edTestAb ? 'translate-x-6' : 'translate-x-1'"></span>
 </button>
 </div>
 <div x-show="edTestAb" class="space-y-2">
 <div>
-<label class="text-xs text-slate-400 uppercase tracking-wider">Asunto A <span class="text-slate-600">(50%)</span></label>
+<label class="text-xs text-slate-400 uppercase tracking-wider">Asunto A <span class="text-slate-600">(33%)</span></label>
 <input type="text" x-model="edAsunto" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50">
 </div>
 <div>
-<label class="text-xs text-slate-400 uppercase tracking-wider">Asunto B <span class="text-purple-400">(50%)</span></label>
+<label class="text-xs text-slate-400 uppercase tracking-wider">Asunto B <span class="text-purple-400">(33%)</span></label>
 <input type="text" x-model="edAsuntoB" class="w-full bg-slate-800 border border-purple-500/30 rounded-lg px-2 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-purple-500/50">
+</div>
+<div>
+<label class="text-xs text-slate-400 uppercase tracking-wider">Asunto C <span class="text-cyan-400">(33%)</span></label>
+<input type="text" x-model="edAsuntoC" class="w-full bg-slate-800 border border-cyan-500/30 rounded-lg px-2 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-cyan-500/50">
 </div>
 </div>
 <div x-show="!edTestAb">

@@ -14,7 +14,8 @@ ob_start();
 error_reporting(0);
 ini_set('display_errors', 0);
 
-$DB_PATH = __DIR__ . '/../data/stats.db';
+$DB_PATH  = __DIR__ . '/../data/stats.db';
+$LOG_DIR  = __DIR__ . '/../logs';
 
 if (!file_exists($DB_PATH)) {
     header('Content-Type: application/json');
@@ -33,7 +34,10 @@ $idClub     = (int)($_POST['id_club'] ?? 0);
 $idPlantilla = (int)($_POST['id_plantilla'] ?? 0);
 $idSmtp     = (int)($_POST['id_cuenta_smtp'] ?? 0);
 $modoTest   = ($_POST['modo_test'] ?? '0') === '1';
-$varianteAb   = strtoupper($_POST['variante_ab'] ?? 'A') === 'B' ? 'B' : 'A';
+$varianteAb = strtoupper($_POST['variante_ab'] ?? 'A');
+if (!in_array($varianteAb, ['A', 'B', 'C'], true)) {
+    $varianteAb = 'A';
+}
 
 // ─── VALIDAR ─────────────────────────────────────────────────────────────────
 try {
@@ -63,7 +67,7 @@ try {
 
     // ─── 2. Obtener plantilla ─────────────────────────────────────────────────
     $plantilla = $db->querySingle("
-        SELECT id, nombre, asunto, asunto_b, test_ab, cuerpo, tipo, categoria
+        SELECT id, nombre, asunto, asunto_b, asunto_c, test_ab, cuerpo, tipo, categoria
         FROM plantillas WHERE id = {$idPlantilla} AND activo = 1
     ", true);
 
@@ -75,8 +79,20 @@ try {
 
     // A/B Testing: si la plantilla tiene test_ab activo y asunto_b no vacío, usar asunto B cuando corresponda
     $asuntoTpl = $plantilla['asunto'];
-    if ((int)($plantilla['test_ab'] ?? 0) === 1 && !empty($plantilla['asunto_b']) && $varianteAb === 'B') {
-        $asuntoTpl = $plantilla['asunto_b'];
+    if ((int)($plantilla['test_ab'] ?? 0) === 1) {
+        $tieneC = !empty($plantilla['asunto_c'] ?? '');
+        if ($tieneC) {
+            // Modo A/B/C: distribuir equitativamente
+            if ($varianteAb === 'B' && !empty($plantilla['asunto_b'])) {
+                $asuntoTpl = $plantilla['asunto_b'];
+            } elseif ($varianteAb === 'C') {
+                $asuntoTpl = $plantilla['asunto_c'];
+            }
+            // Si variante es 'A', se queda con asunto original
+        } elseif (!empty($plantilla['asunto_b']) && $varianteAb === 'B') {
+            // Modo A/B clásico (sin asunto_c)
+            $asuntoTpl = $plantilla['asunto_b'];
+        }
     }
 
     // ─── 3. Obtener cuenta SMTP ──────────────────────────────────────────────
@@ -229,6 +245,17 @@ try {
         $stmtUpd->execute();
     }
 
+    // ─── 6.5 Escribir log en archivo ──────────────────────────────────────────
+    escribirLogEnvio(
+        $LOG_DIR,
+        $resultado['ok'] ? 'OK' : 'ERROR',
+        $nombreClub,
+        $emailClub,
+        $cuenta['email'],
+        $trackingId,
+        $errorMsg
+    );
+
     // ─── 7. Respuesta ─────────────────────────────────────────────────────────
     ob_clean();
     echo json_encode([
@@ -249,6 +276,35 @@ try {
 }
 
 $db->close();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCIÓN: Escribir log de envío en archivo
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Escribe una línea de log de envío en el archivo diario.
+ * Formato: [YYYY-MM-DD HH:MM:SS] RESULTADO | CLUB | EMAIL | CUENTA_SMTP | TRACKING_ID | ERROR (si aplica)
+ */
+function escribirLogEnvio(string $logDir, string $resultado, string $club, string $email, string $cuentaSmtp, string $trackingId, string $error): void
+{
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0755, true);
+    }
+    $archivo = $logDir . '/envios_' . date('Y-m-d') . '.log';
+    $icono   = $resultado === 'OK' ? '✅' : '❌';
+    $linea   = sprintf(
+        "[%s] %s %s | Club: %s | Email: %s | SMTP: %s | Tracking: %s%s\n",
+        date('Y-m-d H:i:s'),
+        $icono,
+        $resultado,
+        $club,
+        $email,
+        $cuentaSmtp,
+        $trackingId,
+        $error ? ' | Error: ' . $error : ''
+    );
+    @file_put_contents($archivo, $linea, FILE_APPEND | LOCK_EX);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FUNCIÓN SMTP AUTENTICADO NATIVO

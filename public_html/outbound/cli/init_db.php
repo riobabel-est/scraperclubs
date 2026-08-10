@@ -312,6 +312,10 @@ try {
         $db->exec("ALTER TABLE plantillas ADD COLUMN test_ab INTEGER DEFAULT 0");
         echo "   Migracion: columna 'test_ab' anadida a plantillas\n";
     }
+    if (!in_array('asunto_c', $colsPlantillas, true)) {
+        $db->exec("ALTER TABLE plantillas ADD COLUMN asunto_c VARCHAR(255) DEFAULT ''");
+        echo "   Migracion: columna 'asunto_c' anadida a plantillas (A/B/C testing)\n";
+    }
 
     // Migracion: anadir columnas de remitente dinamico a cuentas_smtp
     $colsSmtp = [];
