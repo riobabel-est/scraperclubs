@@ -92,6 +92,24 @@ class="px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center
 </div>
 </div>
 
+<!-- ═══ FILA 5.5: Plantilla WhatsApp (solo si waLink existe) ═══ -->
+<div x-show="waLink && ldPlantillasWa.length > 0" class="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3">
+<label class="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-2 block">Plantilla de WhatsApp</label>
+<div class="flex items-center gap-3">
+<select x-model="ldPlantillaWaId" @change="onWaPlantillaChange()" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+<option value="">Chat vacio</option>
+<template x-for="tpl in ldPlantillasWa" :key="tpl.id">
+<option :value="tpl.id" x-text="tpl.nombre"></option>
+</template>
+</select>
+<a :href="ldWaUrl" target="_blank" x-show="waLink"
+class="px-4 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2 whitespace-nowrap"
+:class="ldPlantillaWaId ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30'">
+<i data-lucide="send" class="w-4 h-4"></i> Enviar WA
+</a>
+</div>
+</div>
+
 <!-- ═══ FILA 6: Estado Kanban ═══ -->
 <div>
 <label class="text-xs text-slate-400 uppercase tracking-wider font-semibold">Estado Kanban</label>

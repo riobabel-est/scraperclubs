@@ -553,6 +553,14 @@ var app = function() {
         // Add Lead
         af: { nombre: '', email: '', federacion: '', movil: '', fijo: '', persona: '', cargo: '' },
 
+        // WhatsApp desde ficha
+        ldPlantillasWa: [],          // todas las plantillas tipo whatsapp
+        ldPlantillaWaId: '',         // plantilla seleccionada en la ficha
+        ldWaUrl: '',                 // URL generada con texto
+
+        // Lanzadera v2 — variables originales continúan...
+        lzMotorEstado: 'PAUSADO',
+
         // Gestor
         gs: '', ge: '', gf: '', gt: '', gp: 1, gpp: 50, gsc: 'nombre_club', gso: 'ASC',
 
@@ -684,13 +692,37 @@ var app = function() {
 
         // ─── Lead Modal ───────────────────────────────────────────────────────
         async openLead(id) {
-            const r = await fetch('?action=get_lead&id=' + id);
+            const [r, rwa] = await Promise.all([
+                fetch('?action=get_lead&id=' + id),
+                fetch('?action=get_templates')
+            ]);
             this.ld = await r.json();
             this.ldOriginal = JSON.parse(JSON.stringify(this.ld));
             this.ldChanged = false;
             this.ln = '';
+            this.ldPlantillaWaId = '';
+            this.ldWaUrl = this.waLink ? ('https://wa.me/34' + (this.ld.telefono_movil || '').replace(/[^0-9]/g, '').match(/([67]\d{8})/)?.[1] || '') : '';
+            const jwa = await rwa.json();
+            if (jwa.ok) {
+                this.ldPlantillasWa = jwa.templates.filter(t => t.tipo === 'whatsapp');
+            }
             this.lm = true;
             setTimeout(() => lucide.createIcons(), 100);
+        },
+        onWaPlantillaChange() {
+            if (!this.ldPlantillaWaId || !this.waLink) {
+                this.ldWaUrl = this.waLink || '';
+                return;
+            }
+            const tpl = this.ldPlantillasWa.find(x => x.id == this.ldPlantillaWaId);
+            if (!tpl) return;
+            const texto = (tpl.cuerpo || '')
+                .replace(/{{CLUB}}/g, this.ld.nombre_club || '')
+                .replace(/{{CONTACTO}}/g, this.ld.persona_contacto || 'responsable')
+                .replace(/{{FEDERACION}}/g, this.ld.federacion || '')
+                .replace(/{{ANIO}}/g, new Date().getFullYear());
+            const num = (this.ld.telefono_movil || '').replace(/[^0-9]/g, '').match(/([67]\d{8})/)?.[1] || '';
+            this.ldWaUrl = num ? ('https://wa.me/34' + num + '?text=' + encodeURIComponent(texto)) : '';
         },
         markChanged() {
             this.ldChanged = JSON.stringify(this.ld) !== JSON.stringify(this.ldOriginal);
