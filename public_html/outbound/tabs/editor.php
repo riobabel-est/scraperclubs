@@ -60,13 +60,27 @@ class="px-3 py-1.5 bg-rose-500/15 text-rose-400 border border-rose-500/30 rounde
 <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Eliminar
 </button>
 </div>
-<div class="mt-2 text-xs flex items-center gap-3" x-show="templatesFiltradas.length > 0">
-<span class="text-slate-500">
-📧 <span x-text="templatesFiltradas.filter(t=>t.tipo!=='whatsapp').length" class="text-slate-400"></span> email
-</span>
-<span class="text-slate-500">
-💬 <span x-text="templatesFiltradas.filter(t=>t.tipo==='whatsapp').length" class="text-slate-400"></span> whatsapp
-</span>
+
+<!-- Listado de plantillas -->
+<div class="mt-3 max-h-48 overflow-y-auto space-y-1" x-show="templatesFiltradas.length > 0">
+<div class="text-xs text-slate-500 mb-1.5 flex items-center gap-3">
+<span>📧 <span x-text="templatesFiltradas.filter(t=>t.tipo!=='whatsapp').length" class="text-slate-400"></span></span>
+<span>💬 <span x-text="templatesFiltradas.filter(t=>t.tipo==='whatsapp').length" class="text-slate-400"></span></span>
+</div>
+<template x-for="t in templatesFiltradas" :key="t.id">
+<button @click="et = t.id; onTemplateChange()"
+class="w-full text-left px-3 py-2 rounded-lg text-sm transition-all border flex items-center gap-2"
+:class="et == t.id
+? 'bg-amber-500/10 text-amber-400 border-amber-500/30 font-semibold'
+: 'bg-slate-800/50 border-transparent text-slate-400 hover:bg-slate-800 hover:text-slate-200 hover:border-slate-700'">
+<span x-text="t.tipo==='whatsapp'?'💬':'📧'" class="text-base"></span>
+<span x-text="t.nombre" class="flex-1 truncate"></span>
+<span x-show="et == t.id" class="text-amber-400"><i data-lucide="check" class="w-3.5 h-3.5"></i></span>
+</button>
+</template>
+</div>
+<div class="mt-3 text-center text-xs text-slate-600 py-4" x-show="ec && templatesFiltradas.length === 0">
+No hay plantillas para este estado.<br>Crea una nueva con el botón <span class="text-blue-400">+ Nueva</span>
 </div>
 </div>
 </div>
