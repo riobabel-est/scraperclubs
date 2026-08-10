@@ -792,7 +792,7 @@ var app = function() {
 
         // ─── Scan Dups ────────────────────────────────────────────────────────
         async scanDups() {
-            const r = await fetch('api_leads.php?action=scan_duplicates');
+            const r = await fetch('api/leads.php?action=scan_duplicates');
             const j = await r.json();
             if (j.ok) { alert('Escaneo: ' + j.dups + ' duplicados en ' + j.total + ' clubes.'); location.reload(); }
             else { alert('Error: ' + (j.error || 'Desconocido')); }
@@ -805,7 +805,7 @@ var app = function() {
                 sort: this.gsc, order: this.gso,
                 search: this.gs, estado: this.ge, federacion: this.gf
             });
-            const r = await fetch('api_leads.php?' + p.toString());
+            const r = await fetch('api/leads.php?' + p.toString());
             const j = await r.json();
             if (!j.ok) return;
             this.gt = j.total + ' resultados';
@@ -941,7 +941,7 @@ var app = function() {
         async bootLanzadera() {
             // Cargar delay guardado
             try {
-                const r = await fetch('api_leads.php?action=get_config&key=lanzadera_delay');
+                const r = await fetch('api/leads.php?action=get_config&key=lanzadera_delay');
                 const j = await r.json();
                 if (j.ok && j.valor) this.lzDelay = parseInt(j.valor) || 5;
             } catch (e) { this.lzDelay = 5; }
@@ -1006,7 +1006,7 @@ var app = function() {
             });
 
             try {
-                const r = await fetch('get_cola.php?' + params.toString());
+                const r = await fetch('api/get_cola.php?' + params.toString());
                 const j = await r.json();
                 if (!j.ok) { alert('Error: ' + (j.error || 'Desconocido')); return; }
                 this.lzCola = j.cola || [];
@@ -1209,7 +1209,7 @@ var app = function() {
 
         // ─── SMTP ─────────────────────────────────────────────────────────────
         async loadSmtp() {
-            const r = await fetch('api_smtp.php?action=get_accounts');
+            const r = await fetch('api/smtp.php?action=get_accounts');
             const j = await r.json(); if (!j.ok) return;
             let h = '';
             j.accounts.forEach(a => {
@@ -1234,7 +1234,7 @@ var app = function() {
         async openSmtp(id) {
             this.se = id;
             if (id > 0) {
-                const r = await fetch('api_smtp.php?action=get_accounts');
+                const r = await fetch('api/smtp.php?action=get_accounts');
                 const j = await r.json();
                 const a = j.accounts.find(x => x.id == id);
                 if (a) {
