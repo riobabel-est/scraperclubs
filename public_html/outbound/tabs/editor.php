@@ -11,7 +11,7 @@
 </select>
 </div>
 
-<!-- 2. Plataforma (pills toggle) -->
+<!-- 2. Plataforma (pills toggle) + sub-formato -->
 <div class="bg-slate-900 border border-slate-800 rounded-xl p-4" x-show="ec" x-transition>
 <label class="text-xs uppercase tracking-wider text-slate-400 font-semibold">2. Plataforma</label>
 <div class="flex mt-1.5 gap-1 bg-slate-800 rounded-lg p-1">
@@ -24,6 +24,17 @@ class="flex-1 py-2 px-3 rounded-md text-sm font-semibold transition-all flex ite
 class="flex-1 py-2 px-3 rounded-md text-sm font-semibold transition-all flex items-center justify-center gap-1.5"
 :class="edPlataforma === 'whatsapp' ? 'bg-emerald-500/20 text-emerald-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'">
 <i data-lucide="message-circle" class="w-4 h-4"></i> WhatsApp
+</button>
+</div>
+<!-- Sub-formato: solo visible en Email -->
+<div x-show="edPlataforma === 'email'" class="flex mt-2 gap-1 bg-slate-800/50 rounded-lg p-1">
+<button @click="edTipo='html'" class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all"
+:class="edTipo === 'html' ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300'">
+📄 HTML
+</button>
+<button @click="edTipo='texto_plano'" class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all"
+:class="edTipo === 'texto_plano' ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300'">
+📝 Texto Plano
 </button>
 </div>
 </div>
