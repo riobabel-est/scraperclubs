@@ -627,7 +627,24 @@ var app = function() {
             return n.length > 0 ? 'https://wa.me/34' + n[0] : '';
         },
         get templatesFiltradas() {
-            return this.templates.filter(t => t.categoria === this.ec && (this.edPlataforma === 'whatsapp' ? t.tipo === 'whatsapp' : t.tipo !== 'whatsapp'));
+            return this.templates.filter(t =>
+                (!this.ec || t.categoria === this.ec) &&
+                (this.edPlataforma === 'whatsapp' ? t.tipo === 'whatsapp' : t.tipo !== 'whatsapp')
+            );
+        },
+        seleccionarPlantilla(t) {
+            this.et = t.id;
+            this.edNombre = t.nombre;
+            this.edAsunto = t.asunto || '';
+            this.edAsuntoB = t.asunto_b || '';
+            this.edTestAb = parseInt(t.test_ab) || 0;
+            this.edCuerpo = t.cuerpo || '';
+            this.edTipo = t.tipo || 'html';
+            this.edPlataforma = (t.tipo === 'whatsapp') ? 'whatsapp' : 'email';
+            this.ec = t.categoria || this.ec;
+            this.en = false;
+            this.autoPreview();
+            setTimeout(() => lucide.createIcons(), 50);
         },
 
         // ─── Analytics de Sesión (Lanzadera) ────────────────────────────────
