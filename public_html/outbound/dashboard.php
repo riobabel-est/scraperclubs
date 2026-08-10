@@ -566,6 +566,7 @@ var app = function() {
 
         // Editor
          ec: '', et: '', en: false,
+         edPlataforma: 'email',        // 'email' | 'whatsapp' — pills toggle
          estadosLead: [
              '01 Sin Contactar',
              '02 Email/WhatsApp Enviado',
@@ -626,7 +627,7 @@ var app = function() {
             return n.length > 0 ? 'https://wa.me/34' + n[0] : '';
         },
         get templatesFiltradas() {
-            return this.templates.filter(t => t.categoria === this.ec);
+            return this.templates.filter(t => t.categoria === this.ec && (this.edPlataforma === 'whatsapp' ? t.tipo === 'whatsapp' : t.tipo !== 'whatsapp'));
         },
 
         // ─── Analytics de Sesión (Lanzadera) ────────────────────────────────
@@ -941,7 +942,7 @@ var app = function() {
         nuevaPlantilla() {
             this.et = ''; this.en = true;
             this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edAsuntoB = ''; this.edTestAb = 0;
-            this.edCuerpo = ''; this.edTipo = 'html';
+            this.edCuerpo = ''; this.edTipo = this.edPlataforma === 'whatsapp' ? 'whatsapp' : 'html';
             setTimeout(() => lucide.createIcons(), 50);
         },
         async eliminarPlantilla() {
@@ -963,7 +964,7 @@ var app = function() {
             f.append('asunto_b', this.edAsuntoB);
             f.append('test_ab', this.edTestAb);
             f.append('cuerpo', this.edCuerpo);
-            f.append('tipo', this.edTipo);
+            f.append('tipo', this.edPlataforma === 'whatsapp' ? 'whatsapp' : (this.edTipo || 'html'));
             f.append('categoria', this.ec);
             f.append('activo', '1');
             const r = await fetch('', { method: 'POST', body: f });
