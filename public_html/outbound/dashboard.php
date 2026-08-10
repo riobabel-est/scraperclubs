@@ -541,7 +541,9 @@ var app = function() {
         // Modales
         lm: false, mm: false, sm: false, al: false,
         ln: '', mn: true, mk: 0, md: 0,
-        ld: {}, mf: [], mha: '', mhb: '',
+        ld: {}, ldOriginal: {},              // ldOriginal = snapshot al abrir, para detectar cambios
+        ldChanged: false,                     // true si hay cambios sin guardar
+        mf: [], mha: '', mhb: '',
 
         // SMTP
         se: 0,
@@ -684,9 +686,36 @@ var app = function() {
         async openLead(id) {
             const r = await fetch('?action=get_lead&id=' + id);
             this.ld = await r.json();
+            this.ldOriginal = JSON.parse(JSON.stringify(this.ld));
+            this.ldChanged = false;
             this.ln = '';
             this.lm = true;
             setTimeout(() => lucide.createIcons(), 100);
+        },
+        markChanged() {
+            this.ldChanged = JSON.stringify(this.ld) !== JSON.stringify(this.ldOriginal);
+        },
+        async guardarFicha() {
+            if (!this.ld.id || !this.ldChanged) return;
+            const campos = ['federacion','persona_contacto','cargo_contacto','telefono_movil','telefono_fijo','tiene_whatsapp','estado_lead'];
+            const promises = [];
+            for (const campo of campos) {
+                const val = campo === 'tiene_whatsapp' ? (this.ld[campo] ? 1 : 0) : (this.ld[campo] || '');
+                if (String(val) !== String(this.ldOriginal[campo] ?? '')) {
+                    const f = new FormData();
+                    f.append('action', 'update_lead');
+                    f.append('id', this.ld.id);
+                    f.append('field', campo);
+                    f.append('value', val);
+                    promises.push(fetch('', { method: 'POST', body: f }));
+                }
+            }
+            if (promises.length > 0) {
+                await Promise.all(promises);
+                this.ldOriginal = JSON.parse(JSON.stringify(this.ld));
+                this.ldChanged = false;
+                alert('Cambios guardados');
+            }
         },
         async saveF(field, value) {
             if (!this.ld.id) return;
