@@ -27,7 +27,7 @@ $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
 // ─── PARÁMETROS ──────────────────────────────────────────────────────────────
-$categoria    = trim($_GET['categoria'] ?? $_GET['id_categoria'] ?? '');
+$estadoLead   = trim($_GET['estado_lead'] ?? '');
 $federacion   = trim($_GET['federacion'] ?? '');
 $tieneWhatsapp = ($_GET['habilitar_whatsapp'] ?? '0') === '1';
 $idTplEmail    = (int)($_GET['id_plantilla_email'] ?? 0);
@@ -71,10 +71,15 @@ try {
         ", true);
     }
 
-    // ─── 3. Consultar leads pendientes ─────────────────────────────────────────
-    $where = "c.estado_lead = 'Sin Contactar'
-              AND c.email IS NOT NULL AND c.email != ''
+    // ─── 3. Consultar leads según el estado seleccionado ──────────────────────
+    $where = "c.email IS NOT NULL AND c.email != ''
               AND c.es_duplicado = 0";
+
+    if ($estadoLead !== '') {
+        // Mapear el estado del lead codificado (01, 02...) al nombre real en BD
+        $estadoReal = mapearEstadoLead($estadoLead);
+        $where .= " AND c.estado_lead = '" . $db->escapeString($estadoReal) . "'";
+    }
 
     if ($federacion !== '') {
         $where .= " AND c.federacion = '" . $db->escapeString($federacion) . "'";
@@ -251,4 +256,22 @@ function obtenerCategoriasPlantillas(SQLite3 $db): array
         $cats[] = $r[0];
     }
     return $cats;
+}
+
+/**
+ * Mapea el código de estado del lead del frontend (ej: "01 Sin Contactar")
+ * al valor real de estado_lead en la tabla clubes_crm (ej: "Sin Contactar").
+ */
+function mapearEstadoLead(string $codigo): string
+{
+    $mapa = [
+        '01 Sin Contactar'          => 'Sin Contactar',
+        '02 Email/WhatsApp Enviado'  => 'Email Enviado / En Secuencia',
+        '03 Email Enviado'           => 'Impactado / Abrio Email',
+        '04 En Conversacion'         => 'En Conversacion / WhatsApp',
+        '05 Propuesta Enviada'       => 'Muestra / Propuesta Enviada',
+        '06 Cerrado Ganado'          => 'Cerrado Ganado',
+        '07 Cerrado Perdido'         => 'Cerrado Perdido',
+    ];
+    return $mapa[$codigo] ?? $codigo;
 }

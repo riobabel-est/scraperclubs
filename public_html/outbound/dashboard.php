@@ -555,8 +555,17 @@ var app = function() {
         gs: '', ge: '', gf: '', gt: '', gp: 1, gpp: 50, gsc: 'nombre_club', gso: 'ASC',
 
         // Editor
-        ec: '', et: '', en: false,
-        categorias: [], templates: [],
+         ec: '', et: '', en: false,
+         estadosLead: [
+             '01 Sin Contactar',
+             '02 Email/WhatsApp Enviado',
+             '03 Email Enviado',
+             '04 En Conversacion',
+             '05 Propuesta Enviada',
+             '06 Cerrado Ganado',
+             '07 Cerrado Perdido'
+         ],
+         categorias: [], templates: [],
         edNombre: '', edAsunto: '', edAsuntoB: '', edTestAb: 0,
         edCuerpo: '', edTipo: 'html',
         previewClubId: '', debounceTimer: null,
@@ -578,13 +587,21 @@ var app = function() {
         lzLogPageSize: 30,            // cuántos items del log cargar por scroll
         lzLogPageCurrent: 0,          // página actual de scroll del log
         lzCuentasSmtp: [],             // estado de cuentas SMTP
-        lzCategoria: '',               // 1.1 Tipo de Comunicación
-        lzFederacion: '',              // 1.2 Federación Específica
-        lzIdPlantillaEmail: '',        // 1.3 Plantilla de Email
+        lzFederacion: '',              // 1.1 Seleccionar Federacion
+        lzEstadoLead: '',              // 1.2 Seleccionar Estado del Lead
+        lzIdPlantillaEmail: '',        // 1.3 Seleccionar Plantilla
         lzIdPlantillaWa: '',           // 1.4 Plantilla WA
         lzWhatsappOn: false,           // 1.4 Toggle WA
-        lzCategorias: [],              // opciones del dropdown 1.1
-        lzFederaciones: [],            // opciones del dropdown 1.2
+        lzFederaciones: [],            // opciones del dropdown 1.1
+        lzEstadosLead: [               // opciones del dropdown 1.2 (estados fijos)
+            '01 Sin Contactar',
+            '02 Email/WhatsApp Enviado',
+            '03 Email Enviado',
+            '04 En Conversacion',
+            '05 Propuesta Enviada',
+            '06 Cerrado Ganado',
+            '07 Cerrado Perdido'
+        ],
         lzTemplatesEmail: [],          // plantillas email filtradas
         lzTemplatesWa: [],             // plantillas whatsapp filtradas
         lzTabMonitor: 'cola',          // cola | log
@@ -929,13 +946,12 @@ var app = function() {
                 if (j.ok && j.valor) this.lzDelay = parseInt(j.valor) || 5;
             } catch (e) { this.lzDelay = 5; }
 
-            // Cargar datos iniciales (federaciones, categorías)
+            // Cargar datos iniciales (federaciones)
             try {
                 const r = await fetch('get_cola.php');
                 const j = await r.json();
                 if (j.ok) {
                     this.lzFederaciones = j.federaciones || [];
-                    this.lzCategorias = j.categorias || [];
                     this.lzCuentasSmtp = j.cuentas_smtp || [];
                     this.lzKpiClubes = j.kpi_clubes || 0;
                     this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0;
@@ -944,15 +960,13 @@ var app = function() {
             } catch (e) {}
         },
 
-        // ─── 1.1 Cambio de Categoría (Lanzadera) → cargar plantillas ─────────
-        async lzOnCategoriaChange() {
+        // ─── 1.2 Cambio de Estado del Lead → cargar plantillas ─────────
+        async lzOnEstadoChange() {
             this.lzIdPlantillaEmail = '';
-            this.lzIdPlantillaWa = '';
             this.lzTemplatesEmail = [];
-            this.lzTemplatesWa = [];
-            if (!this.lzCategoria) return;
+            if (!this.lzEstadoLead) return;
             try {
-                const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.lzCategoria));
+                const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.lzEstadoLead));
                 const j = await r.json();
                 if (j.ok && j.templates) {
                     this.lzTemplatesEmail = j.templates.filter(t => t.tipo !== 'whatsapp');
@@ -963,13 +977,13 @@ var app = function() {
 
         // ─── Validar si puede cargar cola ──────────────────────────────────────
         puedeCargarCola() {
-            return this.lzCategoria !== '' && this.lzIdPlantillaEmail !== '';
+            return this.lzEstadoLead !== '' && this.lzIdPlantillaEmail !== '';
         },
 
         // ─── 5.1 Cargar Cola de Envíos ────────────────────────────────────────
         async cargarCola() {
             if (!this.puedeCargarCola()) {
-                alert('Selecciona al menos Tipo de Comunicación y Plantilla de Email');
+                alert('Selecciona al menos Estado del Lead y Plantilla de Email');
                 return;
             }
             this.lzCola = [];
@@ -983,7 +997,7 @@ var app = function() {
             this.lzMotorEstado = 'PAUSADO';
 
             const params = new URLSearchParams({
-                categoria: this.lzCategoria,
+                estado_lead: this.lzEstadoLead,
                 federacion: this.lzFederacion,
                 id_plantilla_email: this.lzIdPlantillaEmail,
                 id_plantilla_wa: this.lzIdPlantillaWa,
