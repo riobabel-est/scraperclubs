@@ -23,8 +23,15 @@
 💬 <span x-text="templatesFiltradas.filter(t=>t.tipo==='whatsapp').length" class="text-slate-400"></span>
 </div>
 
+<!-- Buscador -->
+<div class="relative mt-2" x-show="templatesFiltradas.length > 0 || edSearch">
+<input type="text" x-model="edSearch" placeholder="Buscar plantilla..." 
+class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50 pl-8">
+<i data-lucide="search" class="w-4 h-4 text-slate-500 absolute left-2.5 top-2.5"></i>
+</div>
+
 <!-- Lista scrollable -->
-<div class="max-h-[400px] overflow-y-auto space-y-1 -mx-1 px-1" x-show="templatesFiltradas.length > 0">
+<div class="max-h-[360px] overflow-y-auto space-y-1 -mx-1 px-1" x-show="templatesFiltradas.length > 0">
 <template x-for="t in templatesFiltradas" :key="t.id">
 <button @click="seleccionarPlantilla(t)"
 class="w-full text-left px-3 py-2.5 rounded-lg transition-all border flex items-center gap-2 group"
@@ -182,22 +189,53 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
 </div>
 </div>
 
-<!-- ═══ PREVISUALIZACIÓN ═══ -->
-<div class="mt-4 bg-slate-900 border border-slate-800 rounded-xl p-4" x-show="et || en" x-cloak x-transition>
-<div class="flex items-center gap-3 mb-3">
-<span class="text-sm font-bold text-amber-400 uppercase tracking-wider">Previsualizacion</span>
-<span x-show="edPlataforma==='whatsapp'" class="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">WhatsApp</span>
-</div>
-<div class="flex gap-2 mb-3 flex-wrap">
-<select x-model="previewClubId" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 w-64 focus:outline-none focus:border-amber-500/50">
-<option value="">Buscar club...</option>
+<!-- ═══ BARRA PREVISUALIZACIÓN ═══ -->
+<div class="mt-4 bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3" x-show="et || en" x-cloak>
+<span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Previsualizacion</span>
+<select x-model="previewClubId" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 flex-1 focus:outline-none focus:border-amber-500/50">
+<option value="">Seleccionar club para previsualizar...</option>
 <?php foreach($clubesList as $c):?>
 <option value="<?=$c['id']?>"><?=escHtml($c['nombre_club'].($c['persona_contacto']?' ('.$c['persona_contacto'].')':''))?></option>
 <?php endforeach;?>
 </select>
-<button @click="previewTpl()" :disabled="!previewClubId" class="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5">
-<i data-lucide="eye" class="w-4 h-4"></i> Previsualizar
+<button @click="abrirPreview()" :disabled="!previewClubId" class="px-4 py-2 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-sm font-semibold hover:bg-purple-500/30 transition disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap">
+<i data-lucide="eye" class="w-4 h-4"></i> Vista Previa
 </button>
 </div>
-<div id="previewContainer" class="border border-slate-700 rounded-xl p-4 bg-white min-h-[200px] text-slate-900 text-sm overflow-auto max-h-96" style="white-space:pre-wrap;word-break:break-word"></div>
+
+<!-- ═══ MODAL PREVISUALIZACIÓN ═══ -->
+<template x-if="pv">
+<div @click.self="pv=false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" x-transition>
+<div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+<div class="sticky top-0 bg-slate-900 border-b border-slate-800 px-5 py-3 flex items-center justify-between rounded-t-2xl z-10">
+<div class="flex items-center gap-2">
+<i data-lucide="eye" class="w-4 h-4 text-purple-400"></i>
+<h5 class="text-sm font-bold text-slate-200">Previsualizacion</h5>
+<span class="px-2 py-0.5 rounded-full text-xs font-semibold"
+:class="edPlataforma==='whatsapp'?'bg-emerald-500/20 text-emerald-400':'bg-blue-500/20 text-blue-400'"
+x-text="edPlataforma==='whatsapp'?'💬 WhatsApp':'📧 Email'"></span>
 </div>
+<div class="flex items-center gap-2">
+<select x-model="pvClubId" @change="cargarPreview()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500/50 max-w-[200px]">
+<option value="">Cambiar club...</option>
+<?php foreach($clubesList as $c):?>
+<option value="<?=$c['id']?>"><?=escHtml($c['nombre_club'])?></option>
+<?php endforeach;?>
+</select>
+<button @click="cargarPreview()" class="px-2 py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded text-xs font-semibold hover:bg-purple-500/30 transition flex items-center gap-1">
+<i data-lucide="refresh-cw" class="w-3 h-3"></i> Actualizar
+</button>
+<button @click="pv=false" class="text-slate-500 hover:text-slate-300"><i data-lucide="x" class="w-5 h-5"></i></button>
+</div>
+</div>
+<div class="p-5">
+<!-- Spinner -->
+<div x-show="pvLoading" class="flex items-center justify-center py-20">
+<span class="w-8 h-8 border-2 border-purple-400 border-t-transparent rounded-full animate-spin"></span>
+</div>
+<!-- Contenido -->
+<div x-show="!pvLoading" id="pvContainer" class="border border-slate-700 rounded-xl p-4 bg-white min-h-[300px] text-slate-900 text-sm overflow-auto max-h-[60vh]" style="white-space:pre-wrap;word-break:break-word" x-html="pvContent"></div>
+</div>
+</div>
+</div>
+</template>

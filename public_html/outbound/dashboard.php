@@ -558,6 +558,15 @@ var app = function() {
         ldPlantillaWaId: '',         // plantilla seleccionada en la ficha
         ldWaUrl: '',                 // URL generada con texto
 
+        // Previsualizacion modal
+        pv: false,                    // modal abierto
+        pvClubId: '',                // club seleccionado en el modal
+        pvContent: '',               // HTML renderizado
+        pvLoading: false,            // spinner mientras carga
+
+        // Buscador en listado
+        edSearch: '',                // texto de busqueda en el listado
+
         // Lanzadera v2 — variables originales continúan...
         lzMotorEstado: 'PAUSADO',
 
@@ -627,9 +636,11 @@ var app = function() {
             return n.length > 0 ? 'https://wa.me/34' + n[0] : '';
         },
         get templatesFiltradas() {
+            const q = (this.edSearch || '').toLowerCase();
             return this.templates.filter(t =>
                 (!this.ec || t.categoria === this.ec) &&
-                (this.edPlataforma === 'whatsapp' ? t.tipo === 'whatsapp' : t.tipo !== 'whatsapp')
+                (this.edPlataforma === 'whatsapp' ? t.tipo === 'whatsapp' : t.tipo !== 'whatsapp') &&
+                (!q || (t.nombre || '').toLowerCase().includes(q) || (t.categoria || '').toLowerCase().includes(q))
             );
         },
         seleccionarPlantilla(t) {
@@ -993,6 +1004,46 @@ var app = function() {
         onCuerpoInput() { clearTimeout(this.debounceTimer); this.debounceTimer = setTimeout(() => this.autoPreview(), 500); },
         onTipoChange() { this.autoPreview(); },
         async autoPreview() { if (!this.previewClubId || (!this.et && !this.en)) return; this.previewTpl(); },
+        // Previsualizacion en modal
+        async abrirPreview() {
+            if (!this.previewClubId) return;
+            this.pvClubId = this.previewClubId;
+            this.pv = true;
+            this.cargarPreview();
+            setTimeout(() => lucide.createIcons(), 100);
+        },
+        async cargarPreview() {
+            if (!this.pvClubId) return;
+            this.pvLoading = true;
+            const body = this.edCuerpo || (this.et ? await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec)).then(r => r.json()).then(j => {
+                const t = j.templates.find(x => x.id == this.et); return t ? t.cuerpo : '';
+            }) : '');
+            if (!body) { this.pvContent = '<p class="text-slate-400 text-center py-8">Sin contenido</p>'; this.pvLoading = false; return; }
+            const [r, rs] = await Promise.all([
+                fetch('?action=get_lead&id=' + this.pvClubId),
+                fetch('api/smtp.php?action=get_accounts')
+            ]);
+            const club = await r.json();
+            const jss = await rs.json();
+            const cuenta = (jss.ok && jss.accounts && jss.accounts.length > 0)
+                ? jss.accounts.find(a => a.activa == 1 || a.activa == '1') || jss.accounts[0] : {};
+            const sName = cuenta.nombre_emisor || (cuenta.email ? cuenta.email.split('@')[0] : 'Nombre');
+            const sTitle = cuenta.cargo_emisor || 'Equipo Comercial';
+            const sEmail = cuenta.email || 'email@ejemplo.com';
+            const html = body.replace(/{{CLUB}}/g, club.nombre_club || '')
+                             .replace(/{{CONTACTO}}/g, club.persona_contacto || 'responsable')
+                             .replace(/{{FEDERACION}}/g, club.federacion || '')
+                             .replace(/{{ANIO}}/g, new Date().getFullYear())
+                             .replace(/{{SENDER_NAME}}/g, sName)
+                             .replace(/{{SENDER_TITLE}}/g, sTitle)
+                             .replace(/{{SENDER_EMAIL}}/g, sEmail);
+            if (this.edPlataforma === 'whatsapp') {
+                this.pvContent = '<div style="background:#e5ddd5;padding:16px;border-radius:8px;max-width:400px;font-family:sans-serif;font-size:14px;white-space:pre-wrap">' + this.esc(html) + '</div>';
+            } else {
+                this.pvContent = html;
+            }
+            this.pvLoading = false;
+        },
         async previewTpl() {
             const ci = this.previewClubId; if (!ci) return;
             const body = this.edCuerpo || (this.et ? await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec)).then(r => r.json()).then(j => {
