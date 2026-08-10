@@ -296,7 +296,7 @@ if ($action === 'get_analytics') {
         $data['total'] = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE estado='enviado'");
         $data['hoy']   = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE DATE(fecha_envio)=DATE('now')");
         $data['ultimos'] = [];
-        $r2 = $db->query("SELECT id, club, email, cuenta_emision, fecha_envio, estado, asunto FROM envios ORDER BY id DESC LIMIT 50");
+        $r2 = $db->query("SELECT id, club, email, cuenta_emision, fecha_envio, estado, asunto, cuerpo_mensaje FROM envios ORDER BY id DESC LIMIT 50");
         while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
     } elseif ($tab === 'aperturas') {
         $data['total']    = (int)$db->querySingle("SELECT COUNT(DISTINCT tracking_id) FROM aperturas");

@@ -206,7 +206,24 @@ class="px-5 py-2.5 rounded-lg text-sm font-bold transition flex items-center gap
 </thead>
 <tbody>
 <template x-for="(row, idx) in aqData.ultimos" :key="row.id||idx">
-<tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition text-xs">
+<template x-if="aqTab==='envios' && row.cuerpo_mensaje">
+<tr @click="row._open = !row._open" class="border-b border-slate-800/50 hover:bg-slate-800/30 transition text-xs cursor-pointer">
+<td class="px-2 py-1 text-slate-500" x-text="idx+1"></td>
+<td class="px-2 py-1 text-slate-400" x-text="(row.fecha_envio||'').substring(0,16)"></td>
+<td class="px-2 py-1">
+<span class="text-slate-300" x-text="row.club"></span>
+<div class="text-slate-500" x-text="row.email"></div>
+</td>
+<td class="px-2 py-1 text-slate-400 hidden sm:table-cell truncate max-w-[200px]" x-text="row.asunto?.substring(0,50)"></td>
+</tr>
+<tr x-show="row._open" class="border-b border-slate-800/50 bg-slate-800/30">
+<td colspan="4" class="px-3 py-3">
+<div class="bg-white rounded-lg p-3 text-slate-900 text-xs max-h-64 overflow-auto" style="white-space:pre-wrap;word-break:break-word" x-html="row.cuerpo_mensaje"></div>
+</td>
+</tr>
+</template>
+<template x-if="!(aqTab==='envios' && row.cuerpo_mensaje)">
+<tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition text-xs" :class="aqTab==='envios'?'cursor-pointer':''" @click="aqTab==='envios' ? row._open = !row._open : null">
 <td class="px-2 py-1 text-slate-500" x-text="idx+1"></td>
 <td class="px-2 py-1 text-slate-400" x-show="aqTab!=='bajas'" x-text="(row.fecha_envio||row.fecha_apertura||row.fecha_rebote||'').substring(0,16)"></td>
 <td class="px-2 py-1">
@@ -220,6 +237,7 @@ class="px-5 py-2.5 rounded-lg text-sm font-bold transition flex items-center gap
 :class="row.estado_lead==='Opt-Out'?'bg-rose-500/20 text-rose-400':row.estado_lead==='Unsubscribed'?'bg-amber-500/20 text-amber-400':'bg-slate-700 text-slate-400'" x-text="row.estado_lead"></span>
 </td>
 </tr>
+</template>
 </template>
 </tbody>
 </table>
