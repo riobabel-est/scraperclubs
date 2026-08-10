@@ -314,6 +314,67 @@ if ($action === 'get_analytics') {
         $data['ultimos'] = [];
         $r2 = $db->query("SELECT id, nombre_club, email, estado_lead, observaciones FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra') ORDER BY id DESC LIMIT 50");
         while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
+    } elseif ($tab === 'dashboard') {
+        // Pipeline funnel
+        $data['pipeline'] = [];
+        $rs = $db->query("SELECT estado_lead, COUNT(*) as cnt FROM clubes_crm GROUP BY estado_lead ORDER BY cnt DESC");
+        while ($r = $rs->fetchArray(SQLITE3_ASSOC)) { $data['pipeline'][] = $r; }
+        // A/B test
+        $data['ab'] = [];
+        $rs2 = $db->query("SELECT e.asunto, COUNT(*) as envios, COUNT(a.tracking_id) as aperturas, ROUND(CAST(COUNT(a.tracking_id) AS FLOAT)/MAX(COUNT(*),1)*100,1) as tasa FROM envios e LEFT JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE e.estado='enviado' AND e.asunto!='' GROUP BY SUBSTR(e.asunto,1,30) ORDER BY envios DESC LIMIT 15");
+        while ($r = $rs2->fetchArray(SQLITE3_ASSOC)) { $data['ab'][] = $r; }
+        // Timeline 30 días
+        $data['timeline'] = [];
+        $rs3 = $db->query("SELECT DATE(fecha_envio) as dia, COUNT(*) as envios, SUM(CASE WHEN a.id IS NOT NULL THEN 1 ELSE 0 END) as aperturas FROM envios e LEFT JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE e.fecha_envio >= DATE('now','-30 days') AND e.estado='enviado' GROUP BY dia ORDER BY dia ASC");
+        while ($r = $rs3->fetchArray(SQLITE3_ASSOC)) { $data['timeline'][] = $r; }
+        // Aperturas por federación (19 canónicas con 0s si no hay datos)
+        $fedCanonicas = [
+            'Real Federación Andaluza de Fútbol',
+            'Federación Aragonesa de Fútbol',
+            'Real Federación de Fútbol del Principado de Asturias',
+            'Federació de Futbol de les Illes Balears',
+            'Federación Canaria de Fútbol',
+            'Federación Cántabra de Fútbol',
+            'Federación de Fútbol de Castilla-La Mancha',
+            'Real Federación de Castilla y León de Fútbol',
+            'Federació Catalana de Futbol',
+            'Federación de Fútbol de Ceuta',
+            'Federación Extremeña de Fútbol',
+            'Real Federación Galega de Fútbol',
+            'Real Federación de Fútbol de Madrid',
+            'Federación Melillense de Fútbol',
+            'Federación de Fútbol de la Región de Murcia',
+            'Federación Navarra de Fútbol',
+            'Federación Vasca de Fútbol',
+            'Federació de Futbol de la Comunitat Valenciana',
+            'Federación Riojana de Fútbol',
+        ];
+        $data['fedAperturas'] = [];
+        $stmtFed = $db->prepare("SELECT COUNT(DISTINCT e.id) as envios, COUNT(DISTINCT a.tracking_id) as aperturas, ROUND(CAST(COUNT(DISTINCT a.tracking_id) AS FLOAT)/MAX(COUNT(DISTINCT e.id),1)*100,1) as tasa FROM clubes_crm c JOIN envios e ON LOWER(e.email)=LOWER(c.email) AND e.estado='enviado' LEFT JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE c.federacion = :fed");
+        foreach ($fedCanonicas as $fed) {
+            $stmtFed->bindValue(':fed', $fed, SQLITE3_TEXT);
+            $resFed = $stmtFed->execute();
+            $row = $resFed->fetchArray(SQLITE3_ASSOC);
+            $data['fedAperturas'][] = [
+                'federacion' => $fed,
+                'envios' => (int)($row['envios'] ?? 0),
+                'aperturas' => (int)($row['aperturas'] ?? 0),
+                'tasa' => (float)($row['tasa'] ?? 0),
+            ];
+            $stmtFed->reset();
+        }
+        // Interacciones antes del cierre (histograma)
+        $data['interaccionesCierre'] = [];
+        $rs5 = $db->query("SELECT c.estado_lead, COUNT(cl.id) as total_interacciones, COUNT(DISTINCT c.id) as total_leads, ROUND(CAST(COUNT(cl.id) AS FLOAT)/MAX(COUNT(DISTINCT c.id),1),1) as media_interacciones FROM clubes_crm c LEFT JOIN comunicaciones_log cl ON (cl.lead_id=c.id OR cl.club_id=c.id) AND cl.tipo_evento='envio_email' WHERE c.estado_lead IN ('Cerrado Ganado','Cerrado Perdido') GROUP BY c.estado_lead");
+        while ($r = $rs5->fetchArray(SQLITE3_ASSOC)) { $data['interaccionesCierre'][] = $r; }
+        // Distribución de interacciones por lead (histograma detallado)
+        $data['histogramaInteracciones'] = [];
+        $rs6 = $db->query("SELECT interacciones, COUNT(*) as cantidad_leads FROM (SELECT c.id, COUNT(cl.id) as interacciones FROM clubes_crm c LEFT JOIN comunicaciones_log cl ON (cl.lead_id=c.id OR cl.club_id=c.id) AND cl.tipo_evento='envio_email' WHERE c.estado_lead IN ('Cerrado Ganado','Cerrado Perdido') GROUP BY c.id) GROUP BY interacciones ORDER BY interacciones ASC");
+        while ($r = $rs6->fetchArray(SQLITE3_ASSOC)) { $data['histogramaInteracciones'][] = $r; }
+        // Timeline de interacciones por día
+        $data['timelineInteracciones'] = [];
+        $rs7 = $db->query("SELECT DATE(fecha) as dia, COUNT(*) as total_comunicaciones FROM comunicaciones_log WHERE fecha >= DATE('now','-30 days') GROUP BY dia ORDER BY dia ASC");
+        while ($r = $rs7->fetchArray(SQLITE3_ASSOC)) { $data['timelineInteracciones'][] = $r; }
     }
     echo json_encode($data);
     exit;
@@ -385,11 +446,29 @@ while ($r = $resClubes->fetchArray(SQLITE3_ASSOC)) {
     $clubesList[] = $r;
 }
 
-$federaciones = [];
-$resFed = $db->query("SELECT DISTINCT federacion FROM clubes_crm WHERE federacion != '' ORDER BY federacion ASC");
-while ($r = $resFed->fetchArray(SQLITE3_ASSOC)) {
-    $federaciones[] = $r['federacion'];
-}
+$federaciones = [
+    'Real Federación Andaluza de Fútbol',
+    'Federación Aragonesa de Fútbol',
+    'Real Federación de Fútbol del Principado de Asturias',
+    'Federació de Futbol de les Illes Balears',
+    'Federación Canaria de Fútbol',
+    'Federación Cántabra de Fútbol',
+    'Federación de Fútbol de Castilla-La Mancha',
+    'Real Federación de Castilla y León de Fútbol',
+    'Federació Catalana de Futbol',
+    'Federación de Fútbol de Ceuta',
+    'Federación Extremeña de Fútbol',
+    'Real Federación Galega de Fútbol',
+    'Real Federación de Fútbol de Madrid',
+    'Federación Melillense de Fútbol',
+    'Federación de Fútbol de la Región de Murcia',
+    'Federación Navarra de Fútbol',
+    'Federación Vasca de Fútbol',
+    'Federació de Futbol de la Comunitat Valenciana',
+    'Federación Riojana de Fútbol',
+];
+
+$federacionesSelect = $federaciones;
 
 $db->close();
 
@@ -516,6 +595,9 @@ function escHtml(string $s): string {
         <button @click="tab='lanza'"
             class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'lanza' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Lanzadera</button>
+        <button @click="tab='analytics'"
+            class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'analytics' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Analytics</button>
     </nav>
 </div>
 
@@ -535,29 +617,32 @@ function escHtml(string $s): string {
 <div x-show="tab === 'lanza'" x-cloak class="max-w-full mx-auto px-4 py-4">
     <?php include __DIR__ . '/tabs/lanzadera.php'; ?>
 </div>
+<div x-show="tab === 'analytics'" x-cloak class="max-w-full mx-auto px-4 py-4">
+    <?php include __DIR__ . '/tabs/analytics.php'; ?>
+</div>
 
 <!-- ═══════════ MODALS ═══════════ -->
 <?php
 $federacionesSelect = [
-    'Real Federacion Andaluza de Futbol',
-    'Real Federacion Aragonesa de Futbol',
-    'Real Federacion de Futbol del Principado de Asturias',
-    'Federacio Balear de Futbol (Islas Baleares)',
-    'Federacion Canaria de Futbol',
-    'Real Federacion Cantabra de Futbol',
-    'Federacion de Futbol de Castilla-La Mancha',
-    'Real Federacion de Castilla y Leon de Futbol',
-    'Federacio Catalana de Futbol',
-    'Real Federacion de Futbol de Ceuta',
-    'Federacion Extremena de Futbol',
-    'Real Federacion Gallega de Futbol',
-    'Real Federacion de Futbol de Madrid',
-    'Federacion Melillense de Futbol',
-    'Federacion de Futbol de la Region de Murcia',
-    'Federacion Navarra de Futbol',
-    'Federazioa / Federacion Vasca de Futbol',
-    'Federacio de Futbol de la Comunitat Valenciana',
-    'Federacion Riojana de Futbol',
+    'Real Federación Andaluza de Fútbol',
+    'Federación Aragonesa de Fútbol',
+    'Real Federación de Fútbol del Principado de Asturias',
+    'Federació de Futbol de les Illes Balears',
+    'Federación Canaria de Fútbol',
+    'Federación Cántabra de Fútbol',
+    'Federación de Fútbol de Castilla-La Mancha',
+    'Real Federación de Castilla y León de Fútbol',
+    'Federació Catalana de Futbol',
+    'Federación de Fútbol de Ceuta',
+    'Federación Extremeña de Fútbol',
+    'Real Federación Galega de Fútbol',
+    'Real Federación de Fútbol de Madrid',
+    'Federación Melillense de Fútbol',
+    'Federación de Fútbol de la Región de Murcia',
+    'Federación Navarra de Fútbol',
+    'Federación Vasca de Fútbol',
+    'Federació de Futbol de la Comunitat Valenciana',
+    'Federación Riojana de Fútbol',
 ];
 include __DIR__ . '/tabs/modals.php';
 ?>

@@ -54,6 +54,23 @@ No desviarse a features no relacionadas.
 
 ---
 
+## Módulo Outbound CRM (`public_html/outbound/`)
+
+## Regla obligatoria de deploy
+- **PROHIBIDO hacer `git push` sin permiso EXPLÍCITO del usuario.** Todos los cambios se trabajan en local. Solo se suben a GitHub cuando el usuario lo solicite expresamente.
+- **Archivos bajo control activo**: `dashboard.php`, `api_leads.php`, `api_smtp.php`, `init_db.php`, `enviar_smtp_random.php`, `track.php`, `baja.php`, `.htaccess`
+- **Regla de oro**: Centrarse EXCLUSIVAMENTE en el archivo que se está modificando. NO tocar otros archivos del módulo outbound a menos que sea estrictamente necesario para la feature solicitada.
+- **No deshacer features ya terminadas**: Si una funcionalidad ya estaba operativa (validación MX, validación WhatsApp, modales, etc.), NO eliminarla ni regresionarla durante refactors.
+- **Validación de emails**: Usar `filter_var()` + `checkdnsrr()` para validación MX (PHP nativo, SiteGround compatible). Ver `scripts/validate_emails.py` como referencia del algoritmo.
+- **Validación WhatsApp**: Si `telefono_movil` empieza por 6 o 7 (9 dígitos), marcar `tiene_whatsapp = 1` automáticamente.
+
+## Reglas de legibilidad UI (obligatorio para paneles /public_html/*)
+- **Tamaño de fuente mínimo**: 12px para labels, 13-14px para texto de contenido, 15-16px para titulares.
+- **Peso de fuente**: Usar `font-normal` (400) como default. `font-semibold` (600) solo para encabezados de sección. Evitar `font-bold` (700).
+- **Contraste texto/fondo**: Los textos grises sobre fondo oscuro (`bg-slate-900`/`bg-slate-950`) deben usar `text-slate-300` o `text-slate-400` como mínimo de luminosidad. `text-slate-500`/`text-slate-600` solo para metadatos muy secundarios.
+- **Escala proporcional**: si un bloque usa `text-[10px]`, escalarlo a `text-xs` (12px) o `text-sm` (14px). Si usa `text-xs`, escalar a `text-sm`. Si usa `text-sm`, escalar a `text-base`. Todo al menos un escalón por encima.
+- **Botones**: Texto mínimo `text-sm` (14px), icono + label visibles, padding mínimo `py-2 px-4`.
+
 ## Compatibilidad SiteGround (obligatorio para /public_html/*)
 - Todo el código en `public_html/` debe ser compatible con SiteGround:
   - **PHP 8.x nativo** — sin extensiones PECL externas
