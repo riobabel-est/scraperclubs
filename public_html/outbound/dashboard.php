@@ -1456,11 +1456,12 @@ var app = function() {
             this.aqTab = tab;
             this.aq = true;
             this.aqLoading = true;
-            this.aqData = null;
+            this.aqData = { total: 0, ultimos: [] };  // evitar null
             try {
                 const r = await fetch('?action=get_analytics&tab=' + tab);
-                this.aqData = await r.json();
-            } catch(e) { this.aqData = { ok: false }; }
+                const j = await r.json();
+                if (j && j.ok) this.aqData = j;
+            } catch(e) { this.aqData = { total: 0, ultimos: [] }; }
             this.aqLoading = false;
             setTimeout(() => lucide.createIcons(), 100);
         },
