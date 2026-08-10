@@ -1,7 +1,7 @@
 # FutProtec Outbound CRM — Documentación Técnica y Operativa
 
-> **Versión:** 2.1  
-> **Última actualización:** Octubre 2026  
+> **Versión:** 2.2  
+> **Última actualización:** 10 Octubre 2026  
 > **Stack:** PHP 8.x nativo + SQLite3 + Alpine.js 3.14 + Tailwind CSS + Lucide Icons  
 > **Compatibilidad:** SiteGround (StartUp / GrowBig / GoGeek / Cloud)  
 
@@ -44,6 +44,7 @@ FutProtec Outbound CRM es un panel de control completo para **gestión de leads,
 - 🧪 **Test A/B de asuntos** (50/50) con registro de variante enviada
 - 🎲 **Modo aleatorio anti-detección** para evadir filtros anti-spam
 - 📝 **Editor de plantillas** HTML / Texto Plano / WhatsApp con placeholders dinámicos
+- 💬 **WhatsApp integrado** con selector de plantilla y envío con texto precargado
 - 🔍 **Scanner y merge de duplicados** con normalización de nombres de clubes
 - 📊 **Analytics en tiempo real** de tasa de éxito, rebotes y envíos por cuenta
 - 🔐 **Autenticación por contraseña** y protección de credenciales SMTP
@@ -62,36 +63,38 @@ FutProtec Outbound CRM es un panel de control completo para **gestión de leads,
 | **Email** | SMTP nativo con `stream_socket_client()` + TLS/SSL | Sin dependencias de terceros (PHPMailer, Swiftmailer). Compatible con `mail.getfutprotec.com` y cualquier servidor SMTP. |
 | **Tracking** | Píxel PNG 1x1 transparente servido por PHP | Sin JavaScript. Funciona en todos los clientes de email. |
 
-### ¿Por qué no se usa Python/Node.js/React?
-
-SiteGround en planes compartidos (StartUp/GrowBig) **no permite procesos en segundo plano, Node.js, ni Python**. Todo debe ejecutarse dentro de Apache + PHP. Esta arquitectura es 100% compatible con SiteGround.
-
-### Estructura de archivos
+### Estructura de archivos (v2.2 reorganizada)
 
 ```
 public_html/outbound/
 ├── dashboard.php          ← Panel principal (login + tabs)
-├── init_db.php            ← Inicializa y migra la BD
-├── stats.db               ← SQLite3 (único archivo de datos)
-├── README.md              ← Esta documentación
+├── .htaccess              ← Bloquea acceso a data/, cli/, archivos .db
+├── .gitignore             ← Excluye stats.db del repo
+├── README.md              ← Documentación
 │
-├── tabs/
-│   ├── kanban.php         ← Tab: Pipeline Kanban
-│   ├── gestor.php         ← Tab: Gestor de datos (CRUD, filtros, paginado)
-│   ├── editor.php         ← Tab: Editor de plantillas con A/B testing
-│   ├── smtp.php           ← Tab: Configuración de cuentas SMTP
-│   ├── lanzadera.php      ← Tab: Lanzadera de envíos masivos
-│   └── modals.php         ← Modales compartidos (lead, merge, SMTP)
+├── api/                   ← 7 endpoints backend
+│   ├── enviar_lote.php       → SMTP individual (envío unitario)
+│   ├── enviar_smtp_random.php→ SMTP con rotación aleatoria
+│   ├── get_cola.php          → Generador de cola con filtros
+│   ├── leads.php             → CRUD de leads, scanner dups, merge
+│   ├── smtp.php              → CRUD cuentas SMTP + test conexión
+│   ├── track.php             → Píxel tracking (1x1 PNG)
+│   └── baja.php              → Página de baja/opt-out
 │
-├── enviar_lote.php        ← API: Envío individual de email vía SMTP
-├── enviar_smtp_random.php ← API: Envío con rotación SMTP + random
-├── get_cola.php           ← API: Genera la cola de envíos con filtros
-├── api_leads.php          ← API: CRUD de leads, scanner dups, merge
-├── api_smtp.php           ← API: CRUD de cuentas SMTP + test conexión
-├── track.php              ← Píxel de tracking (1x1 PNG)
-├── baja.php               ← Página de baja/opt-out
-├── cron.php               ← Tareas programadas (opcional)
-└── .htaccess              ← Reglas de seguridad y reescritura
+├── cli/                   ← 2 scripts (no accesibles vía web)
+│   ├── init_db.php           → Inicializa/migra BD
+│   └── cron.php              → Tareas programadas
+│
+├── data/                  ← Datos protegidos
+│   └── stats.db              → Base de datos SQLite3
+│
+└── tabs/                  ← 6 fragments UI
+    ├── kanban.php            → Pipeline Kanban 7 columnas
+    ├── gestor.php            → Tabla paginada con filtros
+    ├── editor.php            → Editor de plantillas (pipeline + plataforma)
+    ├── smtp.php              → Configuración cuentas SMTP
+    ├── lanzadera.php         → Lanzadera envíos masivos
+    └── modals.php            → Modales (ficha lead, add, merge, SMTP)
 ```
 
 ---
@@ -112,22 +115,13 @@ Sube la carpeta `public_html/outbound/` al servidor (SiteGround, Laragon, XAMPP,
 ### Paso 2: Inicializar la base de datos
 
 ```bash
-php init_db.php
+php cli/init_db.php
 ```
 
-Esto crea `stats.db` con todas las tablas:
-- `clubes_crm` — Leads con pipeline Kanban
-- `cuentas_smtp` — Cuentas de envío rotativas
-- `plantillas` — Plantillas de email/WhatsApp
-- `envios`, `aperturas`, `rebotes` — Tracking histórico
-- `comunicaciones_log` — Timeline de comunicaciones
-- `config` — Configuración global (modo test/prod, delay)
-
-También **migra automáticamente** 10 cuentas SMTP preconfiguradas y 4 plantillas preseed.
+Esto crea `data/stats.db` con todas las tablas y migra automáticamente 10 cuentas SMTP + 4 plantillas preseed.
 
 ### Paso 3: Acceder al panel
 
-Abre en el navegador:
 ```
 https://getfutprotec.com/outbound/dashboard.php
 ```
@@ -136,18 +130,6 @@ https://getfutprotec.com/outbound/dashboard.php
 
 > ⚠️ Cambia la contraseña en `dashboard.php` (línea 9, constante `AUTH_KEY`).
 
-### Paso 4: Configurar cuentas SMTP
-
-Ve a la pestaña **Config SMTP** y verifica que las 10 cuentas están activas (deberían aparecer en verde). Si alguna falla, usa el botón ⚡ para testear la conexión.
-
-### Paso 5 (opcional): Migrar datos de scraping
-
-```bash
-php init_db.php --migrate-contacts
-```
-
-Esto importa leads desde `../../output/clean/contactos_sintaxis_ok.csv` y `../../clubes.json`.
-
 ---
 
 ## 4. Guía de Uso Paso a Paso
@@ -155,547 +137,205 @@ Esto importa leads desde `../../output/clean/contactos_sintaxis_ok.csv` y `../..
 ### 4.1 Login y Seguridad
 
 1. Accede a `dashboard.php`
-2. Introduce la contraseña `FutProtec2026!`
-3. La sesión PHP mantiene la autenticación hasta que cierres el navegador o hagas clic en **Logout**
-
-**El archivo `.htaccess`** bloquea acceso directo a `stats.db` y archivos sensibles.
+2. Introduce la contraseña
+3. La sesión PHP mantiene la autenticación hasta que cierres el navegador
 
 ### 4.2 Kanban CRM — Pipeline de Leads
 
-El Kanban muestra **7 columnas** que representan el pipeline de ventas:
-
-| Columna | Significado |
-|---|---|
-| Sin Contactar | Lead nuevo, sin acción |
-| Email Enviado / En Secuencia | Se envió email, esperando apertura/respuesta |
-| Impactado / Abrio Email | Abrió el email (detectado por píxel) |
-| En Conversacion / WhatsApp | Respondió o hay diálogo abierto |
-| Muestra / Propuesta Enviada | Se envió propuesta comercial |
-| Cerrado Ganado | Cliente convertido |
-| Cerrado Perdido | Oportunidad perdida |
-
-**Operaciones en cada tarjeta:**
-- Haz clic en una tarjeta para abrir la **ficha del lead**
-- Cambia el estado con el dropdown en la ficha
-- Añade notas con timestamp automático
-- Mueve el lead entre columnas arrastrando (cambio de estado automático)
-- Enlace directo a WhatsApp (si tiene móvil válido)
+7 columnas que representan el pipeline de ventas. Haz clic en una tarjeta para abrir la ficha del lead.
 
 ### 4.3 Gestor de Datos
 
-Tabla paginada con todos los leads. Permite:
-
-- **Buscar** por nombre de club
-- **Filtrar** por estado del lead y federación
-- **Ordenar** por cualquier columna (clic en cabecera)
-- **Escanear duplicados** — botón naranja que detecta emails repetidos
-- **Merge de duplicados** — unifica dos registros conservando datos del mejor
+Tabla paginada con búsqueda, filtros por estado/federación, ordenación, escaneo de duplicados y merge.
 
 ### 4.4 Editor de Plantillas
 
-Permite crear, editar y eliminar plantillas categorizadas **por estado del lead**.
+**Nuevo diseño v2.2** — El listado de plantillas **es** el selector principal.
 
-**Flujo de uso:**
+1. **Estado del Lead** (filtro opcional) — filtrar por etapa del pipeline. "Todas" = sin filtro.
+2. **Lista de plantillas** — Cada fila muestra:
+   - Icono de plataforma (📧 email / 💬 WhatsApp)
+   - Nombre de la plantilla
+   - Pipeline al que pertenece (en texto pequeño debajo)
+   - Check ✓ si está seleccionada
+3. **+ Nueva Plantilla** — Botón al pie del listado
+4. **Eliminar Plantilla** — Visible solo cuando hay una seleccionada
 
-1. Selecciona un **Estado del Lead** (01-07) en el primer dropdown
-2. El segundo dropdown muestra solo plantillas asociadas a ese estado
-3. Selecciona una existente o pulsa **Nueva**
-4. Configura:
-   - **Nombre** descriptivo
-   - **Formato:** HTML / Texto Plano / WhatsApp
-   - **Asunto** (con placeholders como `{{CLUB}}`)
-   - **Cuerpo** del mensaje
-   - **Test A/B** (opcional) — dos variantes de asunto
-5. Pulsa **Guardar**
-6. Usa el selector de **Previsualización** para ver cómo queda con datos reales de un club
+**En el editor (columna derecha):**
+- **Nombre** + **Pipeline** (campo deshabilitado, informativo)
+- **Plataforma** — Pills toggle 📧 Email / 💬 WA (¡cada plantilla define su plataforma!)
+- **Sub-formato** (solo Email) — 📄 HTML / 📝 Texto Plano
+- **Test A/B** (solo Email) — Asunto A y B al 50%
+- **Mensaje** — Textarea con placeholders y contador 4096 para WhatsApp
+- **Previsualización** — Con datos reales de un club + remitente SMTP
 
-**Los placeholders se reemplazan automáticamente al enviar:**
-- `{{CLUB}}` → Nombre del club
-- `{{CONTACTO}}` → Persona de contacto
-- `{{FEDERACION}}` → Nombre de la federación
-- `{{ANIO}}` → Año actual
-- `{{EMAIL}}` → Email del destinatario
-- `{{SENDER_NAME}}` → Nombre del remitente
-- `{{SENDER_TITLE}}` → Cargo del remitente
-- `{{SENDER_EMAIL}}` → Email del remitente
+**Flujo típico para crear una plantilla de WhatsApp:**
+1. Selecciona "01 Sin Contactar" en el filtro (o cualquier estado)
+2. Pulsa **+ Nueva Plantilla**
+3. En el editor, cambia Plataforma a **💬 WA**
+4. Escribe el mensaje usando placeholders ({{CLUB}}, {{CONTACTO}}, etc.)
+5. **Guardar**
+
+Ahora esa plantilla aparecerá en el selector de WhatsApp de la ficha del lead y en la lanzadera.
 
 ### 4.5 Configuración de Cuentas SMTP
 
-Gestiona las cuentas de envío. Cada cuenta tiene:
-
-| Campo | Descripción |
-|---|---|
-| Email | Dirección del remitente |
-| Host | Servidor SMTP (ej: `mail.getfutprotec.com`) |
-| Puerto | 465 (SSL) o 587 (TLS) |
-| Usuario | Normalmente = email |
-| Password | Contraseña de la cuenta |
-| Límite diario | Máx. envíos/día (default: 50) |
-| Nombre emisor | Nombre visible en el "From" |
-| Cargo emisor | Cargo visible con placeholder `{{SENDER_TITLE}}` |
-
-**Operaciones:**
-- ⚡ **Test** — Verifica conexión y autenticación SMTP
-- ⏻ **Toggle ON/OFF** — Activa/desactiva la cuenta sin borrarla
-- ✏️ **Editar** — Modifica cualquier campo
-- 🗑️ **Eliminar** — Solo si hay más de 1 cuenta
-
-> 🔒 Las contraseñas se muestran parcialmente ocultas (`rod***`) en la UI.
+Gestiona las cuentas de envío. Cada cuenta tiene email, host, puerto, seguridad, límite diario, nombre emisor y cargo emisor. Botones: test, toggle ON/OFF, editar, eliminar.
 
 ### 4.6 Lanzadera — Envíos Masivos
 
-Es el módulo principal para campañas de email. Funciona así:
+**Configuración del lote:**
+1. **Seleccionar Federación** — Filtra por federación (opcional)
+2. **Seleccionar Estado del Lead** — Elige etapa del pipeline
+3. **Seleccionar Plantilla** — Solo muestra las del estado elegido
 
-#### Configuración del lote
-
-1. **Seleccionar Federación** — Filtra leads por federación (opcional, "Todas" = sin filtro)
-2. **Seleccionar Estado del Lead** — Elige a qué leads enviar (ej: `01 Sin Contactar` para primer contacto, `02 Email/WhatsApp Enviado` para seguimiento)
-3. **Seleccionar Plantilla** — Solo muestra plantillas asociadas al estado elegido
-
-#### Cargar cola
-
-Pulsa **🔵 Cargar Cola**. El sistema:
-- Consulta los leads que coinciden con los filtros
-- Asigna cuentas SMTP en **round-robin** (distribución equitativa)
-- Si el modo aleatorio 🎲 está activo, baraja leads y cuentas
-- Calcula la hora estimada de cada envío según el delay configurado
-
-#### Iniciar envíos
-
-1. Ajusta el **Retardo entre envíos** (slider: 1-60 segundos). Recomendado ≥5s para no saturar.
-2. Pulsa **🟢 INICIAR LANZADERA**
-3. El motor envía secuencialmente, mostrando:
-   - Fila actual en **ámbar** (procesando)
-   - Filas completadas en **gris atenuado**
-   - Log en tiempo real con ✅/🔴 por cada envío
-   - Analytics de sesión (% éxito)
-
-#### Controles
-
-- **🟡 PAUSAR** — Detiene temporalmente (reanudable)
-- **🔴 DETENER** — Cancela todo y limpia la cola
-
-#### Modo producción vs pruebas
-
-El switch **MODO PRUEBAS / MODO PRODUCCION** en la barra superior controla:
-
-| | Modo Pruebas | Modo Producción |
-|---|---|---|
-| Destinatario | `contactofutprotec@gmail.com` (o emails de prueba) | Email real del lead |
-| Cambio de estado | ❌ No cambia | ✅ `Sin Contactar` → `Email Enviado / En Secuencia` |
-| Nota en lead | `[TEST] Email de prueba...` | `[LANZADERA] Email enviado...` |
-
-> 🧪 Usa el campo **Destinos de Prueba** para testear con emails específicos antes de lanzar en producción.
+**Cargar cola** → **INICIAR LANZADERA** → Motor envía secuencialmente con delay configurable.
 
 ---
 
 ## 5. Pipeline de Estados del Lead
 
-### Mapeo UI ↔ Base de Datos
-
-| Código UI | Nombre en BD | Automático / Manual | Trigger |
-|---|---|---|---|
-| `01 Sin Contactar` | `Sin Contactar` | — | Estado inicial |
-| `02 Email/WhatsApp Enviado` | `Email Enviado / En Secuencia` | ✅ Automático | `enviar_lote.php` al enviar con éxito en producción |
-| `03 Email Abierto` | `Impactado / Abrio Email` | ✅ Automático | `track.php` al cargar el píxel de tracking |
-| `04 En Conversacion` | `En Conversacion / WhatsApp` | ✋ Manual | Desde el Kanban |
-| `05 Propuesta Enviada` | `Muestra / Propuesta Enviada` | ✋ Manual | Desde el Kanban |
-| `06 Cerrado Ganado` | `Cerrado Ganado` | ✋ Manual | Desde el Kanban |
-| `07 Cerrado Perdido` | `Cerrado Perdido` | ✋ Manual | Desde el Kanban |
-
-### Flujo típico
-
-```
-01 → [envías email] → 02 → [abre email] → 03 → [responde] → 04 → [envías propuesta] → 05 → 06 ✅
-                                                                                           ↘ 07 ❌
-```
+| Código UI | Nombre en BD | Trigger |
+|---|---|---|
+| `01 Sin Contactar` | `Sin Contactar` | Estado inicial |
+| `02 Email/WhatsApp Enviado` | `Email Enviado / En Secuencia` | ✅ Auto: `enviar_lote.php` |
+| `03 Email Abierto` | `Impactado / Abrio Email` | ✅ Auto: `track.php` |
+| `04 En Conversacion` | `En Conversacion / WhatsApp` | ✋ Manual |
+| `05 Propuesta Enviada` | `Muestra / Propuesta Enviada` | ✋ Manual |
+| `06 Cerrado Ganado` | `Cerrado Ganado` | ✋ Manual |
+| `07 Cerrado Perdido` | `Cerrado Perdido` | ✋ Manual |
 
 ---
 
 ## 6. Sistema de Tracking y Aperturas
 
-Cada email enviado incluye un **píxel de tracking invisible**:
-
-```html
-<img src="https://getfutprotec.com/outbound/track.php?id=fut_ABCD1234" 
-     width="1" height="1" style="display:none" alt="">
-```
-
-**Cómo funciona:**
-
-1. Al enviar, se genera un `tracking_id` único (`fut_` + timestamp hex + random 6 bytes)
-2. El píxel y un fingerprint anti-detección se inyectan antes de `</body>`
-3. Cuando el destinatario abre el email, su cliente carga el píxel → `track.php`
-4. `track.php` registra: IP, User-Agent, fecha/hora en la tabla `aperturas`
-5. **Actualiza automáticamente** el estado del lead a `Impactado / Abrio Email` (solo la primera vez)
-6. También registra una nota `[TRACKING] Email abierto` en observaciones
-
-**Limitaciones:**
-- Algunos clientes de email (Outlook, Gmail con imágenes desactivadas) no cargan imágenes por defecto
-- No detecta si el email fue realmente leído, solo si se cargó la imagen
-- La tasa de apertura real suele ser mayor que la detectada
+Cada email incluye un píxel 1x1 PNG. Al cargarse, `track.php` registra IP, User-Agent y actualiza el estado del lead a `Impactado / Abrio Email`.
 
 ---
 
 ## 7. Test A/B de Asuntos
 
-Permite probar dos variantes de asunto y ver cuál funciona mejor.
-
-**Activación en el editor de plantillas:**
-1. Activa el switch 🧪 **Test A/B de Asunto**
-2. Escribe el **Asunto A** (50% de los envíos)
-3. Escribe el **Asunto B** (50% de los envíos)
-
-**En cada envío:**
-- Se elige aleatoriamente variante A o B (50/50)
-- Se registra en `comunicaciones_log.variante_ab` (`'A'` o `'B'`)
-- Se registra en `envios.asunto` el asunto real usado
-
-**Para analizar resultados:**
-```sql
--- Tasa de apertura por variante
-SELECT e.variante_ab, 
-       COUNT(*) as envios,
-       COUNT(a.tracking_id) as aperturas
-FROM envios e
-LEFT JOIN aperturas a ON a.tracking_id = e.tracking_id
-WHERE e.fecha_envio > DATE('now', '-30 days')
-GROUP BY e.variante_ab;
-```
-
-> 📊 Nota: El análisis A/B se hace actualmente por query SQL directa. Próximamente se añadirá un dashboard visual.
+Disponible solo para plantillas Email. Dos variantes 50/50. Se registra en `comunicaciones_log.variante_ab`.
 
 ---
 
 ## 8. Modo Aleatorio Anti-Detección
 
-El botón **🎲 ALEATORIO ON/OFF** en la barra superior activa el modo aleatorio, diseñado para:
-
-- **Evitar patrones detectables** por filtros anti-spam (misma cuenta, misma hora, mismo orden)
-- **Distribuir impredeciblemente** los envíos entre cuentas SMTP
-- **Añadir jitter aleatorio** al delay entre envíos
-
-**Efectos del modo aleatorio:**
-- Los leads se barajan aleatoriamente (no orden alfabético)
-- Las cuentas SMTP se barajan para cada lead individualmente
-- El delay tiene ±50% de variación aleatoria
-
-> ⚠️ Actívalo para campañas grandes (> 100 envíos) donde quieras minimizar la huella digital del envío.
+Botón 🎲 en la barra superior. Baraja leads y cuentas SMTP, añade jitter al delay. Recomendado para campañas >100 envíos.
 
 ---
 
 ## 9. Placeholders Disponibles en Plantillas
 
-| Placeholder | Se reemplaza por | Origen |
-|---|---|---|
-| `{{CLUB}}` | Nombre del club | `clubes_crm.nombre_club` |
-| `{{CONTACTO}}` | Persona de contacto (o "responsable") | `clubes_crm.persona_contacto` |
-| `{{FEDERACION}}` | Federación del club | `clubes_crm.federacion` |
-| `{{ANIO}}` | Año actual (ej: 2026) | `date('Y')` |
-| `{{EMAIL}}` | Email del destinatario | `clubes_crm.email` |
-| `{{SENDER_NAME}}` | Nombre del remitente | `cuentas_smtp.nombre_emisor` |
-| `{{SENDER_TITLE}}` | Cargo del remitente | `cuentas_smtp.cargo_emisor` |
-| `{{SENDER_EMAIL}}` | Email del remitente | `cuentas_smtp.email` |
+| Placeholder | Reemplazo |
+|---|---|
+| `{{CLUB}}` | Nombre del club |
+| `{{CONTACTO}}` | Persona de contacto |
+| `{{FEDERACION}}` | Federación |
+| `{{ANIO}}` | Año actual |
+| `{{EMAIL}}` | Email del destinatario |
+| `{{SENDER_NAME}}` | Nombre del remitente (de cuenta SMTP) |
+| `{{SENDER_TITLE}}` | Cargo del remitente (de cuenta SMTP) |
+| `{{SENDER_EMAIL}}` | Email del remitente (de cuenta SMTP) |
 
 ---
 
 ## 10. Validación de Emails y WhatsApp
 
-### Validación de email al añadir leads
+### Email
+- `filter_var()` + `checkdnsrr(MX)` al añadir leads manualmente
+- Dominios sin MX se rechazan con mensaje
 
-Al añadir un nuevo lead manualmente:
-1. `filter_var($email, FILTER_VALIDATE_EMAIL)` — formato correcto
-2. `checkdnsrr($domain, 'MX')` — el dominio tiene servidor de correo
-
-Si el dominio no tiene registros MX, el lead **se rechaza** con un mensaje explicativo.
-
-### Detección automática de WhatsApp
-
-Si el número de móvil:
-- Tiene **9 dígitos** (tras limpiar espacios, guiones, +34)
-- Empieza por **6 o 7**
-
-→ Se marca automáticamente `tiene_whatsapp = 1` y aparece el botón de WhatsApp en la ficha del lead.
+### WhatsApp
+- Detección automática: si el móvil tiene 9 dígitos y empieza por 6 o 7 → `tiene_whatsapp = 1`
+- **Ficha del lead**: selector de plantilla WhatsApp con botón "Enviar WA" que abre `wa.me/34XXXX?text=...` con placeholders reemplazados
+- **Editor**: las plantillas WhatsApp no tienen asunto ni A/B testing, contador de 4096 caracteres
 
 ---
 
 ## 11. API Endpoints
 
-Todos los endpoints aceptan POST con `application/x-www-form-urlencoded` o GET con query string. Respuestas en JSON.
-
-### `dashboard.php` (endpoints vía `?action=`)
-
-| Action | Método | Parámetros | Descripción |
-|---|---|---|---|
-| `update_lead` | POST | `id`, `field`, `value` | Actualiza un campo del lead |
-| `add_lead` | POST | `nombre`, `email`, `federacion`, `telefono_movil`, `telefono_fijo`, `persona_contacto`, `cargo_contacto` | Añade nuevo lead con validación MX |
-| `get_lead` | GET | `id` | Obtiene datos completos de un lead |
-| `save_template` | POST | `id?`, `nombre`, `asunto`, `asunto_b?`, `cuerpo`, `tipo`, `categoria`, `test_ab` | Crea/edita plantilla |
-| `delete_template` | POST | `id` | Elimina plantilla |
-| `get_templates` | GET | `categoria?` | Lista plantillas, opcionalmente filtradas |
-| `get_categorias` | GET | — | Lista categorías (estados) con plantillas |
-| `preview_template` | GET | `template_id`, `club_id` | Previsualiza plantilla con datos reales |
-| `update_config` | POST | `key`, `value` | Actualiza clave de configuración |
-
-### `api_leads.php`
+### `dashboard.php` (vía `?action=`)
 
 | Action | Método | Descripción |
 |---|---|---|
-| `get_leads_table` | GET | Tabla paginada con filtros (`page`, `per_page`, `search`, `estado`, `federacion`, `sort`, `order`) |
-| `scan_duplicates` | GET | Escanea emails duplicados y marca `es_duplicado=1` |
-| `merge_leads` | POST | Fusiona dos leads (`keep_id`, `dup_id`, `merge_notes`) |
-| `get_config` | GET | Obtiene valor de configuración (`key`) |
+| `update_lead` | POST | Actualiza un campo del lead |
+| `add_lead` | POST | Añade nuevo lead (valida MX) |
+| `get_lead` | GET | Datos completos de un lead |
+| `save_template` | POST | Crea/edita plantilla |
+| `delete_template` | POST | Elimina plantilla |
+| `get_templates` | GET | Lista plantillas (filtro: `categoria`) |
+| `get_categorias` | GET | Lista categorías con plantillas |
+| `preview_template` | GET | Previsualiza con datos reales |
+| `update_config` | POST | Actualiza clave de configuración |
 
-### `api_smtp.php`
+### `api/leads.php`, `api/smtp.php`, `api/get_cola.php`, `api/enviar_lote.php`, `api/track.php`
 
-| Action | Método | Descripción |
-|---|---|---|
-| `get_accounts` | GET | Lista todas las cuentas SMTP (passwords ocultas) |
-| `save_account` | POST | Crea o edita cuenta SMTP |
-| `toggle_account` | POST | Activa/desactiva cuenta (`id`) |
-| `delete_account` | POST | Elimina cuenta (`id`) |
-| `test_smtp` | POST | Prueba conexión y autenticación SMTP |
-
-### `get_cola.php`
-
-| Parámetro | Tipo | Descripción |
-|---|---|---|
-| `estado_lead` | string | Código UI del estado (ej: `01 Sin Contactar`) |
-| `federacion` | string | Filtrar por federación |
-| `id_plantilla_email` | int | ID de plantilla a usar |
-| `id_plantilla_wa` | int | ID plantilla WhatsApp (opcional) |
-| `habilitar_whatsapp` | 0/1 | Activar envío WhatsApp |
-| `random_mode` | 0/1 | Activar asignación aleatoria |
-
-**Respuesta:** JSON con `cola` (array de leads con SMTP asignada), `cuentas_smtp`, `kpi_*`, `federaciones`, `categorias`.
-
-### `enviar_lote.php`
-
-| Parámetro | Tipo | Descripción |
-|---|---|---|
-| `id_club` | int | ID del lead |
-| `id_plantilla` | int | ID de la plantilla |
-| `id_cuenta_smtp` | int | ID de la cuenta SMTP |
-| `modo_test` | 0/1 | Si es 1, envía a email de prueba |
-| `variante_ab` | A/B | Variante del test A/B |
-| `test_email` | string | Email de override en modo test |
-
-### `track.php`
-
-| Parámetro | Tipo | Descripción |
-|---|---|---|
-| `id` | string | Tracking ID (`fut_XXXX_XXXX`) |
-
-Responde con un PNG 1x1 transparente. No devuelve errores visibles (anti-scanner).
+Documentados en detalle en sus respectivos archivos.
 
 ---
 
 ## 12. Base de Datos — Esquema SQLite3
 
-### Tabla `clubes_crm`
+Tablas principales: `clubes_crm`, `cuentas_smtp`, `plantillas`, `envios`, `aperturas`, `comunicaciones_log`, `config`, `rebotes`.
 
-```sql
-CREATE TABLE clubes_crm (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre_club TEXT NOT NULL,
-    federacion TEXT DEFAULT '',
-    persona_contacto TEXT DEFAULT '',
-    cargo_contacto TEXT DEFAULT '',
-    email TEXT UNIQUE NOT NULL,
-    telefono_fijo TEXT DEFAULT '',
-    telefono_movil TEXT DEFAULT '',
-    tiene_whatsapp INTEGER DEFAULT 0,
-    estado_lead TEXT DEFAULT 'Sin Contactar',
-    observaciones TEXT DEFAULT '',
-    ultimo_contacto DATETIME,
-    creado_el DATETIME DEFAULT CURRENT_TIMESTAMP,
-    es_duplicado INTEGER DEFAULT 0,
-    duplicado_id INTEGER DEFAULT NULL
-);
-```
-
-### Tabla `cuentas_smtp`
-
-```sql
-CREATE TABLE cuentas_smtp (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    host TEXT NOT NULL DEFAULT 'mail.getfutprotec.com',
-    puerto INTEGER NOT NULL DEFAULT 465,
-    usuario TEXT NOT NULL,
-    password TEXT NOT NULL,
-    seguridad TEXT DEFAULT 'ssl',
-    activa INTEGER DEFAULT 1,
-    limite_diario INTEGER DEFAULT 50,
-    enviados_hoy INTEGER DEFAULT 0,
-    ultimo_error TEXT DEFAULT NULL,
-    ultimo_uso DATETIME DEFAULT NULL,
-    nombre_emisor VARCHAR(100) DEFAULT '',
-    cargo_emisor VARCHAR(100) DEFAULT ''
-);
-```
-
-### Tabla `plantillas`
-
-```sql
-CREATE TABLE plantillas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre VARCHAR(100) NOT NULL,
-    asunto VARCHAR(255) DEFAULT '',
-    asunto_b VARCHAR(255) DEFAULT '',   -- Test A/B variante B
-    test_ab INTEGER DEFAULT 0,          -- 1 = activo, 0 = inactivo
-    cuerpo TEXT NOT NULL,
-    tipo VARCHAR(20) DEFAULT 'html',    -- 'html' | 'texto_plano' | 'whatsapp'
-    categoria VARCHAR(50) DEFAULT 'prospeccion',
-    activo INTEGER DEFAULT 1,
-    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### Tabla `envios`
-
-```sql
-CREATE TABLE envios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    club TEXT NOT NULL,
-    email TEXT NOT NULL,
-    federacion TEXT DEFAULT '',
-    cuenta_emision TEXT DEFAULT '',
-    fecha_envio DATETIME DEFAULT CURRENT_TIMESTAMP,
-    estado TEXT DEFAULT 'pendiente',    -- 'pendiente' | 'enviado' | 'error' | 'abierto'
-    tracking_id TEXT UNIQUE NOT NULL,
-    asunto TEXT DEFAULT '',
-    cuerpo_mensaje TEXT DEFAULT ''
-);
-```
-
-### Tabla `aperturas`
-
-```sql
-CREATE TABLE aperturas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tracking_id TEXT NOT NULL,
-    fecha_apertura DATETIME DEFAULT CURRENT_TIMESTAMP,
-    ip TEXT DEFAULT '',
-    user_agent TEXT DEFAULT '',
-    FOREIGN KEY (tracking_id) REFERENCES envios(tracking_id)
-);
-```
-
-### Tabla `comunicaciones_log`
-
-```sql
-CREATE TABLE comunicaciones_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lead_id INTEGER DEFAULT NULL,
-    club_id INTEGER DEFAULT NULL,
-    tipo_evento VARCHAR(50) NOT NULL,
-    plantilla_id INTEGER DEFAULT NULL,
-    id_cuenta_smtp INTEGER DEFAULT NULL,
-    tipo VARCHAR(20) DEFAULT 'email',
-    resultado TEXT DEFAULT '',
-    codigo_error TEXT DEFAULT '',
-    variante_ab VARCHAR(1) DEFAULT '',  -- 'A' o 'B'
-    detalles TEXT DEFAULT '',
-    ip_registro VARCHAR(45) DEFAULT NULL,
-    fecha DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### Tabla `config`
-
-```sql
-CREATE TABLE config (
-    clave TEXT PRIMARY KEY,
-    valor TEXT
-);
-```
-
-Claves utilizadas:
-- `motor_estado` — `'activo'` / `'pausado'`
-- `modo_entorno` — `'test'` / `'produccion'`
-- `lanzadera_delay` — segundos entre envíos (default: 5)
-- `email_test` — email para pruebas
+> Ver `cli/init_db.php` para el esquema SQL completo.
 
 ---
 
 ## 13. Mantenimiento y Resolución de Problemas
 
-### Error: "stats.db no encontrada"
-
+### stats.db no encontrada
 ```bash
-php init_db.php
+php cli/init_db.php
 ```
 
-### Error: "No hay cuentas SMTP activas"
+### SiteGround no refleja cambios
+1. Site Tools → Dev → Git → Pull
+2. Limpiar SuperCacher
 
-Ve a **Config SMTP** y verifica que al menos una cuenta tenga el toggle en ON (verde).
-
-### Error: "Cuenta SMTP saturada"
-
-La cuenta alcanzó su límite diario. Espera al día siguiente o aumenta `limite_diario` en la configuración de la cuenta.
-
-### La tasa de apertura es 0%
-
-Posibles causas:
-- El píxel de tracking está siendo bloqueado por el cliente de email
-- Los emails están cayendo en spam (verifica registros MX, SPF, DKIM del dominio `getfutprotec.com`)
-- Verifica que `track.php` es accesible públicamente: `curl -I https://getfutprotec.com/outbound/track.php`
-
-### SiteGround no refleja los cambios
-
-Si `curl https://getfutprotec.com/outbound/tabs/editor.php` muestra la versión antigua:
-1. Ve a SiteGround → **Site Tools** → **Dev** → **Git**
-2. Haz clic en **Pull** para forzar la sincronización
-3. Limpia la caché de SiteGround si está activado el **SuperCacher**
-
-### Backup de la base de datos
-
+### Backup
 ```bash
-cp public_html/outbound/stats.db public_html/outbound/stats_backup_$(date +%Y%m%d).db
+cp public_html/outbound/data/stats.db public_html/outbound/data/stats_backup_$(date +%Y%m%d).db
 ```
-
-### Reiniciar contadores diarios
-
-Los contadores `enviados_hoy` se reinician consultando `comunicaciones_log WHERE DATE(fecha) = DATE('now')`. No es necesario reinicio manual.
 
 ---
 
 ## 14. Buenas Prácticas y Anti-Bloqueo
 
-### Recomendaciones para campañas
-
-| Práctica | Valor recomendado |
+| Práctica | Recomendación |
 |---|---|
 | Delay entre envíos | 5-10 segundos |
-| Envíos por cuenta/día | Máx. 50 (límite típico de hosting compartido) |
-| Modo aleatorio | Activar para campañas > 100 envíos |
-| Cuentas SMTP activas | Mínimo 3 para rotación efectiva |
-| Modo pruebas primero | Siempre testear con 2-3 emails antes de producción |
-
-### Anti-Detección
-
-El sistema incluye varias técnicas anti-spam:
-- **Fingerprint único** por email (`fpid:XXXX` en comentario HTML)
-- **Rotación de cuentas SMTP** (diferentes remitentes)
-- **Jitter aleatorio** en delays (modo 🎲)
-- **Píxel de tracking invisible** (1x1 PNG, no JavaScript)
-- **Cabeceras profesionales**: `X-Mailer`, `MIME-Version`, `Content-Type` correcto
-- **Asunto codificado en Base64 UTF-8** para caracteres especiales
-
-### Límites legales (RGPD/LOPDGDD)
-
-- Todos los emails incluyen enlace de **baja** (`baja.php?email=`)
-- Los leads que hacen opt-out se marcan como `estado_lead = 'Opt-Out'`
-- No se envían emails a leads con estado `Opt-Out`, `Unsubscribed` o `Lista Negra`
-- Los datos de tracking (IP, User-Agent) se almacenan solo con fines estadísticos
+| Envíos por cuenta/día | Máx. 50 |
+| Modo aleatorio | Activar >100 envíos |
+| Cuentas SMTP activas | Mínimo 3 |
+| Modo pruebas primero | Testear con 2-3 emails |
 
 ---
 
-## 📞 Soporte
+## 📝 Changelog
 
-Para incidencias técnicas, contacta al equipo de desarrollo.
+### v2.2 — 10 Oct 2026
+- 🔄 **Reorganización completa de carpetas**: `api/` (7), `cli/` (2), `data/` (1), `tabs/` (6)
+- 🗑️ **Limpieza**: 13 archivos basura/debug eliminados
+- 📋 **Ficha lead rediseñada**: layout por filas, botón GUARDAR condicional con detección de cambios
+- 💬 **WhatsApp integrado**: selector de plantilla en ficha lead, envío con texto precargado vía `wa.me?text=`
+- ✏️ **Editor de plantillas rediseñado**: listado scrollable como selector principal, pipeline filtrable, pills toggle Email/WhatsApp por plantilla, sub-selector HTML/Texto Plano
+- 🏷️ **Placeholders SENDER**: ahora se reemplazan en previsualización con datos reales de cuenta SMTP
+- 📊 **Badges visuales**: emojis 📧/💬 en listado, contador de caracteres WhatsApp con código de colores
+- 🔄 **Plantillas categorizadas por estado**: `01 Sin Contactar` a `07 Cerrado Perdido`
+
+### v2.1 — Oct 2026
+- 🚀 **Lanzadera**: selects Federación → Estado → Plantilla
+- 🔍 **Editor**: A/B testing, previsualización con datos reales
+- 👁️ **Tracking**: track.php actualiza estado del lead al abrir email (`Impactado / Abrio Email`)
+
+### v2.0
+- 🎯 **Kanban CRM** con pipeline de 7 estados
+- ✉️ **SMTP rotativo** con 10 cuentas
+- 📊 **Dashboard** con KPIs en tiempo real
+- 📝 Editor de plantillas, gestor de datos, scanner de duplicados
 
 ---
 
-*FutProtec Outbound CRM v2.1 — Construido con PHP nativo, SQLite3 y Alpine.js para máxima compatibilidad con SiteGround.*
+*FutProtec Outbound CRM v2.2 — Construido con PHP nativo, SQLite3 y Alpine.js para máxima compatibilidad con SiteGround.*
