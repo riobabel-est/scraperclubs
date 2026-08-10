@@ -12,7 +12,7 @@ ob_start();
 error_reporting(0);
 ini_set('display_errors', 0);
 
-$DB_PATH = __DIR__ . '/stats.db';
+$DB_PATH = __DIR__ . '/../data/stats.db';
 
 if (!file_exists($DB_PATH)) {
     header('Content-Type: application/json');

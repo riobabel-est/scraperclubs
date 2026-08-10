@@ -14,7 +14,7 @@ ob_start();
 error_reporting(0);
 ini_set('display_errors', 0);
 
-$DB_PATH = __DIR__ . '/stats.db';
+$DB_PATH = __DIR__ . '/../data/stats.db';
 
 if (!file_exists($DB_PATH)) {
     header('Content-Type: application/json');
@@ -115,7 +115,7 @@ try {
     $emailClub    = $club['email'];
     $federacion   = $club['federacion'] ?? '';
     $contacto     = $club['persona_contacto'] ?: 'responsable';
-    $TRACK_URL    = 'https://getfutprotec.com/outbound/track.php';
+    $TRACK_URL    = 'https://getfutprotec.com/outbound/api/track.php';
 
     // Datos del remitente dinámico
     $senderName  = $cuenta['nombre_emisor'] ?? '';

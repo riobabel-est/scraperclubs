@@ -21,7 +21,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 // ─── Configuración ───
-$DB_PATH = __DIR__ . '/stats.db';
+$DB_PATH = __DIR__ . '/../data/stats.db';
 $LIMITE_DIARIO = 50;  // Límite por defecto, se sobrescribe con el de la cuenta
 
 if (!file_exists($DB_PATH)) {

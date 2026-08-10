@@ -24,7 +24,7 @@ if ($trackingId === '') {
     exit;
 }
 
-$dbPath = __DIR__ . '/stats.db';
+$dbPath = __DIR__ . '/../data/stats.db';
 
 try {
     if (!file_exists($dbPath)) {

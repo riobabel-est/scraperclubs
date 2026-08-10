@@ -7,7 +7,7 @@
 declare(strict_types=1);
 
 define('AUTH_KEY', 'FutProtec2026!');
-$DB_PATH = __DIR__ . '/stats.db';
+$DB_PATH = __DIR__ . '/data/stats.db';
 session_start();
 
 // ─── LOGIN / LOGOUT ──────────────────────────────────────────────────────────
@@ -784,7 +784,7 @@ var app = function() {
             fd.append('keep_id', this.mk);
             fd.append('dup_id', this.md);
             fd.append('merge_notes', this.mn ? '1' : '0');
-            const r = await fetch('api_leads.php', { method: 'POST', body: fd });
+            const r = await fetch('api/leads.php', { method: 'POST', body: fd });
             const j = await r.json();
             if (j.ok) { this.mm = false; location.reload(); }
             else { alert('Error: ' + (j.error || 'Desconocido')); }
@@ -948,7 +948,7 @@ var app = function() {
 
             // Cargar datos iniciales (federaciones)
             try {
-                const r = await fetch('get_cola.php');
+                const r = await fetch('api/get_cola.php');
                 const j = await r.json();
                 if (j.ok) {
                     this.lzFederaciones = j.federaciones || [];
@@ -1060,7 +1060,7 @@ var app = function() {
                 }
 
                 try {
-                    const r = await fetch('enviar_lote.php', {
+                    const r = await fetch('api/enviar_lote.php', {
                         method: 'POST',
                         body: fd,
                         signal: signal
@@ -1252,17 +1252,17 @@ var app = function() {
             f.append('usuario', this.sf.usuario); f.append('password', this.sf.password);
             f.append('seguridad', this.sf.seguridad); f.append('limite_diario', this.sf.limite_diario);
             f.append('nombre_emisor', this.sf.nombre_emisor || ''); f.append('cargo_emisor', this.sf.cargo_emisor || '');
-            const r = await fetch('api_smtp.php', { method: 'POST', body: f });
+            const r = await fetch('api/smtp.php', { method: 'POST', body: f });
             const j = await r.json();
             if (j.ok) { this.sm = false; this.loadSmtp(); }
             else { alert('Error: ' + (j.error || 'Desconocido')); }
         },
-        async toggleSmtp(id) { const f = new FormData(); f.append('action', 'toggle_account'); f.append('id', id); await fetch('api_smtp.php', { method: 'POST', body: f }); this.loadSmtp(); },
-        async deleteSmtp(id) { if (!confirm('Eliminar esta cuenta SMTP?')) return; const f = new FormData(); f.append('action', 'delete_account'); f.append('id', id); const r = await fetch('api_smtp.php', { method: 'POST', body: f }); const j = await r.json(); if (j.ok) this.loadSmtp(); else alert('Error: ' + (j.error || 'Desconocido')); },
+        async toggleSmtp(id) { const f = new FormData(); f.append('action', 'toggle_account'); f.append('id', id); await fetch('api/smtp.php', { method: 'POST', body: f }); this.loadSmtp(); },
+        async deleteSmtp(id) { if (!confirm('Eliminar esta cuenta SMTP?')) return; const f = new FormData(); f.append('action', 'delete_account'); f.append('id', id); const r = await fetch('api/smtp.php', { method: 'POST', body: f }); const j = await r.json(); if (j.ok) this.loadSmtp(); else alert('Error: ' + (j.error || 'Desconocido')); },
         async testSmtp(id, btn) {
             if (btn) { btn.disabled = true; const orig = btn.innerHTML; btn.innerHTML = '<span class="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin inline-block"></span>'; }
             const f = new FormData(); f.append('action', 'test_smtp'); f.append('id', id);
-            const r = await fetch('api_smtp.php', { method: 'POST', body: f });
+            const r = await fetch('api/smtp.php', { method: 'POST', body: f });
             const j = await r.json();
             const ok = j.status === 'success';
             alert((ok ? 'CONEXION EXITOSA: ' : 'ERROR: ') + j.message);

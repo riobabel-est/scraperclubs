@@ -12,7 +12,7 @@
 
 declare(strict_types=1);
 
-$dbPath = __DIR__ . '/stats.db';
+$dbPath = __DIR__ . '/../data/stats.db';
 $clubesJson = __DIR__ . '/../../clubes.json';
 $csvContactos = __DIR__ . '/../../output/clean/contactos_sintaxis_ok.csv';
 
@@ -269,53 +269,197 @@ try {
     $db->exec("CREATE INDEX IF NOT EXISTS idx_comlog_lead ON comunicaciones_log(lead_id)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_comlog_club ON comunicaciones_log(club_id)");
 
-    // Insertar plantillas por defecto si no hay ninguna
+    // Migracion: anadir columnas para lanzadera outbound
+    $colsComLog = [];
+    $resComLog = $db->query("PRAGMA table_info(comunicaciones_log)");
+    while ($r = $resComLog->fetchArray(SQLITE3_ASSOC)) {
+        $colsComLog[] = $r['name'];
+    }
+    if (!in_array('id_cuenta_smtp', $colsComLog, true)) {
+        $db->exec("ALTER TABLE comunicaciones_log ADD COLUMN id_cuenta_smtp INTEGER DEFAULT NULL");
+        echo "   Migracion: columna 'id_cuenta_smtp' anadida a comunicaciones_log\n";
+    }
+    if (!in_array('tipo', $colsComLog, true)) {
+        $db->exec("ALTER TABLE comunicaciones_log ADD COLUMN tipo VARCHAR(20) DEFAULT 'email'");
+        echo "   Migracion: columna 'tipo' anadida a comunicaciones_log\n";
+    }
+    if (!in_array('resultado', $colsComLog, true)) {
+        $db->exec("ALTER TABLE comunicaciones_log ADD COLUMN resultado TEXT DEFAULT ''");
+        echo "   Migracion: columna 'resultado' anadida a comunicaciones_log\n";
+    }
+    if (!in_array('codigo_error', $colsComLog, true)) {
+        $db->exec("ALTER TABLE comunicaciones_log ADD COLUMN codigo_error TEXT DEFAULT ''");
+        echo "   Migracion: columna 'codigo_error' anadida a comunicaciones_log\n";
+    }
+    if (!in_array('variante_ab', $colsComLog, true)) {
+        $db->exec("ALTER TABLE comunicaciones_log ADD COLUMN variante_ab VARCHAR(1) DEFAULT ''");
+        echo "   Migracion: columna 'variante_ab' anadida a comunicaciones_log\n";
+    }
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_comlog_cuenta ON comunicaciones_log(id_cuenta_smtp)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_comlog_fecha ON comunicaciones_log(fecha)");
+
+    // Migracion: anadir columnas A/B Testing a plantillas
+    $colsPlantillas = [];
+    $resPlantillas = $db->query("PRAGMA table_info(plantillas)");
+    while ($r = $resPlantillas->fetchArray(SQLITE3_ASSOC)) {
+        $colsPlantillas[] = $r['name'];
+    }
+    if (!in_array('asunto_b', $colsPlantillas, true)) {
+        $db->exec("ALTER TABLE plantillas ADD COLUMN asunto_b VARCHAR(255) DEFAULT ''");
+        echo "   Migracion: columna 'asunto_b' anadida a plantillas\n";
+    }
+    if (!in_array('test_ab', $colsPlantillas, true)) {
+        $db->exec("ALTER TABLE plantillas ADD COLUMN test_ab INTEGER DEFAULT 0");
+        echo "   Migracion: columna 'test_ab' anadida a plantillas\n";
+    }
+
+    // Migracion: anadir columnas de remitente dinamico a cuentas_smtp
+    $colsSmtp = [];
+    $resSmtp = $db->query("PRAGMA table_info(cuentas_smtp)");
+    while ($r = $resSmtp->fetchArray(SQLITE3_ASSOC)) {
+        $colsSmtp[] = $r['name'];
+    }
+    if (!in_array('nombre_emisor', $colsSmtp, true)) {
+        $db->exec("ALTER TABLE cuentas_smtp ADD COLUMN nombre_emisor VARCHAR(100) DEFAULT ''");
+        echo "   Migracion: columna 'nombre_emisor' anadida a cuentas_smtp\n";
+    }
+    if (!in_array('cargo_emisor', $colsSmtp, true)) {
+        $db->exec("ALTER TABLE cuentas_smtp ADD COLUMN cargo_emisor VARCHAR(100) DEFAULT ''");
+        echo "   Migracion: columna 'cargo_emisor' anadida a cuentas_smtp\n";
+    }
+
+    // Insertar plantillas preseed (4 presets) si no hay ninguna
     $countPlantillas = (int)$db->querySingle("SELECT COUNT(*) FROM plantillas");
     if ($countPlantillas === 0) {
-        $asuntoDefault = 'Espinilleras personalizadas para {{CLUB}} | FutProtec';
-        $cuerpoDefault = <<<'HTML'
+        // ─────────────────────────────────────────────────────────────────
+        // PRESET 1: Email 1 - Primer Contacto (Texto Plano) — prospeccion
+        // ─────────────────────────────────────────────────────────────────
+        $t1asunto = 'Espinilleras personalizadas para {{CLUB}} | FutProtec';
+        $t1cuerpo = "Estimado/a responsable de {{CLUB}},\n\n".
+            "Me presento: soy {{CONTACTO}} del equipo de FutProtec, especialistas en espinilleras y material de protección para fútbol base.\n\n".
+            "Trabajamos con clubes de toda España ofreciendo espinilleras personalizadas con los colores y escudo de cada club, adaptadas a todas las categorías desde prebenjamín hasta juvenil.\n\n".
+            "¿Te interesaría recibir nuestro catálogo sin compromiso para {{CLUB}}?\n\n".
+            "Quedo a tu disposición para cualquier consulta. También podemos hablar por WhatsApp o teléfono si lo prefieres.\n\n".
+            "Un cordial saludo,\n".
+            "{{CONTACTO}}\n".
+            "Equipo FutProtec\n".
+            "https://getfutprotec.com";
+
+        $stmt = $db->prepare(
+            "INSERT INTO plantillas (nombre, asunto, cuerpo, tipo, categoria, activo)
+             VALUES (:n, :a, :c, :t, :cat, 1)"
+        );
+        $stmt->bindValue(':n', 'Email 1 - Primer Contacto (Texto Plano)', SQLITE3_TEXT);
+        $stmt->bindValue(':a', $t1asunto, SQLITE3_TEXT);
+        $stmt->bindValue(':c', $t1cuerpo, SQLITE3_TEXT);
+        $stmt->bindValue(':t', 'texto_plano', SQLITE3_TEXT);
+        $stmt->bindValue(':cat', 'prospeccion', SQLITE3_TEXT);
+        $stmt->execute();
+        echo "   Plantilla preseed 1/4: Email 1 - Primer Contacto (Texto Plano)\n";
+
+        // ─────────────────────────────────────────────────────────────────
+        // PRESET 2: Email 2 - Presentación y Catálogo (HTML) — seguimiento
+        // ─────────────────────────────────────────────────────────────────
+        $t2asunto = 'Catálogo de espinilleras para {{CLUB}} | FutProtec';
+        $t2cuerpo = <<<'EOT2'
 <!DOCTYPE html>
 <html lang="es">
 <head><meta charset="UTF-8"></head>
 <body style="font-family: Arial, Helvetica, sans-serif; color: #1a1a2e; max-width: 600px; margin: 0 auto; padding: 20px;">
     <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 30px; border-radius: 8px 8px 0 0; text-align: center;">
         <h1 style="color: #e2b04a; margin: 0; font-size: 24px;">FutProtec</h1>
-        <p style="color: #ffffff; margin: 10px 0 0 0; font-size: 16px;">Espinilleras y Material de Proteccion para Futbol Base</p>
+        <p style="color: #ffffff; margin: 10px 0 0 0; font-size: 16px;">Catálogo de Espinilleras Personalizadas</p>
     </div>
     <div style="background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px;">
-        <p style="font-size: 15px; line-height: 1.6;">Estimado/a responsable de <strong>{{CLUB}}</strong>,</p>
-        <p style="font-size: 15px; line-height: 1.6;">En <strong>FutProtec</strong> somos especialistas en espinilleras y material de proteccion para clubes de futbol base. Sabemos que la seguridad de vuestros jugadores es una prioridad absoluta.</p>
-        <p style="font-size: 15px; line-height: 1.6;">Nuestras <strong>espinilleras personalizadas</strong> incluyen:</p>
-        <ul style="font-size: 14px; line-height: 1.8; color: #333;">
-            <li>Diseno personalizado con los colores y escudo de vuestro club</li>
-            <li>Proteccion de alto impacto homologada</li>
-            <li>Tallas para todas las categorias (prebenjamin a juvenil)</li>
-            <li>Materiales ligeros y transpirables</li>
-            <li>Precios especiales para equipos y clubes federados</li>
-        </ul>
-        <p style="font-size: 15px; line-height: 1.6;">Actualmente trabajamos con clubes en toda Espana y nos gustaria presentaros nuestro catalogo <strong>sin compromiso</strong> adaptado a las necesidades del {{CLUB}}.</p>
+        <p style="font-size: 15px; line-height: 1.6;">Hola {{CONTACTO}},</p>
+        <p style="font-size: 15px; line-height: 1.6;">Tal como hablamos, aquí tienes nuestro <strong>catálogo completo</strong> de espinilleras personalizadas para el <strong>{{CLUB}}</strong>.</p>
+        <div style="background: #f8f8f8; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <h3 style="color: #1a1a2e; margin-top: 0;">Lo que incluye nuestro servicio:</h3>
+            <ul style="font-size: 14px; line-height: 1.8; color: #333;">
+                <li>✅ Diseño 100% personalizado con escudo y colores del club</li>
+                <li>✅ Protección de alto impacto con certificación CE</li>
+                <li>✅ Tallas desde prebenjamín hasta juvenil</li>
+                <li>✅ Materiales ligeros, transpirables y lavables</li>
+                <li>✅ Precios especiales por volumen para clubes federados</li>
+                <li>✅ Envío incluido a península en pedidos superiores a 20 unidades</li>
+            </ul>
+        </div>
+        <p style="font-size: 15px; line-height: 1.6;">Adjunto te envío el catálogo en PDF con todos los modelos, precios y tiempos de entrega.</p>
         <p style="text-align: center; margin: 30px 0;">
-            <a href="https://getfutprotec.com/contacto" style="background: #e2b04a; color: #1a1a2e; padding: 14px 35px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">Solicitar Catalogo Sin Compromiso</a>
+            <a href="https://getfutprotec.com/contacto" style="background: #e2b04a; color: #1a1a2e; padding: 14px 35px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">Solicitar Presupuesto Personalizado</a>
         </p>
-        <p style="font-size: 13px; color: #777; margin-top: 30px;">Si prefieres hablar directamente, llamanos o contacta por WhatsApp y te atendemos personalmente.</p>
-        <p style="font-size: 13px; color: #999;">Recibe un cordial saludo,<br><strong>Equipo FutProtec</strong></p>
+        <p style="font-size: 13px; color: #777; margin-top: 30px;">Si tienes cualquier duda, estoy a tu disposición por email, teléfono o WhatsApp.</p>
+        <p style="font-size: 13px; color: #999;">Un cordial saludo,<br><strong>{{CONTACTO}}</strong><br>Equipo FutProtec</p>
     </div>
     <div style="text-align: center; padding: 15px; font-size: 11px; color: #aaa;">
-        <p>Este mensaje se envia de acuerdo con la legislacion sobre proteccion de datos (RGPD y LOPDGDD).<br>
-        Si no deseas recibir mas comunicaciones, <a href="https://getfutprotec.com/baja" style="color: #aaa;"> solicita tu baja aqui</a>.</p>
+        <p>Este mensaje se envía de acuerdo con la legislación sobre protección de datos (RGPD y LOPDGDD).<br>
+        Si no deseas recibir más comunicaciones, <a href="https://getfutprotec.com/outbound/api/baja.php?email={{EMAIL}}" style="color: #aaa;">solicita tu baja aquí</a>.</p>
         <p>{{ANIO}} FutProtec — Espinilleras Personalizadas</p>
     </div>
 </body>
 </html>
-HTML;
-        $stmtPlantilla = $db->prepare(
-            'INSERT INTO plantillas (nombre, asunto, cuerpo_html, activo) VALUES (:n, :a, :c, 1)'
+EOT2;
+
+        $stmt2 = $db->prepare(
+            "INSERT INTO plantillas (nombre, asunto, cuerpo, tipo, categoria, activo)
+             VALUES (:n, :a, :c, :t, :cat, 1)"
         );
-        $stmtPlantilla->bindValue(':n', 'Plantilla Principal', SQLITE3_TEXT);
-        $stmtPlantilla->bindValue(':a', $asuntoDefault, SQLITE3_TEXT);
-        $stmtPlantilla->bindValue(':c', $cuerpoDefault, SQLITE3_TEXT);
-        $stmtPlantilla->execute();
-        echo "   Plantilla por defecto creada\n";
+        $stmt2->bindValue(':n', 'Email 2 - Presentación y Catálogo (HTML)', SQLITE3_TEXT);
+        $stmt2->bindValue(':a', $t2asunto, SQLITE3_TEXT);
+        $stmt2->bindValue(':c', $t2cuerpo, SQLITE3_TEXT);
+        $stmt2->bindValue(':t', 'html', SQLITE3_TEXT);
+        $stmt2->bindValue(':cat', 'seguimiento', SQLITE3_TEXT);
+        $stmt2->execute();
+        echo "   Plantilla preseed 2/4: Email 2 - Presentación y Catálogo (HTML)\n";
+
+        // ─────────────────────────────────────────────────────────────────
+        // PRESET 3: Objeción - Sin Presupuesto Adelantado — respuesta_modelo
+        // ─────────────────────────────────────────────────────────────────
+        $t3asunto = 'Re: Presupuesto {{CLUB}} — Sin compromiso previo | FutProtec';
+        $t3cuerpo = "Hola {{CONTACTO}},\n\n".
+            "Gracias por tu respuesta. Entiendo completamente la preocupación sobre el presupuesto adelantado.\n\n".
+            "Quería aclararte que en FutProtec trabajamos con varias opciones flexibles para clubes como {{CLUB}}:\n\n".
+            "- No pedimos pago por adelantado: se factura contra entrega del material.\n".
+            "- Ofrecemos descuentos por volumen a partir de 15 unidades.\n".
+            "- Podemos enviar una muestra física sin coste para que valoréis la calidad.\n".
+            "- Plazos de entrega de 10-15 días hábiles desde confirmación.\n\n".
+            "Si te parece, puedo preparar un presupuesto orientativo sin compromiso para que lo reviséis con calma. ¿Cuántas espinilleras estimáis necesitar por temporada aproximadamente?\n\n".
+            "Quedo a tu disposición. Un cordial saludo,\n".
+            "{{CONTACTO}}\n".
+            "Equipo FutProtec\n".
+            "https://getfutprotec.com";
+
+        $stmt3 = $db->prepare(
+            "INSERT INTO plantillas (nombre, asunto, cuerpo, tipo, categoria, activo)
+             VALUES (:n, :a, :c, :t, :cat, 1)"
+        );
+        $stmt3->bindValue(':n', 'Objeción - Sin Presupuesto Adelantado', SQLITE3_TEXT);
+        $stmt3->bindValue(':a', $t3asunto, SQLITE3_TEXT);
+        $stmt3->bindValue(':c', $t3cuerpo, SQLITE3_TEXT);
+        $stmt3->bindValue(':t', 'texto_plano', SQLITE3_TEXT);
+        $stmt3->bindValue(':cat', 'respuesta_modelo', SQLITE3_TEXT);
+        $stmt3->execute();
+        echo "   Plantilla preseed 3/4: Objeción - Sin Presupuesto Adelantado\n";
+
+        // ─────────────────────────────────────────────────────────────────
+        // PRESET 4: WA - Saludo Primer Contacto — whatsapp
+        // ─────────────────────────────────────────────────────────────────
+        $t4cuerpo = "👋 Hola {{CONTACTO}}, soy del equipo de FutProtec.\n\n".
+            "Te escribo porque trabajamos con clubes de {{FEDERACION}} ofreciendo espinilleras personalizadas con los colores y escudo de cada equipo.\n\n".
+            "¿Te interesaría que te enviara nuestro catálogo sin compromiso para {{CLUB}}?\n\n".
+            "¡Gracias y buen día! ⚽";
+
+        $stmt4 = $db->prepare(
+            "INSERT INTO plantillas (nombre, asunto, cuerpo, tipo, categoria, activo)
+             VALUES (:n, :a, :c, :t, :cat, 1)"
+        );
+        $stmt4->bindValue(':n', 'WA - Saludo Primer Contacto', SQLITE3_TEXT);
+        $stmt4->bindValue(':a', '', SQLITE3_TEXT);
+        $stmt4->bindValue(':c', $t4cuerpo, SQLITE3_TEXT);
+        $stmt4->bindValue(':t', 'whatsapp', SQLITE3_TEXT);
+        $stmt4->bindValue(':cat', 'whatsapp', SQLITE3_TEXT);
+        $stmt4->execute();
+        echo "   Plantilla preseed 4/4: WA - Saludo Primer Contacto\n";
     }
 
     // ─────────────────────────────────────────────────────────────────────

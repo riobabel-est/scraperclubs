@@ -19,7 +19,7 @@ declare(strict_types=1);
  */
 
 // ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
-$DB_PATH     = __DIR__ . '/stats.db';
+$DB_PATH     = __DIR__ . '/../data/stats.db';
 $CLUBES_JSON = __DIR__ . '/../clubes.json';
 $TRACK_URL   = 'https://getfutprotec.com/outbound/track.php';
 

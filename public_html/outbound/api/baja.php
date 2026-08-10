@@ -7,7 +7,7 @@ $procesado = false;
 
 if (!empty($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
     try {
-        $dbPath = __DIR__ . '/stats.db';
+        $dbPath = __DIR__ . '/../data/stats.db';
         if (file_exists($dbPath)) {
             $db = new SQLite3($dbPath);
             $db->enableExceptions(true);
