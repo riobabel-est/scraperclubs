@@ -1,26 +1,46 @@
-# Python
+# ─── Python ───────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 .env
 
-# Outputs de scraping
-output/*.csv
-output/*.json
+# ─── Bases de datos y backups (PROTEGIDOS) ───────────────────
+*.db
+*.sqlite
+*.sqlite3
+backups/
 
-# Checkpoints
+# ─── Outputs de scraping ─────────────────────────────────────
+output/
+
+# ─── Checkpoints ─────────────────────────────────────────────
 checkpoints/
 
-# Logs
+# ─── Logs ────────────────────────────────────────────────────
 logs/
+*.log
 
-# Debug
+# ─── Debug / Temp / Export ───────────────────────────────────
 debug/
+tmp/
+export/
+_*.txt
+_*.py
+_*.php
+fetchArray*
+scripts/_*.py
+scripts/_*output*.txt
+scripts/a.py
+scripts/f
+scripts/fase0*
+scripts/prue
 
-# IDE
+# ─── IDE ─────────────────────────────────────────────────────
 .vscode/
 .idea/
 
-# OS
+# ─── OS ──────────────────────────────────────────────────────
 Thumbs.db
 Desktop.ini
+c
+public

@@ -52,7 +52,9 @@ if ($action === 'update_lead') {
         $value = $_POST['value'] ?? '';
         $allowed = ['estado_lead', 'persona_contacto', 'cargo_contacto',
                     'telefono_movil', 'telefono_fijo', 'tiene_whatsapp', 'observaciones',
-                    'federacion'];
+                    'federacion', 'volumen_estimado', 'num_jugadores', 'categorias',
+                    'fecha_decision_prevista', 'objeciones', 'proxima_accion',
+                    'canal_interaccion', 'motivo_perdida'];
         if ($id <= 0 || !in_array($field, $allowed, true)) {
             echo json_encode(['ok' => false]);
             exit;
@@ -67,8 +69,24 @@ if ($action === 'update_lead') {
             $stmt = $db->prepare("UPDATE clubes_crm SET observaciones = :val, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
             $stmt->bindValue(':val', $merged, SQLITE3_TEXT);
         } elseif ($field === 'estado_lead') {
+            // Obtener estado anterior antes de actualizar
+            $estadoAnterior = $db->querySingle("SELECT estado_lead FROM clubes_crm WHERE id = {$id}");
             $stmt = $db->prepare("UPDATE clubes_crm SET estado_lead = :val, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
             $stmt->bindValue(':val', $value, SQLITE3_TEXT);
+            $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+            $stmt->execute();
+            // Registrar cambio de estado en comunicaciones_log (trazabilidad)
+            $stmtLog = $db->prepare(
+                "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+                 VALUES (:lid, :cid, 'cambio_estado', :det, CURRENT_TIMESTAMP)"
+            );
+            $stmtLog->bindValue(':lid', $id, SQLITE3_INTEGER);
+            $stmtLog->bindValue(':cid', $id, SQLITE3_INTEGER);
+            $detalle = "Estado cambiado de '{$estadoAnterior}' a '{$value}'";
+            $stmtLog->bindValue(':det', $detalle, SQLITE3_TEXT);
+            $stmtLog->execute();
+            echo json_encode(['ok' => true]);
+            exit;
         } else {
             $stmt = $db->prepare("UPDATE clubes_crm SET {$field} = :val WHERE id = :id");
             $stmt->bindValue(':val', $value, SQLITE3_TEXT);
@@ -117,7 +135,7 @@ if ($action === 'add_lead') {
         }
         $stmt = $db->prepare("INSERT INTO clubes_crm
             (nombre_club, email, federacion, telefono_movil, telefono_fijo, persona_contacto, cargo_contacto, tiene_whatsapp, estado_lead)
-            VALUES (:n, :e, :f, :m, :fi, :p, :c, :wa, 'Sin Contactar')");
+            VALUES (:n, :e, :f, :m, :fi, :p, :c, :wa, '01 Sin Contactar')");
         $stmt->bindValue(':n',  $n,  SQLITE3_TEXT);
         $stmt->bindValue(':e',  strtolower($e), SQLITE3_TEXT);
         $stmt->bindValue(':f',  $f,  SQLITE3_TEXT);
@@ -161,7 +179,192 @@ if ($action === 'get_lead') {
                (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email)) AS total_envios,
                (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email)) AS total_aperturas
         FROM clubes_crm c WHERE c.id = {$id}", true);
+    if ($row) {
+        $mockup = $db->querySingle("SELECT * FROM mockups WHERE lead_id = {$id} ORDER BY id DESC LIMIT 1", true);
+        $row['mockup'] = $mockup ?: null;
+        $presupuesto = $db->querySingle("SELECT * FROM presupuestos WHERE lead_id = {$id} ORDER BY version DESC LIMIT 1", true);
+        $row['presupuesto'] = $presupuesto ?: null;
+    }
     echo json_encode($row ?: null);
+    exit;
+}
+
+// ─── mockup_capacity ─────────────────────────────────────────────────────────
+if ($action === 'mockup_capacity') {
+    header('Content-Type: application/json');
+    $semanaInicio = date('Y-m-d 00:00:00', strtotime('monday this week'));
+    $solicitadosSemana = (int)$db->querySingle("SELECT COUNT(*) FROM mockups WHERE solicitado_en >= '{$semanaInicio}'");
+    $enProduccion = (int)$db->querySingle("SELECT COUNT(*) FROM mockups WHERE estado='solicitado'");
+    $enviados = (int)$db->querySingle("SELECT COUNT(*) FROM mockups WHERE estado='enviado'");
+    $capacidad = 100;
+    $restante = max(0, $capacidad - $solicitadosSemana);
+    $pctUtilizado = $capacidad > 0 ? round($solicitadosSemana / $capacidad * 100, 1) : 0;
+    echo json_encode([
+        'ok' => true,
+        'solicitados_semana' => $solicitadosSemana,
+        'en_produccion' => $enProduccion,
+        'enviados' => $enviados,
+        'capacidad_semanal' => $capacidad,
+        'restante' => $restante,
+        'pct_utilizado' => $pctUtilizado,
+        'alerta_80' => $pctUtilizado >= 80,
+        'alerta_95' => $pctUtilizado >= 95,
+    ]);
+    exit;
+}
+
+// ─── mockup_solicitar ────────────────────────────────────────────────────────
+if ($action === 'mockup_solicitar') {
+    header('Content-Type: application/json');
+    try {
+        $leadId = (int)($_POST['lead_id'] ?? 0);
+        if ($leadId <= 0) { echo json_encode(['ok'=>false,'error'=>'lead_id requerido']); exit; }
+        $db->exec("INSERT INTO mockups (lead_id, pipeline_id, estado, solicitado_en) VALUES ({$leadId}, NULL, 'solicitado', CURRENT_TIMESTAMP)");
+        $db->exec("UPDATE clubes_crm SET estado_lead = '06 Propuesta', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
+        $db->exec("INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha) VALUES ({$leadId}, {$leadId}, 'mockup_solicitado', 'Mockup solicitado', CURRENT_TIMESTAMP)");
+        echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID()]);
+    } catch (\Exception $e) { echo json_encode(['ok'=>false,'error'=>$e->getMessage()]); }
+    exit;
+}
+
+// ─── mockup_enviado ──────────────────────────────────────────────────────────
+if ($action === 'mockup_enviado') {
+    header('Content-Type: application/json');
+    try {
+        $mockupId = (int)($_POST['mockup_id'] ?? 0);
+        if ($mockupId <= 0) { echo json_encode(['ok'=>false,'error'=>'mockup_id requerido']); exit; }
+        $db->exec("UPDATE mockups SET estado = 'enviado', enviado_en = CURRENT_TIMESTAMP WHERE id = {$mockupId}");
+        $row = $db->querySingle("SELECT lead_id FROM mockups WHERE id = {$mockupId}", true);
+        if ($row) {
+            $db->exec("INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha) VALUES ({$row['lead_id']}, {$row['lead_id']}, 'mockup_enviado', 'Mockup enviado al club', CURRENT_TIMESTAMP)");
+        }
+        echo json_encode(['ok' => true]);
+    } catch (\Exception $e) { echo json_encode(['ok'=>false,'error'=>$e->getMessage()]); }
+    exit;
+}
+
+// ─── get_interacciones ───────────────────────────────────────────────────────
+if ($action === 'get_interacciones') {
+    header('Content-Type: application/json');
+    $leadId = (int)($_GET['lead_id'] ?? 0);
+    if ($leadId <= 0) { echo json_encode(['ok'=>false,'error'=>'lead_id requerido']); exit; }
+    $interacciones = [];
+    $res = $db->query("SELECT * FROM comunicaciones_log WHERE lead_id = {$leadId} ORDER BY fecha DESC LIMIT 30");
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $interacciones[] = $r; }
+    echo json_encode(['ok' => true, 'interacciones' => $interacciones]);
+    exit;
+}
+
+// ─── registrar_interaccion ───────────────────────────────────────────────────
+if ($action === 'registrar_interaccion') {
+    header('Content-Type: application/json');
+    try {
+        $leadId = (int)($_POST['lead_id'] ?? 0);
+        $canal  = $_POST['canal'] ?? 'email';
+        $tipoEvento = $_POST['tipo_evento'] ?? 'nota_manual';
+        $resumen = $_POST['resumen'] ?? '';
+        $resultado = $_POST['resultado'] ?? '';
+        $proximaAccion = $_POST['proxima_accion'] ?? '';
+        if ($leadId <= 0 || $resumen === '') {
+            echo json_encode(['ok'=>false,'error'=>'lead_id y resumen obligatorios']);
+            exit;
+        }
+        $stmt = $db->prepare(
+            "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, canal, resumen, resultado, proxima_accion, fecha)
+             VALUES (:lid, :cid, :tipo, :det, :canal, :res, :resul, :prox, CURRENT_TIMESTAMP)"
+        );
+        $stmt->bindValue(':lid', $leadId, SQLITE3_INTEGER);
+        $stmt->bindValue(':cid', $leadId, SQLITE3_INTEGER);
+        $stmt->bindValue(':tipo', $tipoEvento, SQLITE3_TEXT);
+        $stmt->bindValue(':det', $resumen, SQLITE3_TEXT);
+        $stmt->bindValue(':canal', $canal, SQLITE3_TEXT);
+        $stmt->bindValue(':res', $resumen, SQLITE3_TEXT);
+        $stmt->bindValue(':resul', $resultado, SQLITE3_TEXT);
+        $stmt->bindValue(':prox', $proximaAccion, SQLITE3_TEXT);
+        $stmt->execute();
+        echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID()]);
+    } catch (\Exception $e) { echo json_encode(['ok'=>false,'error'=>$e->getMessage()]); }
+    exit;
+}
+
+// ─── snapshot_crear ──────────────────────────────────────────────────────────
+if ($action === 'snapshot_crear') {
+    header('Content-Type: application/json');
+    try {
+        $stageOrder = "CASE estado_lead
+            WHEN '01 Sin Contactar' THEN 1 WHEN '02 Contactado' THEN 2
+            WHEN '03 Respondió' THEN 4 WHEN '04 Interesado' THEN 5
+            WHEN '05 Cualificado' THEN 6 WHEN '06 Propuesta' THEN 7
+            WHEN '07 Negociación' THEN 8 WHEN '08 Ganado' THEN 9
+            WHEN '09 Perdido' THEN 10 ELSE 0 END";
+        $total = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm");
+        $sinContactar = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 1");
+        $contactado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 2");
+        $respondio = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 4");
+        $interesado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 5");
+        $cualificado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE volumen_estimado >= 50 AND {$stageOrder} >= 6");
+        $propuesta = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 7");
+        $negociacion = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 8");
+        $ganado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 9");
+        $perdido = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 10");
+        $rebotado = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes");
+        $baja = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra','Baja / Opt-Out')");
+
+        $stmt = $db->prepare(
+            "INSERT INTO snapshots (fecha, total_leads, sin_contactar, contactado, respondio, interesado, cualificado, propuesta, negociacion, ganado, perdido, rebotado, baja_optout, metadata)
+             VALUES (CURRENT_TIMESTAMP, :tot, :sc, :co, :re, :in, :cu, :pr, :ne, :ga, :pe, :rb, :ba, :meta)"
+        );
+        $stmt->bindValue(':tot', $total, SQLITE3_INTEGER);
+        $stmt->bindValue(':sc', $sinContactar, SQLITE3_INTEGER);
+        $stmt->bindValue(':co', $contactado, SQLITE3_INTEGER);
+        $stmt->bindValue(':re', $respondio, SQLITE3_INTEGER);
+        $stmt->bindValue(':in', $interesado, SQLITE3_INTEGER);
+        $stmt->bindValue(':cu', $cualificado, SQLITE3_INTEGER);
+        $stmt->bindValue(':pr', $propuesta, SQLITE3_INTEGER);
+        $stmt->bindValue(':ne', $negociacion, SQLITE3_INTEGER);
+        $stmt->bindValue(':ga', $ganado, SQLITE3_INTEGER);
+        $stmt->bindValue(':pe', $perdido, SQLITE3_INTEGER);
+        $stmt->bindValue(':rb', $rebotado, SQLITE3_INTEGER);
+        $stmt->bindValue(':ba', $baja, SQLITE3_INTEGER);
+        $stmt->bindValue(':meta', json_encode(['timestamp' => date('c')]), SQLITE3_TEXT);
+        $stmt->execute();
+        echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID(), 'total' => $total]);
+    } catch (\Exception $e) { echo json_encode(['ok'=>false,'error'=>$e->getMessage()]); }
+    exit;
+}
+
+// ─── presupuesto_crear ──────────────────────────────────────────────────────
+if ($action === 'presupuesto_crear') {
+    header('Content-Type: application/json');
+    try {
+        $leadId = (int)($_POST['lead_id'] ?? 0);
+        $condiciones = $_POST['condiciones_pago'] ?? '50%+50%';
+        if ($leadId <= 0) { echo json_encode(['ok'=>false,'error'=>'lead_id requerido']); exit; }
+        $club = $db->querySingle("SELECT volumen_estimado FROM clubes_crm WHERE id = {$leadId}", true);
+        $volumen = (int)($club['volumen_estimado'] ?? 0);
+        if ($volumen < 50) { echo json_encode(['ok'=>false,'error'=>'Volumen minimo 50 pares']); exit; }
+        $calc = calcularPrecioYMargenLocal($volumen, 15);
+        $precioUnit = $calc['precio_b2b'];
+        $subtotal = $volumen * $precioUnit;
+        $descuento = ($condiciones === '100% adelantado') ? round($subtotal * 0.05, 2) : 0;
+        $total = $subtotal - $descuento;
+        $lastVer = (int)$db->querySingle("SELECT COALESCE(MAX(version),0) FROM presupuestos WHERE lead_id = {$leadId}");
+        $version = $lastVer + 1;
+        $stmt = $db->prepare("INSERT INTO presupuestos (lead_id, pipeline_id, version, unidades, precio_unitario, subtotal, descuento_aplicado, condiciones_pago, transporte, importe_total, margen_potencial_club, estado, fecha) VALUES (:lid, NULL, :ver, :uni, :pu, :sub, :desc, :cp, 'Incluido Peninsula', :tot, :mar, 'creado', CURRENT_TIMESTAMP)");
+        $stmt->bindValue(':lid', $leadId, SQLITE3_INTEGER);
+        $stmt->bindValue(':ver', $version, SQLITE3_INTEGER);
+        $stmt->bindValue(':uni', $volumen, SQLITE3_INTEGER);
+        $stmt->bindValue(':pu', $precioUnit, SQLITE3_FLOAT);
+        $stmt->bindValue(':sub', $subtotal, SQLITE3_FLOAT);
+        $stmt->bindValue(':desc', $descuento, SQLITE3_FLOAT);
+        $stmt->bindValue(':cp', $condiciones, SQLITE3_TEXT);
+        $stmt->bindValue(':tot', $total, SQLITE3_FLOAT);
+        $stmt->bindValue(':mar', $calc['margen_total'], SQLITE3_FLOAT);
+        $stmt->execute();
+        $newId = $db->lastInsertRowID();
+        $db->exec("INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha) VALUES ({$leadId}, {$leadId}, 'presupuesto_creado', 'Presupuesto v{$version} creado: {$volumen} pares x {$precioUnit}€ = {$total}€', CURRENT_TIMESTAMP)");
+        echo json_encode(['ok'=>true,'id'=>$newId,'version'=>$version,'total'=>$total,'unidades'=>$volumen,'precio_unitario'=>$precioUnit]);
+    } catch (\Exception $e) { echo json_encode(['ok'=>false,'error'=>$e->getMessage()]); }
     exit;
 }
 
@@ -175,12 +378,14 @@ if ($action === 'save_template') {
         $ab  = $_POST['asunto_b'] ?? '';
         $ac  = $_POST['asunto_c'] ?? '';
         $c   = $_POST['cuerpo'] ?? '';
+        $cb  = $_POST['cuerpo_b'] ?? '';
+        $cc  = $_POST['cuerpo_c'] ?? '';
         $t   = $_POST['tipo'] ?? 'html';
         $cat = $_POST['categoria'] ?? 'prospeccion';
         $act = $_POST['activo'] ?? 1;
         $tab = (int)($_POST['test_ab'] ?? 0);
         if ($id > 0) {
-            $stmt = $db->prepare("UPDATE plantillas SET nombre = :n, asunto = :a, asunto_b = :ab, asunto_c = :ac, cuerpo = :c, tipo = :t, categoria = :cat, activo = :act, test_ab = :tab WHERE id = :id");
+            $stmt = $db->prepare("UPDATE plantillas SET nombre = :n, asunto = :a, asunto_b = :ab, asunto_c = :ac, cuerpo = :c, cuerpo_b = :cb, cuerpo_c = :cc, tipo = :t, categoria = :cat, activo = :act, test_ab = :tab WHERE id = :id");
             $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
             $stmt->bindValue(':ab', $ab, SQLITE3_TEXT);
             $stmt->bindValue(':ac', $ac, SQLITE3_TEXT);
@@ -194,6 +399,8 @@ if ($action === 'save_template') {
         $stmt->bindValue(':n',   $n,   SQLITE3_TEXT);
         $stmt->bindValue(':a',   $a,   SQLITE3_TEXT);
         $stmt->bindValue(':c',   $c,   SQLITE3_TEXT);
+        $stmt->bindValue(':cb',  $cb,  SQLITE3_TEXT);
+        $stmt->bindValue(':cc',  $cc,  SQLITE3_TEXT);
         $stmt->bindValue(':t',   $t,   SQLITE3_TEXT);
         $stmt->bindValue(':cat', $cat, SQLITE3_TEXT);
         $stmt->bindValue(':act', (int)$act, SQLITE3_INTEGER);
@@ -318,83 +525,153 @@ if ($action === 'get_analytics') {
         $r2 = $db->query("SELECT id, nombre_club, email, estado_lead, observaciones FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra') ORDER BY id DESC LIMIT 50");
         while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
     } elseif ($tab === 'dashboard') {
-        // Pipeline funnel
-        $data['pipeline'] = [];
-        $rs = $db->query("SELECT estado_lead, COUNT(*) as cnt FROM clubes_crm GROUP BY estado_lead ORDER BY cnt DESC");
-        while ($r = $rs->fetchArray(SQLITE3_ASSOC)) { $data['pipeline'][] = $r; }
-        // A/B/C test — query simplificada desde comunicaciones_log
-        $data['ab'] = [];
-        $rs2 = $db->query("
-            SELECT p.nombre AS plantilla, cl.variante_ab, COUNT(*) AS envios,
-                   COUNT(DISTINCT a.tracking_id) AS aperturas,
-                   ROUND(CAST(COUNT(DISTINCT a.tracking_id) AS FLOAT)/MAX(COUNT(*),1)*100,1) AS tasa
-            FROM comunicaciones_log cl
-            JOIN plantillas p ON p.id = cl.plantilla_id
-            LEFT JOIN envios e ON e.tracking_id = (
-                SELECT e2.tracking_id FROM envios e2
-                WHERE LOWER(e2.email) = (SELECT LOWER(c.email) FROM clubes_crm c WHERE c.id = cl.lead_id)
-                  AND e2.estado = 'enviado'
-                ORDER BY e2.id DESC LIMIT 1
-            )
-            LEFT JOIN aperturas a ON a.tracking_id = e.tracking_id
-            WHERE cl.tipo_evento = 'envio_email' AND cl.variante_ab != ''
-            GROUP BY cl.plantilla_id, cl.variante_ab
-            ORDER BY envios DESC
-            LIMIT 30
-        ");
-        while ($r = $rs2->fetchArray(SQLITE3_ASSOC)) { $data['ab'][] = $r; }
-        // Timeline 30 días
-        $data['timeline'] = [];
-        $rs3 = $db->query("SELECT DATE(fecha_envio) as dia, COUNT(*) as envios, SUM(CASE WHEN a.id IS NOT NULL THEN 1 ELSE 0 END) as aperturas FROM envios e LEFT JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE e.fecha_envio >= DATE('now','-30 days') AND e.estado='enviado' GROUP BY dia ORDER BY dia ASC");
-        while ($r = $rs3->fetchArray(SQLITE3_ASSOC)) { $data['timeline'][] = $r; }
-        // Aperturas por federación (19 canónicas con 0s si no hay datos)
-        $fedCanonicas = [
-            'Real Federación Andaluza de Fútbol',
-            'Federación Aragonesa de Fútbol',
-            'Real Federación de Fútbol del Principado de Asturias',
-            'Federació de Futbol de les Illes Balears',
-            'Federación Canaria de Fútbol',
-            'Federación Cántabra de Fútbol',
-            'Federación de Fútbol de Castilla-La Mancha',
-            'Real Federación de Castilla y León de Fútbol',
-            'Federació Catalana de Futbol',
-            'Federación de Fútbol de Ceuta',
-            'Federación Extremeña de Fútbol',
-            'Real Federación Galega de Fútbol',
-            'Real Federación de Fútbol de Madrid',
-            'Federación Melillense de Fútbol',
-            'Federación de Fútbol de la Región de Murcia',
-            'Federación Navarra de Fútbol',
-            'Federación Vasca de Fútbol',
-            'Federació de Futbol de la Comunitat Valenciana',
-            'Federación Riojana de Fútbol',
+        $pipeline = $_GET['pipeline'] ?? '';
+        $variante = $_GET['variante'] ?? '';
+        $excluirTest = ($_GET['excluir_test'] ?? '1') !== '0';
+        $whereCommercial = $excluirTest ? "AND c.nombre_club NOT LIKE '%TEST%'" : '';
+        $wherePipeline = $pipeline ? "AND lp.pipeline_id = " . (int)$pipeline : '';
+        $whereVariante = $variante ? "AND lp.variante_ab = '" . $db->escapeString($variante) . "'" : '';
+
+        // Helper: stage_order
+        $stageOrder = "CASE c.estado_lead
+            WHEN '01 Sin Contactar' THEN 1 WHEN '02 Contactado' THEN 2
+            WHEN '03 Respondió' THEN 4 WHEN '04 Interesado' THEN 5
+            WHEN '05 Cualificado' THEN 6 WHEN '06 Propuesta' THEN 7
+            WHEN '07 Negociación' THEN 8 WHEN '08 Ganado' THEN 9
+            WHEN '09 Perdido' THEN 10 ELSE 0 END";
+
+        // F3.1 — Funnel 12 niveles (spec V4.3)
+        // 1. Contactados
+        $cntTotal = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE 1=1 {$whereCommercial}");
+        $cntContactados = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 2 {$whereCommercial}");
+        // 2. Entregados = Contactados - Rebotes
+        $cntRebotesContactados = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN rebotes r ON LOWER(r.email) = LOWER(c.email) WHERE {$stageOrder} >= 2 {$whereCommercial}");
+        $cntEntregados = max($cntContactados - $cntRebotesContactados, 0);
+        // 3. Abrieron (leads con al menos una apertura)
+        $cntAbrieron = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email) = LOWER(c.email) JOIN aperturas a ON a.tracking_id = e.tracking_id WHERE 1=1 {$whereCommercial}");
+        // 4. Respondieron
+        $cntRespondio = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 4 {$whereCommercial}");
+        // 5. Respuestas positivas
+        $cntInteresado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 5 {$whereCommercial}");
+        // 6. Cualificados
+        $cntCualificado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE volumen_estimado >= 50 AND {$stageOrder} >= 6 {$whereCommercial}");
+        // 7. Oportunidades
+        $cntPropuesta = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 7 {$whereCommercial}");
+        // 8. Mockups enviados (DISTINCT lead_id)
+        $cntMockups = (int)$db->querySingle("SELECT COUNT(DISTINCT m.lead_id) FROM mockups m JOIN clubes_crm c ON m.lead_id=c.id WHERE m.estado='enviado' {$whereCommercial}");
+        // 9. Presupuestos (DISTINCT lead_id)
+        $cntPresupuestos = (int)$db->querySingle("SELECT COUNT(DISTINCT p.lead_id) FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id WHERE 1=1 {$whereCommercial}");
+        // 10. Negociaciones
+        $cntNegociacion = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 8 {$whereCommercial}");
+        // 11. Ganados
+        $cntGanado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} = 9 {$whereCommercial}");
+        // 12. Perdidos
+        $cntPerdido = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} = 10 {$whereCommercial}");
+
+        $data['funnel'] = [
+            ['nivel'=>'1. Contactados','cnt'=>$cntContactados,'pct'=>100],
+            ['nivel'=>'2. Entregados','cnt'=>$cntEntregados,'pct'=>$cntContactados>0?round($cntEntregados/$cntContactados*100,1):0],
+            ['nivel'=>'3. Abrieron','cnt'=>$cntAbrieron,'pct'=>$cntEntregados>0?round($cntAbrieron/$cntEntregados*100,1):0],
+            ['nivel'=>'4. Respondieron','cnt'=>$cntRespondio,'pct'=>$cntAbrieron>0?round($cntRespondio/$cntAbrieron*100,1):0],
+            ['nivel'=>'5. Resp. Positivas','cnt'=>$cntInteresado,'pct'=>$cntRespondio>0?round($cntInteresado/$cntRespondio*100,1):0],
+            ['nivel'=>'6. Cualificados','cnt'=>$cntCualificado,'pct'=>$cntInteresado>0?round($cntCualificado/$cntInteresado*100,1):0],
+            ['nivel'=>'7. Oportunidades','cnt'=>$cntPropuesta,'pct'=>$cntCualificado>0?round($cntPropuesta/$cntCualificado*100,1):0],
+            ['nivel'=>'8. Mockups','cnt'=>$cntMockups,'pct'=>$cntPropuesta>0?round($cntMockups/$cntPropuesta*100,1):0],
+            ['nivel'=>'9. Presupuestos','cnt'=>$cntPresupuestos,'pct'=>$cntMockups>0?round($cntPresupuestos/$cntMockups*100,1):0],
+            ['nivel'=>'10. Negociaciones','cnt'=>$cntNegociacion,'pct'=>$cntPresupuestos>0?round($cntNegociacion/$cntPresupuestos*100,1):0],
+            ['nivel'=>'11. Ganados','cnt'=>$cntGanado,'pct'=>$cntNegociacion>0?round($cntGanado/$cntNegociacion*100,1):0],
+            ['nivel'=>'12. Perdidos','cnt'=>$cntPerdido,'pct'=>$cntGanado+$cntPerdido>0?round($cntPerdido/($cntGanado+$cntPerdido)*100,1):0],
         ];
-        $data['fedAperturas'] = [];
-        $stmtFed = $db->prepare("SELECT COUNT(DISTINCT e.id) as envios, COUNT(DISTINCT a.tracking_id) as aperturas, ROUND(CAST(COUNT(DISTINCT a.tracking_id) AS FLOAT)/MAX(COUNT(DISTINCT e.id),1)*100,1) as tasa FROM clubes_crm c JOIN envios e ON LOWER(e.email)=LOWER(c.email) AND e.estado='enviado' LEFT JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE c.federacion = :fed");
-        foreach ($fedCanonicas as $fed) {
-            $stmtFed->bindValue(':fed', $fed, SQLITE3_TEXT);
-            $resFed = $stmtFed->execute();
-            $row = $resFed->fetchArray(SQLITE3_ASSOC);
-            $data['fedAperturas'][] = [
-                'federacion' => $fed,
-                'envios' => (int)($row['envios'] ?? 0),
-                'aperturas' => (int)($row['aperturas'] ?? 0),
-                'tasa' => (float)($row['tasa'] ?? 0),
-            ];
-            $stmtFed->reset();
+
+        // KPIs económicos (F3.3) — Solo versión más reciente de presupuesto por lead
+        $data['kpi'] = [];
+        $ganadosEco = $db->query("SELECT COALESCE(SUM(p.unidades),0) as pares, COALESCE(SUM(p.importe_total),0) as fact, COALESCE(SUM(p.margen_potencial_club),0) as margen FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id JOIN (SELECT lead_id, MAX(version) as max_ver FROM presupuestos GROUP BY lead_id) pmax ON p.lead_id = pmax.lead_id AND p.version = pmax.max_ver WHERE c.estado_lead='08 Ganado' {$whereCommercial}");
+        $eco = $ganadosEco->fetchArray(SQLITE3_ASSOC);
+        $paresGanados = (int)$eco['pares'];
+        $factGanada = (float)$eco['fact'];
+        $margenGanado = (float)$eco['margen'];
+        $nGanados = max((int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder}=9 {$whereCommercial}"),1);
+
+        $data['kpi'] = [
+            'ganados_100' => $cntTotal>0 ? round($cntGanado/$cntTotal*100,2) : 0,
+            'fact_100' => $cntTotal>0 ? round($factGanada/$cntTotal*100,0) : 0,
+            'pares_100' => $cntTotal>0 ? round($paresGanados/$cntTotal*100,1) : 0,
+            'margen_100' => $cntTotal>0 ? round($margenGanado/$cntTotal*100,0) : 0,
+            'ticket_medio' => $nGanados>0 ? round($factGanada/$nGanados,0) : 0,
+            'pares_medio' => $nGanados>0 ? round($paresGanados/$nGanados,0) : 0,
+            'fact_media' => $nGanados>0 ? round($factGanada/$nGanados,0) : 0,
+        ];
+
+        // F3.2 / F3.5 — A/B/C comparativa ampliada (spec V4.3)
+        $data['abc'] = [];
+        $variantes = ['A','B','C'];
+        foreach ($variantes as $v) {
+            $vWhere = "AND lp.variante_ab='{$v}'";
+            $cv = [];
+            $cv['variante'] = $v;
+            // Leads asignados
+            $cv['leads'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE 1=1 {$whereCommercial} {$vWhere}");
+            // Entregados (con envío, sin rebote)
+            $cv['entregados'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN envios e ON LOWER(e.email)=LOWER(c.email) WHERE e.estado='enviado' {$whereCommercial} {$vWhere}");
+            $cv['rebotes'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN rebotes r ON LOWER(r.email)=LOWER(c.email) WHERE 1=1 {$whereCommercial} {$vWhere}");
+            // Aperturas
+            $cv['aperturas'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN envios e ON LOWER(e.email)=LOWER(c.email) JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE 1=1 {$whereCommercial} {$vWhere}");
+            $cv['tasa_apertura'] = $cv['entregados']>0 ? round($cv['aperturas']/$cv['entregados']*100,1) : 0;
+            // Respuestas
+            $cv['respondio'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
+            $cv['tasa_resp'] = $cv['aperturas']>0 ? round($cv['respondio']/$cv['aperturas']*100,1) : 0;
+            // Resp. Positivas
+            $cv['interesado'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}>=5 {$whereCommercial} {$vWhere}");
+            // Cualificados
+            $cv['cualificado'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE volumen_estimado>=50 AND {$stageOrder}>=6 {$whereCommercial} {$vWhere}");
+            // Propuestas
+            $cv['propuesta'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}>=7 {$whereCommercial} {$vWhere}");
+            // Mockups enviados (DISTINCT)
+            $cv['mockups'] = (int)$db->querySingle("SELECT COUNT(DISTINCT m.lead_id) FROM mockups m JOIN clubes_crm c ON m.lead_id=c.id JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE m.estado='enviado' {$whereCommercial} {$vWhere}");
+            // Presupuestos (DISTINCT)
+            $cv['presupuestos'] = (int)$db->querySingle("SELECT COUNT(DISTINCT p.lead_id) FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE 1=1 {$whereCommercial} {$vWhere}");
+            // Negociaciones
+            $cv['negociacion'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}>=8 {$whereCommercial} {$vWhere}");
+            // Ganados / Perdidos
+            $cv['ganado'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}=9 {$whereCommercial} {$vWhere}");
+            $cv['perdido'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}=10 {$whereCommercial} {$vWhere}");
+            $cv['conversion'] = $cv['leads']>0 ? round($cv['ganado']/$cv['leads']*100,1) : 0;
+            // Económicos por variante — Solo versión más reciente de presupuesto por lead
+            $ecoV = $db->querySingle("SELECT COALESCE(SUM(p.importe_total),0) as fact, COALESCE(SUM(p.unidades),0) as pares FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN (SELECT lead_id, MAX(version) as max_ver FROM presupuestos GROUP BY lead_id) pmax ON p.lead_id = pmax.lead_id AND p.version = pmax.max_ver WHERE c.estado_lead='08 Ganado' {$whereCommercial} {$vWhere}", true);
+            $cv['facturacion'] = (int)$ecoV['fact'];
+            $cv['pares'] = (int)$ecoV['pares'];
+            $cv['ticket_medio'] = $cv['ganado']>0 ? round($cv['facturacion']/$cv['ganado'],0) : 0;
+            $cv['fact_100'] = $cv['leads']>0 ? round($cv['facturacion']/$cv['leads']*100,0) : 0;
+            $cv['pares_100'] = $cv['leads']>0 ? round($cv['pares']/$cv['leads']*100,1) : 0;
+            $data['abc'][] = $cv;
         }
-        // Interacciones antes del cierre (histograma)
-        $data['interaccionesCierre'] = [];
-        $rs5 = $db->query("SELECT c.estado_lead, COUNT(cl.id) as total_interacciones, COUNT(DISTINCT c.id) as total_leads, ROUND(CAST(COUNT(cl.id) AS FLOAT)/MAX(COUNT(DISTINCT c.id),1),1) as media_interacciones FROM clubes_crm c LEFT JOIN comunicaciones_log cl ON (cl.lead_id=c.id OR cl.club_id=c.id) AND cl.tipo_evento='envio_email' WHERE c.estado_lead IN ('Cerrado Ganado','Cerrado Perdido') GROUP BY c.estado_lead");
-        while ($r = $rs5->fetchArray(SQLITE3_ASSOC)) { $data['interaccionesCierre'][] = $r; }
-        // Distribución de interacciones por lead (histograma detallado)
-        $data['histogramaInteracciones'] = [];
-        $rs6 = $db->query("SELECT interacciones, COUNT(*) as cantidad_leads FROM (SELECT c.id, COUNT(cl.id) as interacciones FROM clubes_crm c LEFT JOIN comunicaciones_log cl ON (cl.lead_id=c.id OR cl.club_id=c.id) AND cl.tipo_evento='envio_email' WHERE c.estado_lead IN ('Cerrado Ganado','Cerrado Perdido') GROUP BY c.id) GROUP BY interacciones ORDER BY interacciones ASC");
-        while ($r = $rs6->fetchArray(SQLITE3_ASSOC)) { $data['histogramaInteracciones'][] = $r; }
-        // Timeline de interacciones por día
-        $data['timelineInteracciones'] = [];
-        $rs7 = $db->query("SELECT DATE(fecha) as dia, COUNT(*) as total_comunicaciones FROM comunicaciones_log WHERE fecha >= DATE('now','-30 days') GROUP BY dia ORDER BY dia ASC");
-        while ($r = $rs7->fetchArray(SQLITE3_ASSOC)) { $data['timelineInteracciones'][] = $r; }
+        // Determinar variante ganadora (si hay evidencia suficiente: al menos 5 leads por variante)
+        $data['abc_ganadora'] = null;
+        $maxConversion = 0;
+        foreach ($data['abc'] as $cv) {
+            if ($cv['leads'] >= 5 && $cv['conversion'] > $maxConversion) {
+                $maxConversion = $cv['conversion'];
+                $data['abc_ganadora'] = $cv['variante'];
+            }
+        }
+
+        // Objetivo 20 clubes
+        $data['objetivo'] = [
+            'objetivo' => 20,
+            'ganados' => $cntGanado,
+            'pct' => $cntGanado>0 ? round($cntGanado/20*100,1) : 0,
+            'restantes' => max(20-$cntGanado,0),
+            'tasa_cierre' => $cntContactados>0 ? round($cntGanado/$cntContactados*100,2) : 0,
+            'contactos_necesarios' => $cntGanado>0 ? (int)ceil(20/($cntGanado/$cntContactados))-($cntContactados) : 'Sin datos suficientes',
+            'facturacion' => $factGanada,
+            'pares' => $paresGanados,
+            'margen' => $margenGanado,
+        ];
+
+        // Pipeline names para filtros
+        $data['pipelines'] = [];
+        $rp = $db->query("SELECT id, nombre FROM pipelines WHERE activo=1");
+        while ($r = $rp->fetchArray(SQLITE3_ASSOC)) { $data['pipelines'][] = $r; }
     }
     echo json_encode($data);
     exit;
@@ -427,20 +704,22 @@ $totalBajas      = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE 
 $smtpActivas     = (int)$db->querySingle("SELECT COUNT(*) FROM cuentas_smtp WHERE activa = 1");
 $smtpEnviadosHoy = (int)$db->querySingle("SELECT COALESCE(SUM(enviados_hoy), 0) FROM cuentas_smtp");
 
-// Estados Kanban
+// Estados Kanban — V4.3 (8 columnas definitivas)
 $estadosKanban = [
-    'Sin Contactar', 'Email Enviado / En Secuencia', 'Impactado / Abrio Email',
-    'En Conversacion / WhatsApp', 'Muestra / Propuesta Enviada',
-    'Cerrado Ganado', 'Cerrado Perdido'
+    '01 Sin Contactar', '02 Contactado', '03 Respondió',
+    '04 Interesado', '05 Cualificado', '06 Propuesta',
+    '07 Negociación', '08 Ganado', '09 Perdido'
 ];
 $colClasses = [
-    'Sin Contactar'               => 'border-slate-500',
-    'Email Enviado / En Secuencia' => 'border-blue-500',
-    'Impactado / Abrio Email'      => 'border-cyan-500',
-    'En Conversacion / WhatsApp'   => 'border-amber-500',
-    'Muestra / Propuesta Enviada'  => 'border-purple-500',
-    'Cerrado Ganado'               => 'border-emerald-500',
-    'Cerrado Perdido'              => 'border-rose-500',
+    '01 Sin Contactar' => 'border-slate-500',
+    '02 Contactado'    => 'border-blue-500',
+    '03 Respondió'     => 'border-cyan-500',
+    '04 Interesado'    => 'border-amber-500',
+    '05 Cualificado'   => 'border-purple-500',
+    '06 Propuesta'     => 'border-indigo-500',
+    '07 Negociación'   => 'border-orange-500',
+    '08 Ganado'        => 'border-emerald-500',
+    '09 Perdido'       => 'border-rose-500',
 ];
 
 // Datos Kanban
@@ -493,6 +772,15 @@ $federacionesSelect = $federaciones;
 $db->close();
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+function calcularPrecioYMargenLocal(int $volumen, int $pvp = 15): array {
+    if ($volumen <= 0) return ['precio_b2b'=>null,'facturacion'=>null,'margen_par'=>null,'margen_total'=>null,'tramo'=>'Desconocido'];
+    if ($volumen >= 200)            [$precio, $tramo] = [7, '200+ pares'];
+    elseif ($volumen >= 100)        [$precio, $tramo] = [8, '100-199 pares'];
+    elseif ($volumen >= 50)         [$precio, $tramo] = [9, '50-99 pares'];
+    else return ['precio_b2b'=>null,'facturacion'=>null,'margen_par'=>null,'margen_total'=>null,'tramo'=>'<50 pares'];
+    return ['precio_b2b'=>$precio,'facturacion'=>$volumen*$precio,'margen_par'=>$pvp-$precio,'margen_total'=>$volumen*($pvp-$precio),'tramo'=>$tramo];
+}
+
 function getWaLink(string $m): string {
     $n = explode(',', $m);
     $f = trim($n[0] ?? '');
@@ -507,17 +795,11 @@ function escHtml(string $s): string {
 ?><!DOCTYPE html>
 <html lang="es" class="dark">
 <head>
-    <meta charset="UTF-8">
+<meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FutProtec — Outbound CRM</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            safelist: ['bg-emerald-400', 'bg-amber-400', 'bg-rose-500', 'text-emerald-400', 'text-amber-400', 'text-rose-400', 'animate-pulse', 'border-emerald-500/30', 'border-amber-500/30', 'border-rose-500/30', 'border-emerald-400', 'border-rose-400', 'bg-emerald-500/20', 'bg-amber-500/20', 'bg-rose-500/20', 'bg-blue-500/20', 'bg-blue-500/30', 'text-blue-400', 'border-blue-500/30', 'border-l-2', 'border-l-amber-400', 'bg-amber-500/10'],
-            theme: { extend: { colors: { slate: { 950: '#0a0f1a' } } } }
-        };
-    </script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23f59e0b'/><text x='16' y='23' font-size='22' text-anchor='middle' fill='%230a0f1a' font-family='sans-serif' font-weight='bold'>FP</text></svg>">
+    <link rel="stylesheet" href="css/tailwind.min.css">
     <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -667,925 +949,11 @@ $federacionesSelect = [
 include __DIR__ . '/tabs/modals.php';
 ?>
 
-<!-- ═══════════ ALPINE.JS APP ═══════════ -->
+<!-- ALPINE.JS APP -->
 <script>
-var app = function() {
-    var i = {
-        tab: 'kanban',
-        killSwitch: <?= $motorActivo ? 'true' : 'false' ?>,
-        modeTest: <?= $modoPruebas ? 'true' : 'false' ?>,
-
-        // Modales
-        lm: false, mm: false, sm: false, al: false,
-        ln: '', mn: true, mk: 0, md: 0,
-        ld: {}, ldOriginal: {},              // ldOriginal = snapshot al abrir, para detectar cambios
-        ldChanged: false,                     // true si hay cambios sin guardar
-        mf: [], mha: '', mhb: '',
-
-        // SMTP
-        se: 0,
-        randomMode: false,             // 🎲 modo aleatorio (anti-blacklist)
-        sf: { email: '', host: 'mail.getfutprotec.com', puerto: 465, usuario: '', password: '', seguridad: 'ssl', limite_diario: 50, nombre_emisor: '', cargo_emisor: '' },
-
-        // Add Lead
-        af: { nombre: '', email: '', federacion: '', movil: '', fijo: '', persona: '', cargo: '' },
-
-        // WhatsApp desde ficha
-        ldPlantillasWa: [],          // todas las plantillas tipo whatsapp
-        ldPlantillaWaId: '',         // plantilla seleccionada en la ficha
-        ldWaUrl: '',                 // URL generada con texto
-
-        // Previsualizacion modal
-        pv: false,                    // modal abierto
-        pvClubId: '',                // club seleccionado en el modal
-        pvContent: '',               // HTML renderizado
-        pvLoading: false,            // spinner mientras carga
-
-        // Buscador en listado
-        edSearch: '',                // texto de busqueda en el listado
-
-        // Analytics modal
-        aq: false,                    // analytics modal abierto
-        aqTab: 'envios',             // tab activo: envios | aperturas | rebotes | bajas | cuentas
-        aqData: { total: 0, ultimos: [] }, // datos del endpoint (inicializado para evitar errores)
-        aqLoading: false,            // spinner
-
-        // Lanzadera v2 — variables originales continúan...
-        lzMotorEstado: 'PAUSADO',
-
-        // Gestor
-        gs: '', ge: '', gf: '', gt: '', gp: 1, gpp: 50, gsc: 'nombre_club', gso: 'ASC',
-
-        // Editor
-         ec: '', et: '', en: false,
-         edPlataforma: 'email',        // 'email' | 'whatsapp' — pills toggle
-         estadosLead: [
-             '01 Sin Contactar',
-             '02 Email/WhatsApp Enviado',
-             '03 Email Abierto',
-             '04 En Conversacion',
-             '05 Propuesta Enviada',
-             '06 Cerrado Ganado',
-             '07 Cerrado Perdido'
-         ],
-         categorias: [], templates: [],
-         edNombre: '', edAsunto: '', edAsuntoB: '', edAsuntoC: '', edTestAb: 0,
-         edCuerpo: '', edTipo: 'html',
-         previewClubId: '', debounceTimer: null,
-
-        // Lanzadera v2
-        lzMotorEstado: 'PAUSADO',      // PAUSADO | ACTIVO | DETENIDO
-        lzDelay: 5,                     // segundos (default 5s)
-        lzInterval: null,               // timer del motor
-        lzAbortController: null,        // para cancelar envíos
-        testEmails: '',                // 🧪 campo de texto con emails de prueba
-        lzCola: [],                     // array completo de leads con SMTP asignada
-        lzColaIndex: 0,                // índice del lead actual en proceso
-        lzColaPaginada: [],            // subconjunto visible (infinite scroll)
-        lzColaPageSize: 50,           // cuántos items cargar por scroll
-        lzColaPageCurrent: 0,         // página actual de scroll
-        lzColaCompletados: {},         // objeto: { [clubId]: true } para leads ya enviados
-        lzLogEnviados: [],             // log completo de envíos realizados en esta sesión
-        lzLogEnviadosPaginados: [],    // subconjunto visible del log
-        lzLogPageSize: 30,            // cuántos items del log cargar por scroll
-        lzLogPageCurrent: 0,          // página actual de scroll del log
-        lzCuentasSmtp: [],             // estado de cuentas SMTP
-        lzFederacion: '',              // 1.1 Seleccionar Federacion
-        lzEstadoLead: '',              // 1.2 Seleccionar Estado del Lead
-        lzIdPlantillaEmail: '',        // 1.3 Seleccionar Plantilla
-        lzIdPlantillaWa: '',           // 1.4 Plantilla WA
-        lzWhatsappOn: false,           // 1.4 Toggle WA
-        lzFederaciones: [],            // opciones del dropdown 1.1
-        lzEstadosLead: [               // opciones del dropdown 1.2 (estados fijos)
-            '01 Sin Contactar',
-            '02 Email/WhatsApp Enviado',
-            '03 Email Abierto',
-            '04 En Conversacion',
-            '05 Propuesta Enviada',
-            '06 Cerrado Ganado',
-            '07 Cerrado Perdido'
-        ],
-        lzTemplatesEmail: [],          // plantillas email filtradas
-        lzTemplatesWa: [],             // plantillas whatsapp filtradas
-        lzTabMonitor: 'cola',          // cola | log
-        lzKpiClubes: 0,                // KPI: total clubes
-        lzKpiSmtpActivas: 0,          // KPI: SMTP activas
-        lzKpiEnviosHoy: 0,            // KPI: envíos hoy
-
-        // ─── Computed ─────────────────────────────────────────────────────────
-        get waLink() {
-            const m = this.ld.telefono_movil || '';
-            const n = m.split(',').map(s => s.trim()).filter(s => /^[67]\d{8}$/.test(s));
-            return n.length > 0 ? 'https://wa.me/34' + n[0] : '';
-        },
-        get templatesFiltradas() {
-            const q = (this.edSearch || '').toLowerCase();
-            return this.templates.filter(t =>
-                (!this.ec || t.categoria === this.ec) &&
-                (this.edPlataforma === 'whatsapp' ? t.tipo === 'whatsapp' : t.tipo !== 'whatsapp') &&
-                (!q || (t.nombre || '').toLowerCase().includes(q) || (t.categoria || '').toLowerCase().includes(q))
-            );
-        },
-        seleccionarPlantilla(t) {
-            this.et = t.id;
-            this.edNombre = t.nombre;
-            this.edAsunto = t.asunto || '';
-             this.edAsuntoB = t.asunto_b || '';
-             this.edAsuntoC = t.asunto_c || '';
-             this.edTestAb = parseInt(t.test_ab) || 0;
-             this.edCuerpo = t.cuerpo || '';
-             this.edTipo = t.tipo || 'html';
-             this.edPlataforma = (t.tipo === 'whatsapp') ? 'whatsapp' : 'email';
-            this.ec = t.categoria || this.ec;
-            this.en = false;
-            this.autoPreview();
-            setTimeout(() => lucide.createIcons(), 50);
-        },
-
-        // ─── Analytics de Sesión (Lanzadera) ────────────────────────────────
-        get lzEnvioOkCount() {
-            return this.lzLogEnviados.filter(l => l.envio_exitoso).length;
-        },
-        get lzEnvioErrorCount() {
-            return this.lzLogEnviados.filter(l => !l.envio_exitoso).length;
-        },
-        get lzTotalProcesados() {
-            return this.lzLogEnviados.length;
-        },
-        get lzTasaExito() {
-            return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioOkCount / this.lzTotalProcesados) * 100) : 0;
-        },
-        get lzEnvioOkPct() {
-            return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioOkCount / this.lzTotalProcesados) * 100) : 0;
-        },
-        get lzEnvioErrorPct() {
-            return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioErrorCount / this.lzTotalProcesados) * 100) : 0;
-        },
-
-        // ─── 🧪 Parser de emails de prueba ────────────────────────────────
-        get testEmailsList() {
-            if (!this.testEmails || !this.testEmails.trim()) return [];
-            return this.testEmails
-                .split(/[\n,]+/)
-                .map(e => e.trim())
-                .filter(e => e.length > 0 && e.includes('@'));
-        },
-
-        // ─── Boot ─────────────────────────────────────────────────────────────
-        async boot() {
-            window.app = this;
-            lucide.createIcons();
-            // Cada inicialización es independiente para que un fallo no
-            // bloquee el resto del panel (ej: SMTP no depende de Gestor)
-            try { await this.loadGestor(); } catch (e) { console.error('boot: loadGestor falló', e); }
-            try { await this.loadSmtp(); } catch (e) { console.error('boot: loadSmtp falló', e); }
-            try { await this.bootLanzadera(); } catch (e) { console.error('boot: bootLanzadera falló', e); }
-        },
-
-        // ─── Config ───────────────────────────────────────────────────────────
-        async toggleKS() {
-            this.killSwitch = !this.killSwitch;
-            const f = new FormData();
-            f.append('action', 'update_config');
-            f.append('key', 'motor_estado');
-            f.append('value', this.killSwitch ? 'activo' : 'pausado');
-            await fetch('', { method: 'POST', body: f });
-        },
-        async toggleModo() {
-            this.modeTest = !this.modeTest;
-            const f = new FormData();
-            f.append('action', 'update_config');
-            f.append('key', 'modo_entorno');
-            f.append('value', this.modeTest ? 'test' : 'produccion');
-            await fetch('', { method: 'POST', body: f });
-        },
-        toggleRandom() {
-            this.randomMode = !this.randomMode;
-        },
-
-        // ─── Lead Modal ───────────────────────────────────────────────────────
-        async openLead(id) {
-            const [r, rwa] = await Promise.all([
-                fetch('?action=get_lead&id=' + id),
-                fetch('?action=get_templates')
-            ]);
-            this.ld = await r.json();
-            this.ldOriginal = JSON.parse(JSON.stringify(this.ld));
-            this.ldChanged = false;
-            this.ln = '';
-            this.ldPlantillaWaId = '';
-            this.ldWaUrl = this.waLink ? ('https://wa.me/34' + (this.ld.telefono_movil || '').replace(/[^0-9]/g, '').match(/([67]\d{8})/)?.[1] || '') : '';
-            const jwa = await rwa.json();
-            if (jwa.ok) {
-                this.ldPlantillasWa = jwa.templates.filter(t => t.tipo === 'whatsapp');
-            }
-            this.lm = true;
-            setTimeout(() => lucide.createIcons(), 100);
-        },
-        onWaPlantillaChange() {
-            if (!this.ldPlantillaWaId || !this.waLink) {
-                this.ldWaUrl = this.waLink || '';
-                return;
-            }
-            const tpl = this.ldPlantillasWa.find(x => x.id == this.ldPlantillaWaId);
-            if (!tpl) return;
-            const texto = (tpl.cuerpo || '')
-                .replace(/{{CLUB}}/g, this.ld.nombre_club || '')
-                .replace(/{{CONTACTO}}/g, this.ld.persona_contacto || 'responsable')
-                .replace(/{{FEDERACION}}/g, this.ld.federacion || '')
-                .replace(/{{ANIO}}/g, new Date().getFullYear());
-            const num = (this.ld.telefono_movil || '').replace(/[^0-9]/g, '').match(/([67]\d{8})/)?.[1] || '';
-            this.ldWaUrl = num ? ('https://wa.me/34' + num + '?text=' + encodeURIComponent(texto)) : '';
-        },
-        markChanged() {
-            this.ldChanged = JSON.stringify(this.ld) !== JSON.stringify(this.ldOriginal);
-        },
-        async guardarFicha() {
-            if (!this.ld.id || !this.ldChanged) return;
-            const campos = ['federacion','persona_contacto','cargo_contacto','telefono_movil','telefono_fijo','tiene_whatsapp','estado_lead'];
-            const promises = [];
-            for (const campo of campos) {
-                const val = campo === 'tiene_whatsapp' ? (this.ld[campo] ? 1 : 0) : (this.ld[campo] || '');
-                if (String(val) !== String(this.ldOriginal[campo] ?? '')) {
-                    const f = new FormData();
-                    f.append('action', 'update_lead');
-                    f.append('id', this.ld.id);
-                    f.append('field', campo);
-                    f.append('value', val);
-                    promises.push(fetch('', { method: 'POST', body: f }));
-                }
-            }
-            if (promises.length > 0) {
-                await Promise.all(promises);
-                this.ldOriginal = JSON.parse(JSON.stringify(this.ld));
-                this.ldChanged = false;
-                alert('Cambios guardados');
-            }
-        },
-        async saveF(field, value) {
-            if (!this.ld.id) return;
-            const f = new FormData();
-            f.append('action', 'update_lead');
-            f.append('id', this.ld.id);
-            f.append('field', field);
-            f.append('value', value);
-            await fetch('', { method: 'POST', body: f });
-        },
-        async addNota() {
-            if (!this.ln.trim()) return;
-            await this.saveF('observaciones', this.ln);
-            const r = await fetch('?action=get_lead&id=' + this.ld.id);
-            this.ld = await r.json();
-            this.ln = '';
-        },
-
-        // ─── Add Lead (con validación MX y WhatsApp) ─────────────────────────
-        openAddLead() {
-            this.af = { nombre: '', email: '', federacion: '', movil: '', fijo: '', persona: '', cargo: '' };
-            this.al = true;
-            setTimeout(() => lucide.createIcons(), 100);
-        },
-        get afWaDetected() {
-            if (!this.af.movil) return false;
-            const limpio = this.af.movil.replace(/[^0-9]/g, '');
-            return limpio.length === 9 && ['6', '7'].includes(limpio[0]);
-        },
-        async saveAddLead() {
-            const f = new FormData();
-            f.append('action', 'add_lead');
-            f.append('nombre', this.af.nombre);
-            f.append('email', this.af.email);
-            f.append('federacion', this.af.federacion);
-            f.append('telefono_movil', this.af.movil);
-            f.append('telefono_fijo', this.af.fijo);
-            f.append('persona_contacto', this.af.persona);
-            f.append('cargo_contacto', this.af.cargo);
-            const r = await fetch('', { method: 'POST', body: f });
-            const j = await r.json();
-            if (j.ok) {
-                this.al = false;
-                this.loadGestor();
-                alert('Lead anadido');
-            } else {
-                alert(j.error || 'Desconocido');
-            }
-        },
-
-        // ─── Merge ────────────────────────────────────────────────────────────
-        async openMerge(k, d) {
-            this.mk = k;
-            this.md = d;
-            const [r1, r2] = await Promise.all([
-                fetch('?action=get_lead&id=' + k).then(r => r.json()),
-                fetch('?action=get_lead&id=' + d).then(r => r.json())
-            ]);
-            const a = r1, b = r2;
-            if (!a || !b) return;
-            this.mha = this.fr('Club', a.nombre_club) + this.fr('Email', a.email) + this.fr('Fed', a.federacion || '')
-                     + this.fr('Contacto', a.persona_contacto) + this.fr('Movil', a.telefono_movil) + this.fr('Fijo', a.telefono_fijo)
-                     + this.fr('Estado', a.estado_lead) + '<div class="mt-1"><strong class="text-slate-500">Notas:</strong><br>' + this.esc(a.observaciones || '(sin notas)') + '</div>';
-            this.mhb = this.fr('Club', b.nombre_club) + this.fr('Email', b.email) + this.fr('Fed', b.federacion || '')
-                     + this.fr('Contacto', b.persona_contacto) + this.fr('Movil', b.telefono_movil) + this.fr('Fijo', b.telefono_fijo)
-                     + this.fr('Estado', b.estado_lead) + '<div class="mt-1"><strong class="text-slate-500">Notas:</strong><br>' + this.esc(b.observaciones || '(sin notas)') + '</div>';
-            this.mf = [
-                { name: 'nombre', label: 'Nombre', vA: a.nombre_club, vB: b.nombre_club, cA: true },
-                { name: 'contacto', label: 'Contacto', vA: a.persona_contacto, vB: b.persona_contacto, cA: !!a.persona_contacto },
-                { name: 'movil', label: 'Movil', vA: a.telefono_movil, vB: b.telefono_movil, cA: !!a.telefono_movil },
-                { name: 'fijo', label: 'Fijo', vA: a.telefono_fijo, vB: b.telefono_fijo, cA: !!a.telefono_fijo },
-                { name: 'estado', label: 'Estado', vA: a.estado_lead, vB: b.estado_lead, cA: true }
-            ];
-            this.mm = true;
-            this.mn = true;
-            setTimeout(() => lucide.createIcons(), 100);
-        },
-        fr(label, val) { return '<div><strong class="text-slate-500 text-[9px]">' + label + ':</strong> ' + this.esc(val || '-') + '</div>'; },
-        async doMerge() {
-            const fm = { nombre: 'nombre_club', contacto: 'persona_contacto', movil: 'telefono_movil', fijo: 'telefono_fijo', estado: 'estado_lead' };
-            for (const f of this.mf) {
-                const s = document.querySelector('input[name="mg_' + f.name + '"]:checked');
-                if (s && s.value === 'B') {
-                    const fd = new FormData();
-                    fd.append('action', 'update_lead');
-                    fd.append('id', this.mk);
-                    fd.append('field', fm[f.name]);
-                    const bL = await fetch('?action=get_lead&id=' + this.md).then(r => r.json());
-                    fd.append('value', bL[fm[f.name]] || '');
-                    await fetch('', { method: 'POST', body: fd });
-                }
-            }
-            const fd = new FormData();
-            fd.append('action', 'merge_leads');
-            fd.append('keep_id', this.mk);
-            fd.append('dup_id', this.md);
-            fd.append('merge_notes', this.mn ? '1' : '0');
-            const r = await fetch('api/leads.php', { method: 'POST', body: fd });
-            const j = await r.json();
-            if (j.ok) { this.mm = false; location.reload(); }
-            else { alert('Error: ' + (j.error || 'Desconocido')); }
-        },
-
-        // ─── Scan Dups ────────────────────────────────────────────────────────
-        async scanDups() {
-            const r = await fetch('api/leads.php?action=scan_duplicates');
-            const j = await r.json();
-            if (j.ok) { alert('Escaneo: ' + j.dups + ' duplicados en ' + j.total + ' clubes.'); location.reload(); }
-            else { alert('Error: ' + (j.error || 'Desconocido')); }
-        },
-
-        // ─── Gestor ───────────────────────────────────────────────────────────
-        async loadGestor() {
-            const p = new URLSearchParams({
-                action: 'get_leads_table', page: this.gp, per_page: this.gpp,
-                sort: this.gsc, order: this.gso,
-                search: this.gs, estado: this.ge, federacion: this.gf
-            });
-            const r = await fetch('api/leads.php?' + p.toString());
-            const j = await r.json();
-            if (!j.ok) return;
-            this.gt = j.total + ' resultados';
-            let h = '';
-            j.data.forEach(l => {
-                h += '<tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">'
-                   + '<td class="px-3 py-2"><span class="font-medium text-slate-300">' + this.esc(l.nombre_club) + '</span>'
-                   + (l.es_duplicado == 1 ? ' <span class="bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded-full text-[9px] font-semibold cursor-pointer" onclick="window.app.openMerge(' + l.duplicado_id + ',' + l.id + ')">DUPLICADO</span>' : '')
-                   + '</td>'
-                   + '<td class="px-3 py-2 hidden md:table-cell"><code class="text-[10px] text-slate-500">' + this.esc(l.email) + '</code></td>'
-                   + '<td class="px-3 py-2 hidden md:table-cell text-[10px] text-slate-400 font-mono">' + this.esc(l.telefono_movil || '-') + '</td>'
-                   + '<td class="px-3 py-2 text-[10px] text-slate-400">' + this.esc(l.estado_lead) + '</td>'
-                   + '<td class="px-3 py-2 hidden lg:table-cell text-[10px] text-slate-600">' + this.esc(l.federacion || '') + '</td>'
-                   + '<td class="px-3 py-2 text-right"><button class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-[10px] text-slate-400 hover:text-slate-200 hover:border-slate-600 transition" onclick="window.app.openLead(' + l.id + ')">Ficha</button></td>'
-                   + '</tr>';
-            });
-            document.getElementById('gestorBody').innerHTML = h || '<tr><td colspan="6" class="px-3 py-8 text-center text-slate-600">Sin resultados</td></tr>';
-            let pg = '';
-            const tp = j.total_pages;
-            const cp = this.gp;
-            let s = Math.max(1, cp - 2);
-            let e = Math.min(tp, cp + 2);
-            const bpg = (n) => '<button class="px-2 py-0.5 text-[10px] rounded border ' + (n === cp ? 'bg-slate-700 border-slate-600 text-slate-200' : 'border-slate-800 text-slate-500 hover:text-slate-300') + '" onclick="window.app.gp=' + n + ';window.app.loadGestor()" title="Ir a pagina ' + n + '">' + n + '</button>';
-            if (s > 1) {
-                pg += bpg(1);
-                if (s > 2) pg += '<span class="px-1 text-slate-600">…</span>';
-            }
-            for (let i = s; i <= e; i++) pg += bpg(i);
-            if (e < tp) {
-                if (e < tp - 1) pg += '<span class="px-1 text-slate-600">…</span>';
-                pg += bpg(tp);
-            }
-            document.getElementById('gestorP').innerHTML = pg;
-        },
-        gSort(col) {
-            if (this.gsc === col) this.gso = this.gso === 'ASC' ? 'DESC' : 'ASC';
-            else { this.gsc = col; this.gso = 'ASC'; }
-            this.gp = 1; this.loadGestor();
-        },
-
-        // ─── Editor ────────────────────────────────────────────────────────────
-        async loadCategorias() {
-            const r = await fetch('?action=get_categorias');
-            const j = await r.json();
-            if (j.ok) this.categorias = j.categorias;
-        },
-        async onCategoriaChange() {
-            this.et = ''; this.en = false;
-            if (!this.ec) return;
-            const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec));
-            const j = await r.json();
-            if (j.ok) this.templates = j.templates;
-            setTimeout(() => lucide.createIcons(), 50);
-        },
-        async onTemplateChange() {
-            if (!this.et) { this.en = false; return; }
-            const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec));
-            const j = await r.json();
-            const t = j.templates.find(x => x.id == this.et);
-            if (t) {
-                this.edNombre = t.nombre;
-                this.edAsunto = t.asunto || '';
-                 this.edAsuntoB = t.asunto_b || '';
-                 this.edAsuntoC = t.asunto_c || '';
-                 this.edTestAb = parseInt(t.test_ab) || 0;
-                 this.edCuerpo = t.cuerpo || '';
-                 this.edTipo = t.tipo || 'html';
-                 this.en = false;
-                this.autoPreview();
-            }
-            setTimeout(() => lucide.createIcons(), 50);
-        },
-        nuevaPlantilla() {
-            this.et = ''; this.en = true;
-             this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edAsuntoB = ''; this.edAsuntoC = ''; this.edTestAb = 0;
-             this.edCuerpo = ''; this.edTipo = this.edPlataforma === 'whatsapp' ? 'whatsapp' : 'html';
-            setTimeout(() => lucide.createIcons(), 50);
-        },
-        async eliminarPlantilla() {
-            if (!this.et) return;
-            if (!confirm('Eliminar esta plantilla?')) return;
-            const f = new FormData();
-            f.append('action', 'delete_template'); f.append('id', this.et);
-            const r = await fetch('', { method: 'POST', body: f });
-            const j = await r.json();
-            if (j.ok) { this.et = ''; this.en = false; this.onCategoriaChange(); }
-            else { alert('Error: ' + (j.error || 'Desconocido')); }
-        },
-        async guardarPlantilla() {
-            const f = new FormData();
-            f.append('action', 'save_template');
-            if (this.et && !this.en) f.append('id', this.et);
-            f.append('nombre', this.edNombre);
-            f.append('asunto', this.edAsunto);
-             f.append('asunto_b', this.edAsuntoB);
-             f.append('asunto_c', this.edAsuntoC);
-             f.append('test_ab', this.edTestAb);
-            f.append('cuerpo', this.edCuerpo);
-            f.append('tipo', this.edPlataforma === 'whatsapp' ? 'whatsapp' : (this.edTipo || 'html'));
-            f.append('categoria', this.ec);
-            f.append('activo', '1');
-            const r = await fetch('', { method: 'POST', body: f });
-            const j = await r.json();
-            if (j.ok) { this.en = false; this.et = j.id; this.onCategoriaChange(); alert('Plantilla guardada'); }
-            else { alert('Error: ' + (j.error || 'Desconocido')); }
-        },
-        insertTag(tag) { this.edCuerpo += tag; this.autoPreview(); },
-        onCuerpoInput() { clearTimeout(this.debounceTimer); this.debounceTimer = setTimeout(() => this.autoPreview(), 500); },
-        onTipoChange() { this.autoPreview(); },
-        async autoPreview() { if (!this.previewClubId || (!this.et && !this.en)) return; this.previewTpl(); },
-        // Previsualizacion en modal
-        async abrirPreview() {
-            if (!this.previewClubId) return;
-            this.pvClubId = this.previewClubId;
-            this.pv = true;
-            this.cargarPreview();
-            setTimeout(() => lucide.createIcons(), 100);
-        },
-        async cargarPreview() {
-            if (!this.pvClubId) return;
-            this.pvLoading = true;
-            const body = this.edCuerpo || (this.et ? await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec)).then(r => r.json()).then(j => {
-                const t = j.templates.find(x => x.id == this.et); return t ? t.cuerpo : '';
-            }) : '');
-            if (!body) { this.pvContent = '<p class="text-slate-400 text-center py-8">Sin contenido</p>'; this.pvLoading = false; return; }
-            const [r, rs] = await Promise.all([
-                fetch('?action=get_lead&id=' + this.pvClubId),
-                fetch('api/smtp.php?action=get_accounts')
-            ]);
-            const club = await r.json();
-            const jss = await rs.json();
-            const cuenta = (jss.ok && jss.accounts && jss.accounts.length > 0)
-                ? jss.accounts.find(a => a.activa == 1 || a.activa == '1') || jss.accounts[0] : {};
-            const sName = cuenta.nombre_emisor || (cuenta.email ? cuenta.email.split('@')[0] : 'Nombre');
-            const sTitle = cuenta.cargo_emisor || 'Equipo Comercial';
-            const sEmail = cuenta.email || 'email@ejemplo.com';
-            const html = body.replace(/{{CLUB}}/g, club.nombre_club || '')
-                             .replace(/{{CONTACTO}}/g, club.persona_contacto || 'responsable')
-                             .replace(/{{FEDERACION}}/g, club.federacion || '')
-                             .replace(/{{ANIO}}/g, new Date().getFullYear())
-                             .replace(/{{SENDER_NAME}}/g, sName)
-                             .replace(/{{SENDER_TITLE}}/g, sTitle)
-                             .replace(/{{SENDER_EMAIL}}/g, sEmail);
-            if (this.edPlataforma === 'whatsapp') {
-                this.pvContent = '<div style="background:#e5ddd5;padding:16px;border-radius:8px;max-width:400px;font-family:sans-serif;font-size:14px;white-space:pre-wrap">' + this.esc(html) + '</div>';
-            } else {
-                this.pvContent = html;
-            }
-            this.pvLoading = false;
-        },
-        async previewTpl() {
-            const ci = this.previewClubId; if (!ci) return;
-            const body = this.edCuerpo || (this.et ? await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec)).then(r => r.json()).then(j => {
-                const t = j.templates.find(x => x.id == this.et); return t ? t.cuerpo : '';
-            }) : '');
-            if (!body) { document.getElementById('previewContainer').innerHTML = '<p class="text-slate-400 text-center py-8">Sin contenido para previsualizar</p>'; return; }
-            const [r, rs] = await Promise.all([
-                fetch('?action=get_lead&id=' + ci),
-                fetch('api/smtp.php?action=get_accounts')
-            ]);
-            const club = await r.json(); if (!club) return;
-            const jss = await rs.json();
-            const cuenta = (jss.ok && jss.accounts && jss.accounts.length > 0)
-                ? jss.accounts.find(a => a.activa == 1 || a.activa == '1') || jss.accounts[0]
-                : {};
-            const senderName = cuenta.nombre_emisor || (cuenta.email ? cuenta.email.split('@')[0] : 'Nombre Remitente');
-            const senderTitle = cuenta.cargo_emisor || 'Equipo Comercial';
-            const senderEmail = cuenta.email || 'email@ejemplo.com';
-            const html = body.replace(/{{CLUB}}/g, club.nombre_club || '')
-                             .replace(/{{CONTACTO}}/g, club.persona_contacto || 'responsable')
-                             .replace(/{{FEDERACION}}/g, club.federacion || '')
-                             .replace(/{{ANIO}}/g, new Date().getFullYear())
-                             .replace(/{{SENDER_NAME}}/g, senderName)
-                             .replace(/{{SENDER_TITLE}}/g, senderTitle)
-                             .replace(/{{SENDER_EMAIL}}/g, senderEmail);
-            const container = document.getElementById('previewContainer');
-            if (this.edTipo === 'whatsapp') {
-                container.innerHTML = '<div style="background:#e5ddd5;padding:16px;border-radius:8px;max-width:400px;font-family:sans-serif;font-size:14px;white-space:pre-wrap">' + this.esc(html) + '</div>';
-            } else {
-                container.style.whiteSpace = 'pre-wrap'; container.style.wordBreak = 'break-word'; container.innerHTML = html;
-            }
-        },
-
-        // ═══════════════════════════════════════════════════════════════════════
-        // LANZADERA OUTBOUND v2 — Motor de Envíos Secuencial
-        // ═══════════════════════════════════════════════════════════════════════
-
-        async bootLanzadera() {
-            // Cargar delay guardado
-            try {
-                const r = await fetch('api/leads.php?action=get_config&key=lanzadera_delay');
-                const j = await r.json();
-                if (j.ok && j.valor) this.lzDelay = parseInt(j.valor) || 5;
-            } catch (e) { this.lzDelay = 5; }
-
-            // Cargar datos iniciales (federaciones)
-            try {
-                const r = await fetch('api/get_cola.php');
-                const j = await r.json();
-                if (j.ok) {
-                    this.lzFederaciones = j.federaciones || [];
-                    this.lzCuentasSmtp = j.cuentas_smtp || [];
-                    this.lzKpiClubes = j.kpi_clubes || 0;
-                    this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0;
-                    this.lzKpiEnviosHoy = j.kpi_envios_hoy || 0;
-                }
-            } catch (e) {}
-        },
-
-        // ─── 1.2 Cambio de Estado del Lead → cargar plantillas ─────────
-        async lzOnEstadoChange() {
-            this.lzIdPlantillaEmail = '';
-            this.lzTemplatesEmail = [];
-            if (!this.lzEstadoLead) return;
-            try {
-                const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.lzEstadoLead));
-                const j = await r.json();
-                if (j.ok && j.templates) {
-                    this.lzTemplatesEmail = j.templates.filter(t => t.tipo !== 'whatsapp');
-                    this.lzTemplatesWa = j.templates.filter(t => t.tipo === 'whatsapp');
-                }
-            } catch (e) {}
-        },
-
-        // ─── Validar si puede cargar cola ──────────────────────────────────────
-        puedeCargarCola() {
-            return this.lzEstadoLead !== '' && this.lzIdPlantillaEmail !== '';
-        },
-
-        // ─── 5.1 Cargar Cola de Envíos ────────────────────────────────────────
-        async cargarCola() {
-            if (!this.puedeCargarCola()) {
-                alert('Selecciona al menos Estado del Lead y Plantilla de Email');
-                return;
-            }
-            this.lzCola = [];
-            this.lzColaPaginada = [];
-            this.lzColaPageCurrent = 0;
-            this.lzColaIndex = 0;
-            this.lzColaCompletados = {};
-            this.lzLogEnviados = [];
-            this.lzLogEnviadosPaginados = [];
-            this.lzLogPageCurrent = 0;
-            this.lzMotorEstado = 'PAUSADO';
-
-            const params = new URLSearchParams({
-                estado_lead: this.lzEstadoLead,
-                federacion: this.lzFederacion,
-                id_plantilla_email: this.lzIdPlantillaEmail,
-                id_plantilla_wa: this.lzIdPlantillaWa,
-                habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0',
-                random_mode: this.randomMode ? '1' : '0',
-            });
-
-            try {
-                const r = await fetch('api/get_cola.php?' + params.toString());
-                const j = await r.json();
-                if (!j.ok) { alert('Error: ' + (j.error || 'Desconocido')); return; }
-                this.lzCola = j.cola || [];
-                // Cargar primeros 50 items para infinite scroll
-                if (this.lzCola.length > 0) {
-                    this.lzColaPaginada = this.lzCola.slice(0, Math.min(this.lzColaPageSize, this.lzCola.length));
-                    this.lzColaPageCurrent = 1;
-                }
-                this.lzCuentasSmtp = j.cuentas_smtp || [];
-                this.lzKpiClubes = j.kpi_clubes || 0;
-                this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0;
-                this.lzKpiEnviosHoy = j.kpi_envios_hoy || 0;
-                this.lzDelay = j.delay_segundos || 5;
-                if (this.lzCola.length === 0) {
-                    alert('No hay leads pendientes con los filtros seleccionados.');
-                }
-            } catch (e) {
-                alert('Error de conexión al cargar la cola.');
-            }
-            setTimeout(() => lucide.createIcons(), 100);
-        },
-
-        // ─── 5.2 INICIAR LANZADERA — Motor secuencial async/await ─────────────
-        async iniciarMotor() {
-            if (this.lzCola.length === 0) return;
-            this.lzMotorEstado = 'ACTIVO';
-            this.lzAbortController = new AbortController();
-            const signal = this.lzAbortController.signal;
-
-            for (let i = this.lzColaIndex; i < this.lzCola.length; i++) {
-                // Verificar si se pausó o detuvo
-                if (signal.aborted) break;
-                if (this.lzMotorEstado === 'PAUSADO') break;
-                if (this.lzMotorEstado === 'DETENIDO') break;
-
-                this.lzColaIndex = i;
-                const lead = this.lzCola[i];
-                if (!lead) continue;
-
-                // Enviar email (con variante A/B/C equitativa: 33% cada una)
-                const r = Math.random();
-                const vAb = r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C');
-                const fd = new FormData();
-                fd.append('id_club', lead.id);
-                fd.append('id_plantilla', this.lzIdPlantillaEmail);
-                fd.append('id_cuenta_smtp', lead.smtp_asignada_id);
-                fd.append('modo_test', this.modeTest ? '1' : '0');
-                fd.append('variante_ab', vAb);
-                // 🧪 Si modo test y hay emails de prueba, rotar entre ellos
-                if (this.modeTest && this.testEmailsList.length > 0) {
-                    fd.append('test_email', this.testEmailsList[i % this.testEmailsList.length]);
-                }
-
-                try {
-                    const r = await fetch('api/enviar_lote.php', {
-                        method: 'POST',
-                        body: fd,
-                        signal: signal
-                    });
-                    const j = await r.json();
-                    // Marcar como completado (grisado en la cola)
-                    this.lzColaCompletados[lead.id] = true;
-
-                    // Registrar en log
-                    this.lzLogEnviados.unshift({
-                        timestamp: j.timestamp || new Date().toISOString(),
-                        club: j.club || lead.nombre_club,
-                        email: j.email || lead.email,
-                        cuenta_smtp: j.cuenta_smtp || lead.smtp_asignada_email,
-                        envio_exitoso: j.envio_exitoso || false,
-                        error_smtp: j.error_smtp || '',
-                    });
-                    // Mostrar primeros logs automáticamente
-                    if (this.lzLogEnviadosPaginados.length === 0) {
-                        this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length));
-                        this.lzLogPageCurrent = 1;
-                    }
-
-                    // Actualizar barra SMTP
-                    const smtpIdx = this.lzCuentasSmtp.findIndex(c => c.id == lead.smtp_asignada_id);
-                    if (smtpIdx >= 0 && j.envio_exitoso) {
-                        this.lzCuentasSmtp[smtpIdx].enviados_hoy = (this.lzCuentasSmtp[smtpIdx].enviados_hoy || 0) + 1;
-                    } else if (smtpIdx >= 0 && j.error_smtp) {
-                        this.lzCuentasSmtp[smtpIdx].ultimo_error = j.error_smtp;
-                    }
-
-                    // Actualizar KPIs
-                    if (j.envio_exitoso) {
-                        this.lzKpiEnviosHoy = (this.lzKpiEnviosHoy || 0) + 1;
-                    }
-                } catch (e) {
-                    if (e.name === 'AbortError') break;
-                    this.lzColaCompletados[lead.id] = true;
-                    this.lzLogEnviados.unshift({
-                        timestamp: new Date().toISOString(),
-                        club: lead.nombre_club,
-                        email: lead.email,
-                        cuenta_smtp: lead.smtp_asignada_email || '—',
-                        envio_exitoso: false,
-                        error_smtp: e.message || 'Error de red',
-                    });
-                    if (this.lzLogEnviadosPaginados.length === 0) {
-                        this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length));
-                        this.lzLogPageCurrent = 1;
-                    }
-                }
-
-                // Delay entre envíos (con jitter aleatorio si 🎲 activo)
-                if (i < this.lzCola.length - 1 && this.lzMotorEstado === 'ACTIVO') {
-                    const baseMs = this.lzDelay * 1000;
-                    const ms = this.randomMode
-                        ? baseMs + Math.floor(Math.random() * this.lzDelay * 1000) - (this.lzDelay * 500)
-                        : baseMs;
-                    await this.delay(Math.max(500, ms));
-                }
-            }
-
-            // Si terminó la cola normalmente
-            if (this.lzColaIndex >= this.lzCola.length - 1 && this.lzMotorEstado === 'ACTIVO') {
-                this.lzMotorEstado = 'PAUSADO';
-            }
-            this.lzAbortController = null;
-            setTimeout(() => lucide.createIcons(), 100);
-        },
-
-        // ─── 5.3 PAUSAR MOTOR ─────────────────────────────────────────────────
-        pausarMotor() {
-            this.lzMotorEstado = 'PAUSADO';
-            if (this.lzAbortController) {
-                this.lzAbortController.abort();
-                this.lzAbortController = null;
-            }
-        },
-
-        // ─── 5.4 DETENER MOTOR ────────────────────────────────────────────────
-        detenerMotor() {
-            this.lzMotorEstado = 'DETENIDO';
-            if (this.lzAbortController) {
-                this.lzAbortController.abort();
-                this.lzAbortController = null;
-            }
-            this.lzCola = [];
-            this.lzColaIndex = 0;
-            this.lzLogEnviados = [];
-        },
-
-        // ─── Infinite Scroll: Cola ──────────────────────────────────────────
-        lzOnColaScroll() {
-            const el = document.getElementById('lzColaScroll');
-            if (!el) return;
-            const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-            if (nearBottom && this.lzColaPaginada.length < this.lzCola.length) {
-                this.lzLoadMoreCola();
-            }
-        },
-        lzLoadMoreCola() {
-            const next = (this.lzColaPageCurrent + 1) * this.lzColaPageSize;
-            if (next >= this.lzColaPaginada.length) {
-                const end = Math.min(this.lzCola.length, (this.lzColaPageCurrent + 1) * this.lzColaPageSize + this.lzColaPageSize);
-                const start = this.lzColaPageCurrent * this.lzColaPageSize;
-                if (start < this.lzCola.length) {
-                    const slice = this.lzCola.slice(start, end);
-                    this.lzColaPaginada.push(...slice);
-                    this.lzColaPageCurrent++;
-                }
-            }
-        },
-
-        // ─── Infinite Scroll: Log ────────────────────────────────────────────
-        lzOnLogScroll() {
-            const el = document.getElementById('lzLogScroll');
-            if (!el) return;
-            const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-            if (nearBottom && this.lzLogEnviadosPaginados.length < this.lzLogEnviados.length) {
-                this.lzLoadMoreLog();
-            }
-        },
-        lzLoadMoreLog() {
-            const start = this.lzLogPageCurrent * this.lzLogPageSize;
-            if (start < this.lzLogEnviados.length) {
-                const end = Math.min(this.lzLogEnviados.length, start + this.lzLogPageSize);
-                const slice = this.lzLogEnviados.slice(start, end);
-                this.lzLogEnviadosPaginados.push(...slice);
-                this.lzLogPageCurrent++;
-            }
-        },
-
-        // ─── Guardar delay en BD ───────────────────────────────────────────────
-        async lzSaveDelay() {
-            const f = new FormData();
-            f.append('action', 'update_config');
-            f.append('key', 'lanzadera_delay');
-            f.append('value', this.lzDelay);
-            await fetch('', { method: 'POST', body: f });
-        },
-
-        // ─── Helper: delay asíncrono ──────────────────────────────────────────
-        delay(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        },
-
-        // ─── SMTP ─────────────────────────────────────────────────────────────
-        async loadSmtp() {
-            const r = await fetch('api/smtp.php?action=get_accounts');
-            const j = await r.json(); if (!j.ok) return;
-            let h = '';
-            j.accounts.forEach(a => {
-                h += '<tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">'
-                   + '<td class="px-3 py-2"><code class="text-[10px] text-slate-300">' + this.esc(a.email) + '</code></td>'
-                   + '<td class="px-3 py-2 hidden sm:table-cell text-[10px] text-slate-500">' + this.esc(a.host) + ':' + a.puerto + '</td>'
-                   + '<td class="px-3 py-2 text-center text-[10px]"><span class="text-slate-300 font-semibold">' + a.enviados_hoy + '</span><span class="text-slate-600"> / ' + a.limite_diario + '</span></td>'
-                   + '<td class="px-3 py-2 text-center">'
-                   + (a.activa == 1 ? '<span class="bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded-full text-[9px] font-semibold">ON</span>' : '<span class="bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded-full text-[9px] font-semibold">OFF</span>')
-                   + ' ' + (a.ultimo_error ? '<span class="bg-rose-500/15 text-rose-400 px-1.5 py-0.5 rounded-full text-[9px] font-semibold cursor-help" title="' + this.esc(a.ultimo_error) + '">!</span>' : '<span class="bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded-full text-[9px] font-semibold">OK</span>')
-                   + '</td>'
-                   + '<td class="px-3 py-2 text-right"><div class="flex gap-1 justify-end">'
-                   + '<button class="px-2 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded text-[10px] hover:bg-cyan-500/20 transition" onclick="window.app.testSmtp(' + a.id + ',this)"><i data-lucide="zap" class="w-3 h-3"></i></button>'
-                   + '<button class="px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded text-[10px] hover:bg-amber-500/20 transition" onclick="window.app.toggleSmtp(' + a.id + ')"><i data-lucide="power" class="w-3 h-3"></i></button>'
-                   + '<button class="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded text-[10px] hover:bg-blue-500/20 transition" onclick="window.app.openSmtp(' + a.id + ')"><i data-lucide="pencil" class="w-3 h-3"></i></button>'
-                   + '<button class="px-2 py-1 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded text-[10px] hover:bg-rose-500/20 transition" onclick="window.app.deleteSmtp(' + a.id + ')"><i data-lucide="trash-2" class="w-3 h-3"></i></button>'
-                   + '</div></td></tr>';
-            });
-            document.getElementById('smtpBody').innerHTML = h || '<tr><td colspan="5" class="px-3 py-8 text-center text-slate-600">Sin cuentas</td></tr>';
-            setTimeout(() => lucide.createIcons(), 50);
-        },
-        async openSmtp(id) {
-            this.se = id;
-            if (id > 0) {
-                const r = await fetch('api/smtp.php?action=get_accounts');
-                const j = await r.json();
-                const a = j.accounts.find(x => x.id == id);
-                if (a) {
-                    this.sf = { email: a.email, host: a.host, puerto: a.puerto, usuario: a.usuario, password: a.password, seguridad: a.seguridad, limite_diario: a.limite_diario, nombre_emisor: a.nombre_emisor || '', cargo_emisor: a.cargo_emisor || '' };
-                }
-            } else {
-                this.sf = { email: '', host: 'mail.getfutprotec.com', puerto: 465, usuario: '', password: '', seguridad: 'ssl', limite_diario: 50 };
-            }
-            this.sm = true; setTimeout(() => lucide.createIcons(), 100);
-        },
-        async saveSmtp() {
-            const f = new FormData(); f.append('action', 'save_account');
-            if (this.se > 0) f.append('id', this.se);
-            f.append('email', this.sf.email); f.append('host', this.sf.host); f.append('puerto', this.sf.puerto);
-            f.append('usuario', this.sf.usuario); f.append('password', this.sf.password);
-            f.append('seguridad', this.sf.seguridad); f.append('limite_diario', this.sf.limite_diario);
-            f.append('nombre_emisor', this.sf.nombre_emisor || ''); f.append('cargo_emisor', this.sf.cargo_emisor || '');
-            const r = await fetch('api/smtp.php', { method: 'POST', body: f });
-            const j = await r.json();
-            if (j.ok) { this.sm = false; this.loadSmtp(); }
-            else { alert('Error: ' + (j.error || 'Desconocido')); }
-        },
-        async toggleSmtp(id) { const f = new FormData(); f.append('action', 'toggle_account'); f.append('id', id); await fetch('api/smtp.php', { method: 'POST', body: f }); this.loadSmtp(); },
-        async deleteSmtp(id) { if (!confirm('Eliminar esta cuenta SMTP?')) return; const f = new FormData(); f.append('action', 'delete_account'); f.append('id', id); const r = await fetch('api/smtp.php', { method: 'POST', body: f }); const j = await r.json(); if (j.ok) this.loadSmtp(); else alert('Error: ' + (j.error || 'Desconocido')); },
-        async testSmtp(id, btn) {
-            if (btn) { btn.disabled = true; const orig = btn.innerHTML; btn.innerHTML = '<span class="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin inline-block"></span>'; }
-            const f = new FormData(); f.append('action', 'test_smtp'); f.append('id', id);
-            const r = await fetch('api/smtp.php', { method: 'POST', body: f });
-            const j = await r.json();
-            const ok = j.status === 'success';
-            alert((ok ? 'CONEXION EXITOSA: ' : 'ERROR: ') + j.message);
-            if (btn) { btn.disabled = false; btn.innerHTML = orig; }
-            this.loadSmtp();
-        },
-
-        // ─── Analytics ──────────────────────────────────────────────────────────
-        async abrirAnalytics(tab) {
-            this.aqTab = tab;
-            this.aq = true;
-            this.aqLoading = true;
-            this.aqData = { total: 0, ultimos: [] };  // evitar null
-            try {
-                const r = await fetch('?action=get_analytics&tab=' + tab);
-                const j = await r.json();
-                if (j && j.ok) this.aqData = j;
-            } catch(e) { this.aqData = { total: 0, ultimos: [] }; }
-            this.aqLoading = false;
-            setTimeout(() => lucide.createIcons(), 100);
-        },
-        aqTitulo(tab) {
-            const mapa = { envios: 'Envíos Realizados', aperturas: 'Aperturas (Tracking)', rebotes: 'Rebotes', bajas: 'Leads de Baja' };
-            return mapa[tab] || tab;
-        },
-
-        // ─── Util ─────────────────────────────────────────────────────────────
-        esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-    };
-    window.app = i;
-    return i;
-};
+window._cfg = {motorActivo:<?= $motorActivo?'true':'false' ?>,modeTest:<?= $modoPruebas?'true':'false' ?>};
 </script>
+<script src="js/app.js?v=5"></script>
 </body>
 </html>
 <?php
@@ -1598,8 +966,8 @@ function showLoginForm(string $error = ''): void {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>FutProtec — Acceso Panel</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script>tailwind.config = { darkMode: 'class' };</script>
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23f59e0b'/><text x='16' y='23' font-size='22' text-anchor='middle' fill='%230a0f1a' font-family='sans-serif' font-weight='bold'>FP</text></svg>">
+        <link rel="stylesheet" href="css/tailwind.min.css">
         <style>body { font-family: 'Inter', system-ui, sans-serif; }</style>
     </head>
     <body class="bg-slate-950 min-h-screen flex items-center justify-center">
