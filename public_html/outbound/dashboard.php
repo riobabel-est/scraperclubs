@@ -443,7 +443,7 @@ if ($action === 'delete_template') {
 if ($action === 'get_templates') {
     header('Content-Type: application/json');
     $cat = $_GET['categoria'] ?? '';
-    $sql = "SELECT id, nombre, asunto, asunto_b, asunto_c, test_ab, cuerpo, tipo, categoria, activo FROM plantillas";
+    $sql = "SELECT id, nombre, asunto, asunto_b, asunto_c, test_ab, cuerpo, cuerpo_b, cuerpo_c, tipo, categoria, activo FROM plantillas";
     if ($cat !== '') {
         $sql .= " WHERE categoria = '" . $db->escapeString($cat) . "'";
     }

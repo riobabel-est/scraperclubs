@@ -135,6 +135,8 @@ var app = function() {
              this.edAsuntoC = t.asunto_c || '';
              this.edTestAb = parseInt(t.test_ab) || 0;
              this.edCuerpo = t.cuerpo || '';
+             this.edCuerpoB = t.cuerpo_b || '';
+             this.edCuerpoC = t.cuerpo_c || '';
              this.edTipo = t.tipo || 'html';
              this.edPlataforma = (t.tipo === 'whatsapp') ? 'whatsapp' : 'email';
             this.ec = t.categoria || this.ec;
@@ -463,7 +465,7 @@ var app = function() {
         nuevaPlantilla() {
             this.et = ''; this.en = true;
             this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edAsuntoB = ''; this.edAsuntoC = ''; this.edTestAb = 0;
-            this.edCuerpo = ''; this.edTipo = this.edPlataforma === 'whatsapp' ? 'whatsapp' : 'html';
+            this.edCuerpo = ''; this.edCuerpoB = ''; this.edCuerpoC = ''; this.edTipo = this.edPlataforma === 'whatsapp' ? 'whatsapp' : 'html';
             setTimeout(() => lucide.createIcons(), 50);
         },
         async eliminarPlantilla() {
@@ -479,6 +481,7 @@ var app = function() {
             f.append('nombre', this.edNombre); f.append('asunto', this.edAsunto);
             f.append('asunto_b', this.edAsuntoB); f.append('asunto_c', this.edAsuntoC);
             f.append('test_ab', this.edTestAb); f.append('cuerpo', this.edCuerpo);
+            f.append('cuerpo_b', this.edCuerpoB); f.append('cuerpo_c', this.edCuerpoC);
             f.append('tipo', this.edPlataforma === 'whatsapp' ? 'whatsapp' : (this.edTipo || 'html'));
             f.append('categoria', this.ec); f.append('activo', '1');
             const r = await fetch('', { method: 'POST', body: f }); const j = await r.json();
