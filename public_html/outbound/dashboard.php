@@ -497,6 +497,78 @@ if ($action === 'get_last_envios') {
     exit;
 }
 
+// ─── get_followups (F4.1 + F4.2 + F4.3) ───────────────────────────────────
+if ($action === 'get_followups') {
+    header('Content-Type: application/json');
+    $excluirTest = ($_GET['excluir_test'] ?? '1') !== '0';
+    $whereCommercial = $excluirTest ? "AND c.nombre_club NOT LIKE '%TEST%'" : '';
+
+    // ─── F4.1: No respondedores ──────────────────────────────────────────
+    // Leads en estado Contactado, con envíos, sin respuesta, no rebotados, no baja
+    $noRespondedores = [];
+    $sqlNR = "SELECT c.id, c.nombre_club, c.email, c.persona_contacto, c.estado_lead,
+        (SELECT MAX(e.fecha_envio) FROM envios e WHERE LOWER(e.email) = LOWER(c.email)) as ultimo_envio,
+        (SELECT e.asunto FROM envios e WHERE LOWER(e.email) = LOWER(c.email) ORDER BY e.id DESC LIMIT 1) as ultimo_asunto,
+        (SELECT MAX(a.fecha_apertura) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email)) as ultima_apertura,
+        (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email)) as num_envios,
+        (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email)) as num_aperturas,
+        c.proxima_accion, c.ultimo_contacto
+    FROM clubes_crm c
+    WHERE c.estado_lead = '02 Contactado'
+    {$whereCommercial}
+    AND c.estado_lead NOT IN ('Baja / Opt-Out','Opt-Out','Unsubscribed','Lista Negra')
+    AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email))
+    AND NOT EXISTS (SELECT 1 FROM comunicaciones_log cl WHERE cl.lead_id = c.id AND cl.tipo_evento = 'cambio_estado' AND cl.detalles LIKE '%Respondió%')
+    ORDER BY c.ultimo_contacto DESC";
+    $resNR = $db->query($sqlNR);
+    while ($r = $resNR->fetchArray(SQLITE3_ASSOC)) {
+        // Calcular dias desde ultimo contacto
+        $r['dias_desde_contacto'] = $r['ultimo_contacto'] ? (int)round((time() - strtotime($r['ultimo_contacto'])) / 86400) : null;
+        $r['dias_desde_envio'] = $r['ultimo_envio'] ? (int)round((time() - strtotime($r['ultimo_envio'])) / 86400) : null;
+        $r['tiene_apertura'] = $r['ultima_apertura'] ? true : false;
+        $noRespondedores[] = $r;
+    }
+
+    // ─── F4.2: Leads sin proxima accion ──────────────────────────────────
+    $sinProximaAccion = [];
+    $sqlSPA = "SELECT c.id, c.nombre_club, c.email, c.estado_lead, c.volumen_estimado,
+        c.proxima_accion, c.ultimo_contacto
+    FROM clubes_crm c
+    WHERE (c.proxima_accion IS NULL OR c.proxima_accion = '')
+    {$whereCommercial}
+    AND c.estado_lead IN ('03 Respondió','04 Interesado','05 Cualificado','06 Propuesta','07 Negociación')
+    ORDER BY c.ultimo_contacto DESC";
+    $resSPA = $db->query($sqlSPA);
+    while ($r = $resSPA->fetchArray(SQLITE3_ASSOC)) {
+        $r['dias_desde_contacto'] = $r['ultimo_contacto'] ? (int)round((time() - strtotime($r['ultimo_contacto'])) / 86400) : null;
+        $pres = $db->querySingle("SELECT importe_total FROM presupuestos WHERE lead_id = {$r['id']} ORDER BY version DESC LIMIT 1", true);
+        $r['presupuesto_importe'] = $pres ? $pres['importe_total'] : null;
+        $sinProximaAccion[] = $r;
+    }
+
+    // ─── F4.3: KPIs Operativos ───────────────────────────────────────────
+    // Mockups pendientes
+    $mockupsPendientes = (int)$db->querySingle("SELECT COUNT(*) FROM mockups WHERE estado IN ('solicitado','en_produccion')");
+
+    // Presupuestos pendientes (asumiendo estado = 'creado')
+    $presupuestosPendientes = (int)$db->querySingle("SELECT COUNT(*) FROM presupuestos WHERE estado = 'creado'");
+
+    $kpisOperativos = [
+        'mockups_pendientes' => $mockupsPendientes,
+        'presupuestos_pendientes' => $presupuestosPendientes,
+        'no_respondedores' => count($noRespondedores),
+        'sin_proxima_accion' => count($sinProximaAccion),
+    ];
+
+    echo json_encode([
+        'ok' => true,
+        'no_respondedores' => $noRespondedores,
+        'sin_proxima_accion' => $sinProximaAccion,
+        'kpis' => $kpisOperativos
+    ]);
+    exit;
+}
+
 // ─── get_analytics ───────────────────────────────────────────────────────────
 if ($action === 'get_analytics') {
     header('Content-Type: application/json');
@@ -900,6 +972,9 @@ function escHtml(string $s): string {
         <button @click="tab='analytics'"
             class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'analytics' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Analytics</button>
+        <button @click="tab='followups'; loadFollowups()"
+            class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'followups' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Follow-ups</button>
     </nav>
 </div>
 
@@ -921,6 +996,9 @@ function escHtml(string $s): string {
 </div>
 <div x-show="tab === 'analytics'" x-cloak class="max-w-full mx-auto px-4 py-4">
     <?php include __DIR__ . '/tabs/analytics.php'; ?>
+</div>
+<div x-show="tab === 'followups'" x-cloak class="max-w-full mx-auto px-4 py-4">
+    <?php include __DIR__ . '/tabs/followups.php'; ?>
 </div>
 
 <!-- ═══════════ MODALS ═══════════ -->
