@@ -1040,7 +1040,7 @@ include __DIR__ . '/tabs/modals.php';
 <script>
 window._cfg = {motorActivo:<?= $motorActivo?'true':'false' ?>,modeTest:<?= $modoPruebas?'true':'false' ?>};
 </script>
-<script src="js/app.js?v=5"></script>
+<script src="js/app.js?v=6"></script>
 </body>
 </html>
 <?php
