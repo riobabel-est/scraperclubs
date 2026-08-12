@@ -972,7 +972,7 @@ function escHtml(string $s): string {
         <button @click="tab='analytics'"
             class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'analytics' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Analytics</button>
-        <button @click="tab='followups'; loadFollowups()"
+        <button @click="tab='followups'"
             class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'followups' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Follow-ups</button>
     </nav>
