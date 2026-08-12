@@ -8,6 +8,16 @@ declare(strict_types=1);
 
 $DB_PATH = __DIR__ . '/../data/stats.db';
 
+// ─── AUTENTICACIÓN ───────────────────────────────────────────────────────────
+session_start();
+$isCli = (php_sapi_name() === 'cli');
+if (!$isCli && empty($_SESSION['auth_outbound'])) {
+    header('Content-Type: application/json');
+    http_response_code(401);
+    echo json_encode(['ok' => false, 'error' => 'No autorizado']);
+    exit;
+}
+
 if (!file_exists($DB_PATH)) {
     header('Content-Type: application/json');
     echo json_encode(['ok' => false, 'error' => 'stats.db no encontrada']);

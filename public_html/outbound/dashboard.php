@@ -41,6 +41,15 @@ $db->exec('PRAGMA busy_timeout=5000');
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
+// ═══════════════ AUTENTICACIÓN PARA ENDPOINTS AJAX ════════════════════════════
+// Todos los endpoints AJAX requieren autenticación previa
+if (!empty($action) && empty($_SESSION['auth_outbound'])) {
+    header('Content-Type: application/json');
+    http_response_code(401);
+    echo json_encode(['ok' => false, 'error' => 'No autorizado']);
+    exit;
+}
+
 // ═══════════════ ENDPOINTS AJAX ═══════════════════════════════════════════════
 
 // ─── update_lead ─────────────────────────────────────────────────────────────

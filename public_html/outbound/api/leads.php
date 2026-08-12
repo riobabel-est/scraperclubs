@@ -13,6 +13,16 @@ ini_set('display_errors', 0);
 
 $DB_PATH = __DIR__ . '/../data/stats.db';
 
+// ─── AUTENTICACIÓN ───────────────────────────────────────────────────────────
+session_start();
+$isCli = (php_sapi_name() === 'cli');
+if (!$isCli && empty($_SESSION['auth_outbound'])) {
+    header('Content-Type: application/json');
+    http_response_code(401);
+    echo json_encode(['ok' => false, 'error' => 'No autorizado']);
+    exit;
+}
+
 if (!file_exists($DB_PATH)) {
     header('Content-Type: application/json');
     echo json_encode(['ok' => false, 'error' => 'stats.db no encontrada']);
@@ -277,7 +287,7 @@ $perPage = min(250, max(10, (int)($_GET['per_page'] ?? 50)));
     $params = [];
 
     // Exclusión estricta de Lista Negra y estados de baja
-    $where[] = "estado_lead NOT IN ('Lista Negra', 'Opt-Out', 'Unsubscribed', 'Email Inválido', 'Cerrado Perdido')";
+    $where[] = "estado_lead NOT IN ('Lista Negra', 'Opt-Out', 'Unsubscribed', 'Email Inválido', 'Perdido', 'Baja / Opt-Out')";
 
     if ($search !== '') {
         $where[] = "(nombre_club LIKE :search OR email LIKE :search2)";
@@ -542,7 +552,7 @@ if ($action === 'save_nuevo_lead') {
         $contacto   = trim($_POST['persona_contacto'] ?? '');
         $cargo      = trim($_POST['cargo_contacto'] ?? '');
         $federacion = trim($_POST['federacion'] ?? '');
-        $estado     = trim($_POST['estado_lead'] ?? 'Sin Contactar');
+        $estado     = trim($_POST['estado_lead'] ?? '01 Sin Contactar');
 
         if ($nombre === '' || $email === '') {
             ob_clean();
@@ -652,7 +662,7 @@ if ($action === 'get_estado_lanzadera') {
         SELECT c.id, c.nombre_club, c.email,
                (SELECT e.cuenta_emision FROM envios e WHERE LOWER(e.email) = LOWER(c.email) ORDER BY e.id DESC LIMIT 1) AS ultimo_smtp
         FROM clubes_crm c
-        WHERE c.estado_lead = 'Sin Contactar'
+        WHERE c.estado_lead = '01 Sin Contactar'
           AND c.email IS NOT NULL AND c.email != ''
           AND c.es_duplicado = 0
         ORDER BY c.id ASC
@@ -713,7 +723,40 @@ if ($action === 'toggle_lanzadera') {
     exit;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: calcular_precio
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'calcular_precio') {
+    header('Content-Type: application/json');
+    $volumen = max(0, (int)($_GET['volumen'] ?? 0));
+    $pvp = max(1, (int)($_GET['pvp'] ?? 15));
+    ob_clean();
+    echo json_encode(calcularPrecioYMargen($volumen, $pvp));
+    exit;
+}
+
 // Default
 header('Content-Type: application/json');
 ob_clean();
-echo json_encode(['ok' => false, 'error' => 'Acción no reconocida']);
+echo json_encode(['ok' => false, 'error' => 'Accion no reconocida']);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FUNCION: calcularPrecioYMargen
+// ═════════════════════════════════════════════════════════════════════════════
+function calcularPrecioYMargen(int $volumen, int $pvp = 15): array
+{
+    if ($volumen <= 0) {
+        return ['precio_b2b'=>null,'facturacion'=>null,'margen_par'=>null,'margen_total'=>null,'tramo'=>'Desconocido'];
+    }
+    if ($volumen >= 200)            [$precio, $tramo] = [7, '200+ pares'];
+    elseif ($volumen >= 100)        [$precio, $tramo] = [8, '100-199 pares'];
+    elseif ($volumen >= 50)         [$precio, $tramo] = [9, '50-99 pares'];
+    else return ['precio_b2b'=>null,'facturacion'=>null,'margen_par'=>null,'margen_total'=>null,'tramo'=>'<50 pares'];
+    return [
+        'precio_b2b'   => $precio,
+        'facturacion'  => $volumen * $precio,
+        'margen_par'   => $pvp - $precio,
+        'margen_total' => $volumen * ($pvp - $precio),
+        'tramo'        => $tramo
+    ];
+}
