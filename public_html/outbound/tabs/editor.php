@@ -3,12 +3,12 @@
 <!-- ═══════════ COLUMNA IZQ: FILTRO + LISTADO ═══════════ -->
 <div class="lg:col-span-2 space-y-3">
 
-<!-- 1. Estado del Lead (filtro) -->
+<!-- 1. Categoría de plantilla (filtro) -->
 <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-<label class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Estado del Lead</label>
+<label class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Categoría de Plantilla</label>
 <select x-model="ec" @change="onCategoriaChange()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 mt-1.5 focus:outline-none focus:border-amber-500/50 transition">
-<option value="">Todas las plantillas</option>
-<template x-for="e in estadosLead" :key="e"><option :value="e" x-text="e"></option></template>
+<option value="">Todas las categorías</option>
+<template x-for="c in categorias" :key="c"><option :value="c" x-text="c"></option></template>
 </select>
 </div>
 
@@ -158,8 +158,27 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 </div>
 </div>
 
-<!-- ═══ CUERPO ═══ -->
+<!-- ═══ A/B/C CUERPOS (solo si hay test A/B) ═══ -->
+<div x-show="edTestAb && edPlataforma === 'email'" class="mb-3 bg-slate-800/30 rounded-lg p-3 border border-purple-500/20">
+<label class="text-xs text-purple-400 font-semibold flex items-center gap-1 mb-2">🧪 Cuerpos A/B/C <span class="text-slate-500 font-normal">(cada variante puede tener texto distinto)</span></label>
+<div class="space-y-3">
 <div>
+<label class="text-xs text-slate-400 uppercase tracking-wider">Cuerpo A <span class="text-slate-600">(33%)</span></label>
+<textarea x-model="edCuerpo" @input="onCuerpoInput()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 h-32 resize-y"></textarea>
+</div>
+<div>
+<label class="text-xs text-purple-400 uppercase tracking-wider">Cuerpo B <span class="text-purple-400">(33%)</span></label>
+<textarea x-model="edCuerpoB" @input="onCuerpoInput()" class="w-full bg-slate-800 border border-purple-500/30 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-purple-500/50 h-32 resize-y"></textarea>
+</div>
+<div>
+<label class="text-xs text-cyan-400 uppercase tracking-wider">Cuerpo C <span class="text-cyan-400">(33%)</span></label>
+<textarea x-model="edCuerpoC" @input="onCuerpoInput()" class="w-full bg-slate-800 border border-cyan-500/30 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-cyan-500/50 h-32 resize-y"></textarea>
+</div>
+</div>
+</div>
+
+<!-- ═══ CUERPO ÚNICO (sin A/B) ═══ -->
+<div x-show="!edTestAb || edPlataforma !== 'email'">
 <div class="flex items-center justify-between mb-1">
 <label class="text-xs text-slate-400 uppercase tracking-wider">Mensaje</label>
 <span x-show="edPlataforma==='whatsapp'" class="text-xs" :class="edCuerpo.length > 4000 ? 'text-rose-400' : edCuerpo.length > 3500 ? 'text-amber-400' : 'text-emerald-400'" x-text="edCuerpo.length+' / 4096'"></span>
