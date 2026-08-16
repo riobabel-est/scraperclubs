@@ -65,7 +65,8 @@
       <h5 class="text-sm font-bold text-slate-200">Respuesta</h5>
       <button @click="rsModal=false" class="text-slate-500 hover:text-slate-300"><i data-lucide="x" class="w-5 h-5"></i></button>
     </div>
-    <div class="p-5 space-y-4" x-show="rsRespuesta">
+    <template x-if="rsRespuesta">
+    <div class="p-5 space-y-4">
       <!-- Contexto del envío original -->
       <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
         <h6 class="text-xs font-bold text-slate-300 mb-2">Contexto del envío original</h6>
@@ -108,5 +109,6 @@
         <p class="text-[10px] text-slate-500 mt-2">UNSUBSCRIBE activa la supresión del lead (Lista Negra). El envío histórico no se modifica.</p>
       </div>
     </div>
+    </template>
   </div>
 </div>
