@@ -26,6 +26,8 @@ $db->enableExceptions(true);
 $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
+require_once __DIR__ . '/../inc/eligibilidad.php';
+
 // ─── PARÁMETROS ──────────────────────────────────────────────────────────────
 $estadoLead   = trim($_GET['estado_lead'] ?? '');
 $federacion   = trim($_GET['federacion'] ?? '');
@@ -33,6 +35,7 @@ $tieneWhatsapp = ($_GET['habilitar_whatsapp'] ?? '0') === '1';
 $idTplEmail    = (int)($_GET['id_plantilla_email'] ?? 0);
 $idTplWa       = (int)($_GET['id_plantilla_wa'] ?? 0);
 $randomMode    = ($_GET['random_mode'] ?? '0') === '1';  // 🎲 anti-detección
+$idCampana     = (int)($_GET['campaign_id'] ?? $_GET['id_campana'] ?? 0);
 
 // ─── VALIDAR DATOS DE ENTRADA ────────────────────────────────────────────────
 try {
@@ -74,6 +77,13 @@ try {
     // ─── 3. Consultar leads según el estado seleccionado ──────────────────────
     $where = "c.email IS NOT NULL AND c.email != ''
               AND c.es_duplicado = 0";
+
+    // AISLAMIENTO TEST/REAL (FASE 6F.6): si se filtra por campaña, la cola solo
+    // devuelve leads compatibles (campaña TEST → sólo leads TEST; campaña no TEST
+    // → nunca leads TEST). Filtrado en servidor/SQL, no confiar en JS.
+    if ($idCampana > 0 && $db->querySingle("SELECT COUNT(*) FROM pipelines WHERE id = " . $idCampana) > 0) {
+        $where .= sqlFiltroCompatibilidadLeadCampana($db, $idCampana);
+    }
 
     if ($estadoLead !== '') {
         // Mapear el estado del lead codificado (01, 02...) al nombre real en BD
@@ -265,13 +275,15 @@ function obtenerCategoriasPlantillas(SQLite3 $db): array
 function mapearEstadoLead(string $codigo): string
 {
     $mapa = [
-        '01 Sin Contactar'          => 'Sin Contactar',
-        '02 Email/WhatsApp Enviado'  => 'Email Enviado / En Secuencia',
-        '03 Email Abierto'           => 'Impactado / Abrio Email',
-        '04 En Conversacion'         => 'En Conversacion / WhatsApp',
-        '05 Propuesta Enviada'       => 'Muestra / Propuesta Enviada',
-        '06 Cerrado Ganado'          => 'Cerrado Ganado',
-        '07 Cerrado Perdido'         => 'Cerrado Perdido',
+        '01 Sin Contactar'          => '01 Sin Contactar',
+        '02 Contactado'             => '02 Contactado',
+        '03 Respondio'              => '03 Respondio',
+        '04 Interesado'             => '04 Interesado',
+        '05 Cualificado'            => '05 Cualificado',
+        '06 Propuesta'              => '06 Propuesta',
+        '07 Negociacion'            => '07 Negociacion',
+        '08 Ganado'                 => '08 Ganado',
+        '09 Perdido'                => '09 Perdido',
     ];
     return $mapa[$codigo] ?? $codigo;
 }

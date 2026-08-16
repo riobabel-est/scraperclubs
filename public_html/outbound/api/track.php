@@ -72,14 +72,14 @@ try {
     // Actualizar estado del lead en clubes_crm (solo la primera apertura)
     if ($envio && !empty($envio['email'])) {
         $email = $envio['email'];
-        // Solo actualizar si el lead está en "Email Enviado / En Secuencia" (evitar downgrade)
+        // Registrar apertura como evento sin cambiar estado Kanban (V4.3: apertura = evento, no estado)
         $club = $db->querySingle("SELECT id, estado_lead FROM clubes_crm WHERE LOWER(email) = LOWER('" . $db->escapeString($email) . "') LIMIT 1", true);
-        if ($club && $club['estado_lead'] === 'Email Enviado / En Secuencia') {
+        if ($club) {
             $ts = date('d/m H:i');
             $nuevaObs = "[TRACKING {$ts}] Email abierto (tracking: {$trackingId})";
             $obsExistente = $db->querySingle("SELECT observaciones FROM clubes_crm WHERE id = {$club['id']}");
             $obsMerge = $obsExistente ? $obsExistente . "\n" . $nuevaObs : $nuevaObs;
-            $stmtUpd = $db->prepare("UPDATE clubes_crm SET estado_lead = 'Impactado / Abrio Email', observaciones = :obs, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
+            $stmtUpd = $db->prepare("UPDATE clubes_crm SET observaciones = :obs, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
             $stmtUpd->bindValue(':obs', $obsMerge, SQLITE3_TEXT);
             $stmtUpd->bindValue(':id', $club['id'], SQLITE3_INTEGER);
             $stmtUpd->execute();

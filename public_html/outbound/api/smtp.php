@@ -35,7 +35,8 @@ if ($action === 'get_accounts') {
     $accounts = [];
     $res = $db->query("SELECT * FROM cuentas_smtp ORDER BY email ASC");
     while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
-        $row['password'] = substr($row['password'], 0, 3) . '***'; // Ocultar parcialmente
+        // Se devuelve la contraseña completa para permitir su previsualización en el editor.
+        // El modal la mantiene oculta por defecto (type=password) y solo se muestra al pulsar el toggle.
         $accounts[] = $row;
     }
     echo json_encode(['ok' => true, 'accounts' => $accounts]);
@@ -157,6 +158,7 @@ if ($action === 'test_smtp') {
         $user    = $cuenta['usuario'];
         $pass    = $cuenta['password'];
         $timeout = 15;
+        $readTimeout = 15;
 
         $ctx = stream_context_create([
             'ssl' => [
@@ -175,13 +177,20 @@ if ($action === 'test_smtp') {
             exit;
         }
 
+        // Timeout de LECTURA explícito: evita que fgets() quede bloqueado
+        // indefinidamente si el servidor acepta la conexión pero no responde.
+        stream_set_timeout($fp, $readTimeout);
+
         $read = function () use ($fp): string {
             $resp = '';
-            while ($line = fgets($fp, 512)) {
-                if ($line === false || $line === '') break;
+            while (($line = fgets($fp, 512)) !== false) {
                 $resp .= $line;
                 if (preg_match('/^\d{3}\s/', $line)) break;
                 if (!preg_match('/^\d{3}[- ]/', $line)) break;
+            }
+            $meta = stream_get_meta_data($fp);
+            if (!empty($meta['timed_out'])) {
+                throw new \RuntimeException('Timeout de lectura SMTP');
             }
             return $resp;
         };
@@ -199,6 +208,7 @@ if ($action === 'test_smtp') {
         if ($puerto === 587) {
             $cmd("STARTTLS");
             stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+            stream_set_timeout($fp, $readTimeout);
             $cmd("EHLO getfutprotec.com");
         }
 

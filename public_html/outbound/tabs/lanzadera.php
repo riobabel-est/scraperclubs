@@ -27,6 +27,17 @@
                 <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Configuración de Lote Actual</h5>
             </div>
             <div class="grid sm:grid-cols-3 gap-4">
+                <!-- 1.0 Seleccionar Campaña (obligatorio) -->
+                <div>
+                    <label class="block text-xs uppercase tracking-wider text-slate-400 mb-1.5">0. Seleccionar Campaña *</label>
+                    <select x-model="lzCampaignId" @change="lzOnCampaignChange()"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50 transition">
+                        <option value="">Seleccionar campaña...</option>
+                        <template x-for="c in lzCampanas" :key="c.id">
+                            <option :value="c.id" x-text="(c.identificador || c.nombre || ('Campaña ' + c.id)) + ' · ' + (c.estado || c.entorno)"></option>
+                        </template>
+                    </select>
+                </div>
                 <!-- 1.1 Seleccionar Federación -->
                 <div>
                     <label class="block text-xs uppercase tracking-wider text-slate-400 mb-1.5">1. Seleccionar Federación</label>
@@ -60,6 +71,43 @@
                         </template>
                     </select>
                 </div>
+            </div>
+
+            <!-- Toggles de entorno + aleatorio -->
+            <div class="mt-4 pt-3 border-t border-slate-800 flex items-center gap-3 flex-wrap">
+                <button @click="toggleRandom()" type="button"
+                    class="px-4 py-2 rounded-lg text-sm font-semibold transition border flex items-center gap-2"
+                    :class="randomMode ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'">
+                    <i data-lucide="shuffle" class="w-4 h-4"></i>
+                    <span x-text="randomMode ? '🎲 ALEATORIO ON' : '🎲 ALEATORIO OFF'"></span>
+                </button>
+                <button @click="toggleModo()" type="button"
+                    class="px-4 py-2 rounded-lg text-sm font-semibold transition border flex items-center gap-2"
+                    :class="modeTest ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'">
+                    <i data-lucide="shield" class="w-4 h-4"></i>
+                    <span x-text="modeTest ? '🧪 MODO PRUEBAS' : '✅ MODO PRODUCCIÓN'"></span>
+                </button>
+            </div>
+
+            <!-- Destinos de Prueba (solo visible en modo pruebas) -->
+            <div class="mt-3 bg-amber-500/5 border border-amber-500/30 rounded-lg p-4" x-show="modeTest" x-cloak>
+                <div class="flex items-center gap-2 mb-2">
+                    <i data-lucide="flask-conical" class="w-4 h-4 text-amber-400"></i>
+                    <span class="text-xs uppercase tracking-wider text-amber-400 font-semibold">🧪 Destinos de Prueba</span>
+                </div>
+                <label class="block text-xs uppercase tracking-wider text-slate-400 mb-1.5">Emails para pruebas (uno por línea o separados por coma)</label>
+                <textarea x-model="testEmails" rows="3" @change="lzSaveTestEmails()"
+                    class="w-full bg-slate-800 border border-amber-500/30 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 resize-y"
+                    placeholder="test1@gmail.com, test2@hotmail.com&#10;miau@outlook.es"></textarea>
+                <div class="flex items-center justify-between mt-2">
+                    <span class="text-xs text-slate-500" x-text="'(' + testEmailsList.length + ' emails detectados)'"></span>
+                    <span class="text-xs text-amber-400">Los envíos en modo pruebas irán al primer email de esta lista</span>
+                </div>
+                <button @click="enviarCorreoPrueba()" type="button"
+                    class="mt-3 w-full px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                    Enviar correos de prueba
+                </button>
             </div>
         </div>
 
@@ -140,24 +188,6 @@
                         <span class="text-sm font-semibold text-slate-300">50</span>
                         <span class="text-xs text-slate-500">/ cuenta / día</span>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- BLOQUE 2.5 IZQ: DESTINOS DE PRUEBA (solo visible en modo pruebas) -->
-        <div class="bg-slate-900 border border-amber-500/30 rounded-xl p-5" x-show="modeTest" x-cloak>
-            <div class="flex items-center gap-3 mb-3">
-                <i data-lucide="flask-conical" class="w-5 h-5 text-amber-400"></i>
-                <h5 class="text-base font-semibold uppercase tracking-wider text-amber-400">🧪 Destinos de Prueba</h5>
-            </div>
-            <div>
-                <label class="block text-xs uppercase tracking-wider text-slate-400 mb-1.5">Emails para pruebas (uno por línea o separados por coma)</label>
-                <textarea x-model="testEmails" rows="3"
-                    class="w-full bg-slate-800 border border-amber-500/30 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 resize-y"
-                    placeholder="test1@gmail.com, test2@hotmail.com&#10;miau@outlook.es"></textarea>
-                <div class="flex items-center justify-between mt-2">
-                    <span class="text-xs text-slate-500" x-text="'(' + testEmailsList.length + ' emails detectados)'"></span>
-                    <span class="text-xs text-amber-400">Los envíos en modo pruebas irán al primer email de esta lista</span>
                 </div>
             </div>
         </div>

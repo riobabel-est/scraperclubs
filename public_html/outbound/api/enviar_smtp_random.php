@@ -1,9 +1,10 @@
 <?php
 declare(strict_types=1);
 
-// ⚠️ BLOQUEO DE SEGURIDAD — Quitar esta línea para habilitar envíos standalone.
-//    Este script envía sin pasar por la lanzadera. Usar solo bajo supervisión.
-// die("SISTEMA BLOQUEADO POR EL ADMINISTRADOR: ENVIOS DETENIDOS.");
+// ⚠️ BLOQUEO DE SEGURIDAD — FASE 2B (aprobado): P2 queda DESACTIVADO.
+//    Este script lee clubes.json (fuente desincronizada) y bypassea supresión,
+//    campaña, trazabilidad e idempotencia. Desactivado de forma reversible.
+die("SISTEMA BLOQUEADO POR EL ADMINISTRADOR: ENVIOS DETENIDOS.");
 
 /**
  * enviar_smtp_random.php
@@ -22,7 +23,7 @@ declare(strict_types=1);
 $DB_PATH     = __DIR__ . '/../data/stats.db';
 $CLUBES_JSON = __DIR__ . '/../clubes.json';
 $LOG_DIR     = __DIR__ . '/../logs';
-$TRACK_URL   = 'https://getfutprotec.com/outbound/track.php';
+$TRACK_URL   = 'https://getfutprotec.com/outbound/api/track.php';
 
 /**
  * Obtiene una cuenta SMTP aleatoria de la BD que este activa y bajo su limite diario.
@@ -138,17 +139,22 @@ $CUENTAS_SMTP_FALLBACK = [
 // Contenido del email — se carga desde la BD (plantillas) al inicializar BD
 // $ASUNTO y $CUERPO_HTML_TEMPLATE se definen mas abajo, tras abrir la BD
 
+// ─── SAFE MODE: leer modo_entorno desde BD (fuente de verdad server-side) ──
+$DB_SAFE = new SQLite3(__DIR__ . '/../data/stats.db');
+$DB_SAFE->enableExceptions(true);
+$modoEntornoBD = ($DB_SAFE->querySingle("SELECT valor FROM config WHERE clave = 'modo_entorno'") ?: 'test');
+$DB_SAFE->close();
+
 // ─── PARSEAR ARGUMENTOS ───────────────────────────────────────────────────────
-$LOTE  = 10;
-$DELAY = 3; // segundos entre envíos (≥3 recomendado para evitar bloqueo)
+$LOTE   = 10;
+$DELAY  = 3; // segundos entre envíos (≥3 recomendado para evitar bloqueo)
 $RESUME = false;
-$TEST   = false; // Modo prueba: envía todo a contactofutprotec@gmail.com
 
 $args = getopt('', ['lote::', 'delay::', 'resume', 'test']);
 $LOTE   = isset($args['lote'])  ? max(1, (int)$args['lote'])   : $LOTE;
 $DELAY  = isset($args['delay']) ? max(1, (int)$args['delay'])   : $DELAY;
 $RESUME = isset($args['resume']);
-$TEST   = isset($args['test']);
+$TEST   = ($modoEntornoBD === 'test') || isset($args['test']);
 
 $modo = $TEST ? '🧪 TEST (todo a contactofutprotec@gmail.com)' : ($RESUME ? 'RESUME (saltar enviados)' : 'COMPLETO');
 
@@ -282,6 +288,7 @@ function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asun
     $smtpPass  = $cuenta['pass'];
 
     $timeout = 30;
+    $readTimeout = 15;
 
     try {
         $ctx = stream_context_create([
@@ -302,17 +309,24 @@ function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asun
             return ['ok' => false, 'error' => "Conexión fallida: {$errstr} ({$errno})"];
         }
 
+        // Timeout de LECTURA explícito: evita que fgets() quede bloqueado
+        // indefinidamente si el servidor acepta la conexión pero no responde.
+        stream_set_timeout($fp, $readTimeout);
+
         // Helper RFC 5321 estricto: 3 dígitos + espacio = fin, 3 dígitos + guion = multilínea
         $read = function() use ($fp): string {
             $resp = '';
-            while ($line = fgets($fp, 512)) {
-                if ($line === false || $line === '') break;
+            while (($line = fgets($fp, 512)) !== false) {
                 $resp .= $line;
                 // /^\d{3}\s/ → fin de respuesta SMTP
                 if (preg_match('/^\d{3}\s/', $line)) break;
                 // Si no es multilínea SMTP real (código-guión o código-espacio), salir
                 if (!preg_match('/^\d{3}[- ]/', $line)) break;
                 // Es /^\d{3}-/ → multilínea real, continuar leyendo
+            }
+            $meta = stream_get_meta_data($fp);
+            if (!empty($meta['timed_out'])) {
+                throw new \RuntimeException('Timeout de lectura SMTP');
             }
             return $resp;
         };
@@ -333,6 +347,7 @@ function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asun
         if ($smtpPort === 587) {
             $cmd("STARTTLS");
             stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+            stream_set_timeout($fp, $readTimeout);
             $cmd("EHLO getfutprotec.com");
         }
 

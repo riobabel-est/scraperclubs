@@ -29,15 +29,51 @@ $db->enableExceptions(true);
 $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
+require_once __DIR__ . '/../inc/eligibilidad.php';
+
 // ─── PARÁMETROS ──────────────────────────────────────────────────────────────
 $idClub     = (int)($_POST['id_club'] ?? 0);
 $idPlantilla = (int)($_POST['id_plantilla'] ?? 0);
 $idSmtp     = (int)($_POST['id_cuenta_smtp'] ?? 0);
-$modoTest   = ($_POST['modo_test'] ?? '0') === '1';
+$idCampanaRaw = $_POST['campaign_id'] ?? $_POST['id_campana'] ?? null;
+if ($idCampanaRaw === null || trim((string)$idCampanaRaw) === '') {
+    ob_clean();
+    echo json_encode(['ok' => false, 'error' => 'campaign_id requerido', 'razon' => 'NO_CAMPAIGN']);
+    exit;
+}
+$idCampana = (int)$idCampanaRaw;
+if ($idCampana <= 0) {
+    ob_clean();
+    echo json_encode(['ok' => false, 'error' => 'campaign_id inválido', 'razon' => 'NO_CAMPAIGN']);
+    exit;
+}
+
+// SAFE MODE: comprobar desde BD, no solo desde POST (anti-bypass)
+$modoEntornoBD = (string)($db->querySingle("SELECT valor FROM config WHERE clave = 'modo_entorno'") ?: 'test');
+$modoTestBD = ($modoEntornoBD === 'test');
+$modoTest   = $modoTestBD || ($_POST['modo_test'] ?? '0') === '1';
 $varianteAb = strtoupper($_POST['variante_ab'] ?? 'A');
 if (!in_array($varianteAb, ['A', 'B', 'C'], true)) {
     $varianteAb = 'A';
 }
+
+// ─── Validación de campaña (existencia + estado + activo + entorno) ──────
+// Política ÚNICA compartida con P3 (cron.php).
+try {
+    $validacion = validarCampanaActiva($db, $idCampana, $modoEntornoBD);
+    if (!$validacion['ok']) {
+        ob_clean();
+        echo json_encode(['ok' => false, 'error' => 'Campaña no válida', 'razon' => $validacion['razon']]);
+        exit;
+    }
+} catch (\Exception $e) {
+    ob_clean();
+    echo json_encode(['ok' => false, 'error' => 'Error validando campaña', 'razon' => 'CAMPAIGN_VALIDATION_ERROR']);
+    exit;
+}
+
+// ─── Variante determinística (FASE 3) — inmutable en retry ──────────────
+$varianteUsada = asignarVariante($idClub, $idCampana);
 
 // ─── VALIDAR ─────────────────────────────────────────────────────────────────
 try {
@@ -65,9 +101,17 @@ try {
         exit;
     }
 
+    // ─── 1.5 Elegibilidad (supresión + TEST/PILOT) ────────────────────────────
+    $elig = esElegibleParaEnvio($db, (int)$club['id'], $idCampana);
+    if (!$elig['ok']) {
+        ob_clean();
+        echo json_encode(['ok' => false, 'error' => 'Lead no elegible para envío', 'razon' => $elig['razon']]);
+        exit;
+    }
+
     // ─── 2. Obtener plantilla ─────────────────────────────────────────────────
     $plantilla = $db->querySingle("
-        SELECT id, nombre, asunto, asunto_b, asunto_c, test_ab, cuerpo, tipo, categoria
+        SELECT id, nombre, asunto, asunto_b, asunto_c, test_ab, cuerpo, cuerpo_b, cuerpo_c, tipo, categoria
         FROM plantillas WHERE id = {$idPlantilla} AND activo = 1
     ", true);
 
@@ -77,23 +121,10 @@ try {
         exit;
     }
 
-    // A/B Testing: si la plantilla tiene test_ab activo y asunto_b no vacío, usar asunto B cuando corresponda
-    $asuntoTpl = $plantilla['asunto'];
-    if ((int)($plantilla['test_ab'] ?? 0) === 1) {
-        $tieneC = !empty($plantilla['asunto_c'] ?? '');
-        if ($tieneC) {
-            // Modo A/B/C: distribuir equitativamente
-            if ($varianteAb === 'B' && !empty($plantilla['asunto_b'])) {
-                $asuntoTpl = $plantilla['asunto_b'];
-            } elseif ($varianteAb === 'C') {
-                $asuntoTpl = $plantilla['asunto_c'];
-            }
-            // Si variante es 'A', se queda con asunto original
-        } elseif (!empty($plantilla['asunto_b']) && $varianteAb === 'B') {
-            // Modo A/B clásico (sin asunto_c)
-            $asuntoTpl = $plantilla['asunto_b'];
-        }
-    }
+    // A/B/C: resolver contenido exacto por variante (centralizado, FASE 3)
+    $contenido = resolverContenidoVariante($plantilla, $varianteUsada);
+    $asuntoTpl = $contenido['asunto'];
+    $cuerpoTpl = $contenido['cuerpo'];
 
     // ─── 3. Obtener cuenta SMTP ──────────────────────────────────────────────
     $cuenta = $db->querySingle("
@@ -154,7 +185,7 @@ try {
     ];
 
     $asunto = str_replace(array_keys($replacements), array_values($replacements), $asuntoTpl);
-    $cuerpo = str_replace(array_keys($replacements), array_values($replacements), $plantilla['cuerpo']);
+    $cuerpo = str_replace(array_keys($replacements), array_values($replacements), $cuerpoTpl);
 
     // Generar tracking_id único para el píxel de seguimiento
     $trackingId = 'fut_' . dechex(time()) . '_' . bin2hex(random_bytes(6));
@@ -169,7 +200,7 @@ try {
         $cuerpo .= "\n" . $pixel . $antiDetect;
     }
 
-    // ─── 5. Enviar email ──────────────────────────────────────────────────────
+    // ─── 5. Determinar destinatario ────────────────────────────────────────────
     $testEmailOverride = trim($_POST['test_email'] ?? '');
     if ($modoTest && $testEmailOverride !== '' && filter_var($testEmailOverride, FILTER_VALIDATE_EMAIL)) {
         $emailDestino = $testEmailOverride;
@@ -178,26 +209,71 @@ try {
     } else {
         $emailDestino = $emailClub;
     }
-    $resultado = enviarSMTPAutenticado($cuenta, $emailDestino, $asunto, $cuerpo);
 
-    // ─── 6. Registrar en BD ───────────────────────────────────────────────────
+    // ─── 6. Reservar el envío lógico ANTES de SMTP (idempotencia + concurrencia) ──
+    $reserva = reservarEnvioLogico(
+        $db,
+        (int)$club['id'],
+        $idCampana,
+        $nombreClub,
+        $emailClub,
+        $federacion,
+        $cuenta['email'],
+        $trackingId,
+        $asunto,
+        $cuerpo,
+        ($idCampana > 0) ? $varianteUsada : null,
+        $idPlantilla,
+        $idSmtp
+    );
+
+    $envioRow = $db->querySingle(
+        "SELECT id, estado, tracking_id, asunto, cuerpo_mensaje, message_id FROM envios WHERE id = {$reserva['id']}",
+        true
+    );
+    if (!$envioRow) {
+        ob_clean();
+        echo json_encode(['ok' => false, 'error' => 'No se pudo reservar el envío lógico']);
+        exit;
+    }
+
+    // Si ya está en estado final, no reenviar: devolver el envío existente.
+    if (in_array($envioRow['estado'], ['enviado', 'abierto'], true)) {
+        ob_clean();
+        echo json_encode([
+            'ok'            => true,
+            'dup'           => true,
+            'envio_exitoso' => true,
+            'estado'        => $envioRow['estado'],
+            'error_smtp'    => '',
+            'club'          => $nombreClub,
+            'email'         => $emailClub,
+            'cuenta_smtp'   => $cuenta['email'],
+            'cuenta_id'     => $idSmtp,
+            'tracking_id'   => $envioRow['tracking_id'],
+            'timestamp'     => date('Y-m-d H:i:s'),
+        ]);
+        exit;
+    }
+
+    // ─── 7. Enviar SMTP usando el contenido ya reservado ────────────────────────
+    $asuntoEnvio = $envioRow['asunto'] !== '' ? $envioRow['asunto'] : $asunto;
+    $cuerpoEnvio = $envioRow['cuerpo_mensaje'] !== '' ? $envioRow['cuerpo_mensaje'] : $cuerpo;
+    $resultado = enviarSMTPAutenticado($cuenta, $emailDestino, $asuntoEnvio, $cuerpoEnvio, $envioRow['message_id'] ?? null);
+
     $estadoEnvio = $resultado['ok'] ? 'enviado' : 'error';
     $errorMsg    = $resultado['error'] ?? '';
+    $trackingIdFinal = $envioRow['tracking_id'] !== '' ? $envioRow['tracking_id'] : $trackingId;
 
-    // Insertar en envios (usando el trackingId ya generado en paso 4)
-    $stmtEnv = $db->prepare(
-        "INSERT INTO envios (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje)
-         VALUES (:club, :email, :fed, :cuenta, :estado, :tid, :asunto, :cuerpo)"
-    );
-    $stmtEnv->bindValue(':club',   $nombreClub,          SQLITE3_TEXT);
-    $stmtEnv->bindValue(':email',  $emailClub,           SQLITE3_TEXT);
-    $stmtEnv->bindValue(':fed',    $federacion,          SQLITE3_TEXT);
-    $stmtEnv->bindValue(':cuenta', $cuenta['email'],     SQLITE3_TEXT);
-    $stmtEnv->bindValue(':estado', $estadoEnvio,         SQLITE3_TEXT);
-    $stmtEnv->bindValue(':tid',    $trackingId,          SQLITE3_TEXT);
-    $stmtEnv->bindValue(':asunto', $asunto,              SQLITE3_TEXT);
-    $stmtEnv->bindValue(':cuerpo', $cuerpo,              SQLITE3_TEXT);
-    $stmtEnv->execute();
+    // Actualizar la MISMA fila lógica con el resultado SMTP.
+    // resultado_envio es la fuente inmutable de aceptación (ACCEPTED/FAILED),
+    // separada del estado de ciclo de vida (pendiente/enviado/abierto/error).
+    $resultadoEnvio = $resultado['ok'] ? 'ACCEPTED' : 'FAILED';
+    $stmtUpd = $db->prepare("UPDATE envios SET estado = :est, resultado_envio = :res, fecha_resultado_envio = CURRENT_TIMESTAMP WHERE id = :id");
+    $stmtUpd->bindValue(':est', $estadoEnvio, SQLITE3_TEXT);
+    $stmtUpd->bindValue(':res', $resultadoEnvio, SQLITE3_TEXT);
+    $stmtUpd->bindValue(':id', (int)$envioRow['id'], SQLITE3_INTEGER);
+    $stmtUpd->execute();
 
     // Insertar en comunicaciones_log
     $stmtLog = $db->prepare(
@@ -210,7 +286,7 @@ try {
     $stmtLog->bindValue(':sid', $idSmtp,                        SQLITE3_INTEGER);
     $stmtLog->bindValue(':res', $resultado['ok'] ? 'exito' : 'error', SQLITE3_TEXT);
     $stmtLog->bindValue(':err', mb_substr($errorMsg, 0, 255),  SQLITE3_TEXT);
-    $stmtLog->bindValue(':vab', $varianteAb,                    SQLITE3_TEXT);
+    $stmtLog->bindValue(':vab', $varianteUsada,                 SQLITE3_TEXT);
     $stmtLog->bindValue(':det', 'Envío a ' . $emailClub . ' con plantilla ' . $plantilla['nombre'], SQLITE3_TEXT);
     $stmtLog->execute();
 
@@ -228,7 +304,7 @@ try {
         $obsExistente = $db->querySingle("SELECT observaciones FROM clubes_crm WHERE id = {$idClub}");
         $obsMerge = $obsExistente ? $obsExistente . "\n" . $nuevaObs : $nuevaObs;
 
-        $stmtUpd = $db->prepare("UPDATE clubes_crm SET estado_lead = 'Email Enviado / En Secuencia', observaciones = :obs, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
+        $stmtUpd = $db->prepare("UPDATE clubes_crm SET estado_lead = '02 Contactado', observaciones = :obs, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
         $stmtUpd->bindValue(':obs', $obsMerge, SQLITE3_TEXT);
         $stmtUpd->bindValue(':id', $idClub, SQLITE3_INTEGER);
         $stmtUpd->execute();
@@ -310,7 +386,7 @@ function escribirLogEnvio(string $logDir, string $resultado, string $club, strin
 // FUNCIÓN SMTP AUTENTICADO NATIVO
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asunto, string $cuerpoHTML): array
+function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asunto, string $cuerpoHTML, ?string $messageId = null): array
 {
     $fromEmail = $cuenta['email'];
     $smtpHost  = $cuenta['host'];
@@ -320,6 +396,7 @@ function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asun
     $seguridad = $cuenta['seguridad'] ?? 'ssl';
 
     $timeout = 30;
+    $readTimeout = 15;
 
     try {
         $ctx = stream_context_create([
@@ -340,13 +417,20 @@ function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asun
             return ['ok' => false, 'error' => "Conexión fallida: {$errstr} ({$errno})"];
         }
 
+        // Timeout de LECTURA explícito: evita que fgets() quede bloqueado
+        // indefinidamente si el servidor acepta la conexión pero no responde.
+        stream_set_timeout($fp, $readTimeout);
+
         $read = function() use ($fp): string {
             $resp = '';
-            while ($line = fgets($fp, 512)) {
-                if ($line === false || $line === '') break;
+            while (($line = fgets($fp, 512)) !== false) {
                 $resp .= $line;
                 if (preg_match('/^\d{3}\s/', $line)) break;
                 if (!preg_match('/^\d{3}[- ]/', $line)) break;
+            }
+            $meta = stream_get_meta_data($fp);
+            if (!empty($meta['timed_out'])) {
+                throw new \RuntimeException('Timeout de lectura SMTP');
             }
             return $resp;
         };
@@ -366,6 +450,7 @@ function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asun
         if ($smtpPort === 587) {
             $cmd("STARTTLS");
             stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+            stream_set_timeout($fp, $readTimeout);
             $cmd("EHLO getfutprotec.com");
         }
 
@@ -390,6 +475,9 @@ function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asun
         $mensaje .= "Reply-To: {$fromEmail}\r\n";
         $mensaje .= "To: <{$destinatario}>\r\n";
         $mensaje .= "Subject: =?UTF-8?B?" . base64_encode($asunto) . "?=\r\n";
+        if ($messageId !== null && $messageId !== '') {
+            $mensaje .= "Message-ID: {$messageId}\r\n";
+        }
         $mensaje .= "MIME-Version: 1.0\r\n";
         $mensaje .= "Content-Type: text/html; charset=UTF-8\r\n";
         $mensaje .= "X-Mailer: FutProtec-Lanzadera/2.0\r\n";

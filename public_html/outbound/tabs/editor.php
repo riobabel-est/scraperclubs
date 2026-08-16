@@ -86,8 +86,16 @@ class="w-full py-2 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounde
 :class="edPlataforma==='whatsapp'?'bg-emerald-500/20 text-emerald-400':'bg-blue-500/20 text-blue-400'"
 x-text="edPlataforma==='whatsapp'?'💬 WhatsApp':'📧 Email'"></span>
 </div>
-<span class="text-xs text-slate-500" x-text="edNombre||'(nueva)'"></span>
-</div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500" x-text="edNombre||'(nueva)'"></span>
+            <button @click="pvLive = !pvLive; if(pvLive){ renderLivePreview(); }" type="button"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition border flex items-center gap-1.5"
+                :class="pvLive ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'">
+                <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                <span x-text="pvLive ? 'Ocultar Vista Previa' : 'Vista Previa'"></span>
+            </button>
+        </div>
+        </div>
 
 <!-- Fila 1: Nombre + Pipeline + Plataforma -->
 <div class="grid grid-cols-5 gap-2 mb-3">
@@ -212,53 +220,42 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
 </div>
 </div>
 
-<!-- ═══ BARRA PREVISUALIZACIÓN ═══ -->
-<div class="mt-4 bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3" x-show="et || en" x-cloak>
-<span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Previsualizacion</span>
-<select x-model="previewClubId" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 flex-1 focus:outline-none focus:border-amber-500/50">
-<option value="">Seleccionar club para previsualizar...</option>
-<?php foreach($clubesList as $c):?>
-<option value="<?=$c['id']?>"><?=escHtml($c['nombre_club'].($c['persona_contacto']?' ('.$c['persona_contacto'].')':''))?></option>
-<?php endforeach;?>
-</select>
-<button @click="abrirPreview()" :disabled="!previewClubId" class="px-4 py-2 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-sm font-semibold hover:bg-purple-500/30 transition disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap">
-<i data-lucide="eye" class="w-4 h-4"></i> Vista Previa
-</button>
-</div>
-
-<!-- ═══ MODAL PREVISUALIZACIÓN ═══ -->
-<template x-if="pv">
-<div @click.self="pv=false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" x-transition>
-<div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
-<div class="sticky top-0 bg-slate-900 border-b border-slate-800 px-5 py-3 flex items-center justify-between rounded-t-2xl z-10">
+<!-- ═══ PANEL PREVISUALIZACIÓN EN VIVO ═══ -->
+<div class="mt-4 bg-slate-900 border border-slate-800 rounded-xl p-4" x-show="pvLive && (et || en)" x-cloak x-transition>
+<div class="flex items-center justify-between mb-3 flex-wrap gap-2">
 <div class="flex items-center gap-2">
 <i data-lucide="eye" class="w-4 h-4 text-purple-400"></i>
-<h5 class="text-sm font-bold text-slate-200">Previsualizacion</h5>
-<span class="px-2 py-0.5 rounded-full text-xs font-semibold"
-:class="edPlataforma==='whatsapp'?'bg-emerald-500/20 text-emerald-400':'bg-blue-500/20 text-blue-400'"
-x-text="edPlataforma==='whatsapp'?'💬 WhatsApp':'📧 Email'"></span>
+<span class="text-xs uppercase tracking-wider text-slate-300 font-semibold">Vista Previa</span>
+<template x-if="edTestAb && edPlataforma === 'email'">
+<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-500/20 text-purple-400">🧪 A/B/C</span>
+</template>
 </div>
-<div class="flex items-center gap-2">
-<select x-model="pvClubId" @change="cargarPreview()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500/50 max-w-[200px]">
-<option value="">Cambiar club...</option>
+<div class="flex items-center gap-2 flex-wrap">
+<select x-model="previewClubId" @change="renderLivePreview()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50 max-w-[220px]">
+<option value="">Sin club (placeholders vacíos)</option>
 <?php foreach($clubesList as $c):?>
 <option value="<?=$c['id']?>"><?=escHtml($c['nombre_club'])?></option>
 <?php endforeach;?>
 </select>
-<button @click="cargarPreview()" class="px-2 py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded text-xs font-semibold hover:bg-purple-500/30 transition flex items-center gap-1">
-<i data-lucide="refresh-cw" class="w-3 h-3"></i> Actualizar
-</button>
-<button @click="pv=false" class="text-slate-500 hover:text-slate-300"><i data-lucide="x" class="w-5 h-5"></i></button>
 </div>
 </div>
-<div class="p-5">
-<!-- Spinner -->
-<div x-show="pvLoading" class="flex items-center justify-center py-20">
-<span class="w-8 h-8 border-2 border-purple-400 border-t-transparent rounded-full animate-spin"></span>
+
+<!-- Vista única (sin A/B/C) -->
+<div x-show="edTestAb !== 1 || edPlataforma !== 'email'" class="border border-slate-700 rounded-xl p-4 bg-white min-h-[300px] text-slate-900 text-sm overflow-auto max-h-[70vh]" style="white-space:pre-wrap;word-break:break-word" x-html="pvLiveA"></div>
+
+<!-- Vista triple A/B/C (solo email con test activo) -->
+<div x-show="edTestAb === 1 && edPlataforma === 'email'" class="grid md:grid-cols-3 gap-3">
+<div class="flex flex-col">
+<div class="text-center text-xs font-semibold text-amber-500 mb-2 py-1 bg-slate-800 rounded-t-lg">Variante A</div>
+<div class="border border-slate-700 rounded-b-lg p-4 bg-white min-h-[300px] text-slate-900 text-sm overflow-auto max-h-[70vh] flex-1" style="white-space:pre-wrap;word-break:break-word" x-html="pvLiveA"></div>
 </div>
-<!-- Contenido -->
-<div x-show="!pvLoading" id="pvContainer" class="border border-slate-700 rounded-xl p-4 bg-white min-h-[300px] text-slate-900 text-sm overflow-auto max-h-[60vh]" style="white-space:pre-wrap;word-break:break-word" x-html="pvContent"></div>
+<div class="flex flex-col">
+<div class="text-center text-xs font-semibold text-purple-400 mb-2 py-1 bg-slate-800 rounded-t-lg">Variante B</div>
+<div class="border border-slate-700 rounded-b-lg p-4 bg-white min-h-[300px] text-slate-900 text-sm overflow-auto max-h-[70vh] flex-1" style="white-space:pre-wrap;word-break:break-word" x-html="pvLiveB"></div>
+</div>
+<div class="flex flex-col">
+<div class="text-center text-xs font-semibold text-cyan-400 mb-2 py-1 bg-slate-800 rounded-t-lg">Variante C</div>
+<div class="border border-slate-700 rounded-b-lg p-4 bg-white min-h-[300px] text-slate-900 text-sm overflow-auto max-h-[70vh] flex-1" style="white-space:pre-wrap;word-break:break-word" x-html="pvLiveC"></div>
 </div>
 </div>
 </div>
-</template>

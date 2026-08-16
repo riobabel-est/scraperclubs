@@ -18,6 +18,7 @@ var app = function() {
 
         // SMTP
         se: 0,
+        sp: false,
         randomMode: false,
         sf: { email: '', host: 'mail.getfutprotec.com', puerto: 465, usuario: '', password: '', seguridad: 'ssl', limite_diario: 50, nombre_emisor: '', cargo_emisor: '' },
 
@@ -29,12 +30,6 @@ var app = function() {
         ldPlantillaWaId: '',
         ldWaUrl: '',
 
-        // Previsualizacion modal
-        pv: false,
-        pvClubId: '',
-        pvContent: '',
-        pvLoading: false,
-
         // Buscador en listado
         edSearch: '',
 
@@ -43,6 +38,13 @@ var app = function() {
         aqTab: 'envios',
         aqData: { total: 0, ultimos: [] },
         aqLoading: false,
+
+        // Respuestas (FASE 4C)
+        respuestas: [],
+        respuestasFiltro: '',
+        rsModal: false,
+        rsRespuesta: null,
+        rsEnvio: null,
 
         // Lanzadera v2
         lzMotorEstado: 'PAUSADO',
@@ -71,6 +73,7 @@ var app = function() {
          edNombre: '', edAsunto: '', edAsuntoB: '', edAsuntoC: '', edTestAb: 0,
          edCuerpo: '', edCuerpoB: '', edCuerpoC: '', edTipo: 'html',
          previewClubId: '', debounceTimer: null,
+         pvLive: false, pvLiveA: '', pvLiveB: '', pvLiveC: '', previewClubCache: {}, senderCache: null,
 
         // Lanzadera v2
         lzMotorEstado: 'PAUSADO',
@@ -108,6 +111,8 @@ var app = function() {
         ],
         lzTemplatesEmail: [],
         lzTemplatesWa: [],
+        lzCampanas: [],
+        lzCampaignId: '',
         lzTabMonitor: 'cola',
         lzKpiClubes: 0,
         lzKpiSmtpActivas: 0,
@@ -448,20 +453,6 @@ var app = function() {
             if (j.ok) this.templates = j.templates;
             setTimeout(() => lucide.createIcons(), 50);
         },
-        async onTemplateChange() {
-            if (!this.et) { this.en = false; return; }
-            const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec));
-            const j = await r.json();
-            const t = j.templates.find(x => x.id == this.et);
-            if (t) {
-                this.edNombre = t.nombre; this.edAsunto = t.asunto || '';
-                this.edAsuntoB = t.asunto_b || ''; this.edAsuntoC = t.asunto_c || '';
-                this.edTestAb = parseInt(t.test_ab) || 0; this.edCuerpo = t.cuerpo || '';
-                this.edTipo = t.tipo || 'html'; this.en = false;
-                this.autoPreview();
-            }
-            setTimeout(() => lucide.createIcons(), 50);
-        },
         nuevaPlantilla() {
             this.et = ''; this.en = true;
             this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edAsuntoB = ''; this.edAsuntoC = ''; this.edTestAb = 0;
@@ -488,55 +479,62 @@ var app = function() {
             if (j.ok) { this.en = false; this.et = j.id; this.onCategoriaChange(); alert('Plantilla guardada'); }
             else { alert('Error: ' + (j.error || 'Desconocido')); }
         },
-        insertTag(tag) { this.edCuerpo += tag; this.autoPreview(); },
-        onCuerpoInput() { clearTimeout(this.debounceTimer); this.debounceTimer = setTimeout(() => this.autoPreview(), 500); },
-        onTipoChange() { this.autoPreview(); },
-        async autoPreview() { if (!this.previewClubId || (!this.et && !this.en)) return; this.previewTpl(); },
-        async abrirPreview() {
-            if (!this.previewClubId) return; this.pvClubId = this.previewClubId; this.pv = true;
-            this.cargarPreview(); setTimeout(() => lucide.createIcons(), 100);
-        },
-        async cargarPreview() {
-            if (!this.pvClubId) return; this.pvLoading = true;
+        insertTag(tag) { this.edCuerpo += tag; this.renderLivePreview(); },
+        onCuerpoInput() { clearTimeout(this.debounceTimer); this.debounceTimer = setTimeout(() => this.renderLivePreview(), 400); },
+        async getPreviewClub() {
+            const id = this.previewClubId;
+            if (!id) return { nombre_club: '', persona_contacto: '', federacion: '' };
+            if (this.previewClubCache[id]) return this.previewClubCache[id];
             try {
-            const body = this.edCuerpo || (this.et ? await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec)).then(r => r.json()).then(j => {
-                const t = j.templates.find(x => x.id == this.et); return t ? t.cuerpo : '';
-            }) : '');
-            if (!body) { this.pvContent = '<p class="text-slate-400 text-center py-8">Sin contenido</p>'; this.pvLoading = false; return; }
-            let club = { nombre_club: '', persona_contacto: '', federacion: '' };
-            try { const r = await fetch('?action=get_lead&id=' + this.pvClubId); const data = await r.json(); if (data && data.nombre_club) club = data; } catch(e) {}
-            let sName = 'Nombre', sTitle = 'Equipo Comercial', sEmail = 'email@ejemplo.com';
-            try { const rs = await fetch('api/smtp.php?action=get_accounts'); const jss = await rs.json();
-                const cuenta = (jss.ok && jss.accounts && jss.accounts.length > 0) ? jss.accounts.find(a => a.activa == 1 || a.activa == '1') || jss.accounts[0] : null;
-                if (cuenta) { sName = cuenta.nombre_emisor || (cuenta.email ? cuenta.email.split('@')[0] : 'Nombre'); sTitle = cuenta.cargo_emisor || 'Equipo Comercial'; sEmail = cuenta.email || 'email@ejemplo.com'; }
-            } catch(e) {}
-            const html = body.replace(/{{CLUB}}/g, club.nombre_club || '').replace(/{{CONTACTO}}/g, club.persona_contacto || 'responsable')
-                .replace(/{{FEDERACION}}/g, club.federacion || '').replace(/{{ANIO}}/g, new Date().getFullYear())
-                .replace(/{{SENDER_NAME}}/g, sName).replace(/{{SENDER_TITLE}}/g, sTitle).replace(/{{SENDER_EMAIL}}/g, sEmail);
-            if (this.edPlataforma === 'whatsapp') { this.pvContent = '<div style="background:#e5ddd5;padding:16px;border-radius:8px;max-width:400px;font-family:sans-serif;font-size:14px;white-space:pre-wrap">' + this.esc(html) + '</div>'; }
-            else { this.pvContent = html; }
-            } catch(e) { this.pvContent = '<p class="text-rose-400 text-center py-8">Error al cargar previsualización</p>'; }
-            this.pvLoading = false;
+                const r = await fetch('?action=get_lead&id=' + id);
+                const d = await r.json();
+                if (d && d.id) this.previewClubCache[id] = d;
+            } catch (e) {}
+            return this.previewClubCache[id] || { nombre_club: '', persona_contacto: '', federacion: '' };
         },
-        async previewTpl() {
-            const ci = this.previewClubId; if (!ci) return;
-            const body = this.edCuerpo || (this.et ? await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec)).then(r => r.json()).then(j => {
-                const t = j.templates.find(x => x.id == this.et); return t ? t.cuerpo : '';
-            }) : '');
-            if (!body) { document.getElementById('previewContainer').innerHTML = '<p class="text-slate-400 text-center py-8">Sin contenido para previsualizar</p>'; return; }
-            const [r, rs] = await Promise.all([fetch('?action=get_lead&id=' + ci), fetch('api/smtp.php?action=get_accounts')]);
-            const club = await r.json(); if (!club) return;
-            const jss = await rs.json();
-            const cuenta = (jss.ok && jss.accounts && jss.accounts.length > 0) ? jss.accounts.find(a => a.activa == 1 || a.activa == '1') || jss.accounts[0] : {};
-            const senderName = cuenta.nombre_emisor || (cuenta.email ? cuenta.email.split('@')[0] : 'Nombre Remitente');
-            const senderTitle = cuenta.cargo_emisor || 'Equipo Comercial'; const senderEmail = cuenta.email || 'email@ejemplo.com';
-            const html = body.replace(/{{CLUB}}/g, club.nombre_club || '').replace(/{{CONTACTO}}/g, club.persona_contacto || 'responsable')
-                .replace(/{{FEDERACION}}/g, club.federacion || '').replace(/{{ANIO}}/g, new Date().getFullYear())
-                .replace(/{{SENDER_NAME}}/g, senderName).replace(/{{SENDER_TITLE}}/g, senderTitle).replace(/{{SENDER_EMAIL}}/g, senderEmail);
-            const container = document.getElementById('previewContainer');
-            if (this.edTipo === 'whatsapp') { container.innerHTML = '<div style="background:#e5ddd5;padding:16px;border-radius:8px;max-width:400px;font-family:sans-serif;font-size:14px;white-space:pre-wrap">' + this.esc(html) + '</div>'; }
-            else { container.style.whiteSpace = 'pre-wrap'; container.style.wordBreak = 'break-word'; container.innerHTML = html; }
+        async getSenderPreview() {
+            if (this.senderCache) return this.senderCache;
+            let s = { sName: 'Nombre', sTitle: 'Equipo Comercial', sEmail: 'email@ejemplo.com' };
+            try {
+                const rs = await fetch('api/smtp.php?action=get_accounts');
+                const jss = await rs.json();
+                const cuenta = (jss.ok && jss.accounts && jss.accounts.length > 0) ? (jss.accounts.find(a => a.activa == 1 || a.activa == '1') || jss.accounts[0]) : null;
+                if (cuenta) {
+                    s.sName = cuenta.nombre_emisor || (cuenta.email ? cuenta.email.split('@')[0] : 'Nombre');
+                    s.sTitle = cuenta.cargo_emisor || 'Equipo Comercial';
+                    s.sEmail = cuenta.email || 'email@ejemplo.com';
+                }
+            } catch (e) {}
+            this.senderCache = s;
+            return s;
         },
+        substPreview(body, club, sender) {
+            return body
+                .replace(/{{CLUB}}/g, club.nombre_club || '')
+                .replace(/{{CONTACTO}}/g, club.persona_contacto || 'responsable')
+                .replace(/{{FEDERACION}}/g, club.federacion || '')
+                .replace(/{{EMAIL}}/g, club.email || '')
+                .replace(/{{ANIO}}/g, new Date().getFullYear())
+                .replace(/{{SENDER_NAME}}/g, sender.sName)
+                .replace(/{{SENDER_TITLE}}/g, sender.sTitle)
+                .replace(/{{SENDER_EMAIL}}/g, sender.sEmail);
+        },
+        renderVariantHtml(body, club, sender) {
+            const html = this.substPreview(body || '', club, sender);
+            if (this.edPlataforma === 'whatsapp') {
+                return '<div style="background:#e5ddd5;padding:16px;border-radius:8px;max-width:400px;font-family:sans-serif;font-size:14px;white-space:pre-wrap">' + this.esc(html) + '</div>';
+            }
+            return html;
+        },
+        async renderLivePreview() {
+            if (!this.pvLive) return;
+            const [club, sender] = await Promise.all([this.getPreviewClub(), this.getSenderPreview()]);
+            const abc = this.edTestAb === 1 && this.edPlataforma === 'email';
+            this.pvLiveA = this.renderVariantHtml(this.edCuerpo, club, sender);
+            this.pvLiveB = abc ? this.renderVariantHtml(this.edCuerpoB || this.edCuerpo, club, sender) : '';
+            this.pvLiveC = abc ? this.renderVariantHtml(this.edCuerpoC || this.edCuerpo, club, sender) : '';
+        },
+        autoPreview() { this.renderLivePreview(); },
 
         // ═══════════════════════════════════════════════════════════════════════
         // LANZADERA OUTBOUND v2
@@ -544,9 +542,53 @@ var app = function() {
 
         async bootLanzadera() {
             try { const r = await fetch('api/leads.php?action=get_config&key=lanzadera_delay'); const j = await r.json(); if (j.ok && j.valor) this.lzDelay = parseInt(j.valor) || 5; } catch (e) { this.lzDelay = 5; }
+            try { const r = await fetch('api/leads.php?action=get_config&key=test_emails'); const j = await r.json(); if (j.ok && j.valor) this.testEmails = j.valor; } catch (e) {}
+            try { const r = await fetch('?action=get_piloto_campanas'); const j = await r.json(); if (j.ok) this.lzCampanas = j.campanas || []; } catch (e) {}
             try { const r = await fetch('api/get_cola.php'); const j = await r.json();
                 if (j.ok) { this.lzFederaciones = j.federaciones || []; this.lzCuentasSmtp = j.cuentas_smtp || []; this.lzKpiClubes = j.kpi_clubes || 0; this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0; this.lzKpiEnviosHoy = j.kpi_envios_hoy || 0; }
             } catch (e) {}
+        },
+        async lzSaveTestEmails() {
+            const f = new FormData(); f.append('action', 'update_config'); f.append('key', 'test_emails'); f.append('value', this.testEmails);
+            await fetch('', { method: 'POST', body: f });
+        },
+        lzOnCampaignChange() { /* la campaña se lee de lzCampaignId en el envío */ },
+        async enviarCorreoPrueba() {
+            if (!this.lzCampaignId) { alert('Selecciona una campaña antes de enviar.'); return; }
+            if (!this.lzIdPlantillaEmail) { alert('Selecciona primero una plantilla de email en la configuración del lote.'); return; }
+            const emails = this.testEmailsList;
+            if (emails.length === 0) { alert('Configura al menos un email de prueba en "Destinos de Prueba".'); return; }
+            let club = this.lzCola[0];
+            if (!club) {
+                try { const r = await fetch('api/leads.php?action=get_leads_table&page=1&per_page=1'); const j = await r.json(); club = (j.ok && j.data && j.data.length) ? j.data[0] : null; } catch (e) {}
+            }
+            if (!club || !club.id) { alert('No hay clubes disponibles para rellenar la plantilla de prueba.'); return; }
+            const smtp = (this.lzCuentasSmtp || []).find(c => c.activa == 1) || (this.lzCuentasSmtp || [])[0];
+            if (!smtp || !smtp.id) { alert('No hay cuentas SMTP configuradas.'); return; }
+            const tpl = (this.lzTemplatesEmail || []).find(t => t.id == this.lzIdPlantillaEmail);
+            const esAbc = tpl && parseInt(tpl.test_ab) === 1;
+            const variantes = esAbc ? ['A', 'B', 'C'] : ['A'];
+            const cantidad = variantes.length;
+            if (!confirm('Se enviarán ' + cantidad + (esAbc ? ' correos de prueba (variantes A, B y C)' : ' correo de prueba (mensaje único)') + ' a: ' + emails.join(', ') + ' usando la cuenta ' + smtp.email + '.\n\n¿Continuar?')) return;
+            const resultados = [];
+            for (let i = 0; i < variantes.length; i++) {
+                const fd = new FormData();
+                fd.append('id_club', club.id);
+                fd.append('id_plantilla', this.lzIdPlantillaEmail);
+                fd.append('id_cuenta_smtp', smtp.id);
+                fd.append('modo_test', '1');
+                fd.append('test_email', emails[i % emails.length]);
+                fd.append('variante_ab', variantes[i]);
+                fd.append('campaign_id', this.lzCampaignId);
+                try {
+                    const r = await fetch('api/enviar_lote.php', { method: 'POST', body: fd });
+                    const j = await r.json();
+                    resultados.push('Variante ' + variantes[i] + ': ' + (j.envio_exitoso ? '✅ OK' : '❌ ' + (j.error_smtp || j.error || 'error')));
+                } catch (e) {
+                    resultados.push('Variante ' + variantes[i] + ': ❌ ' + (e.message || 'error de red'));
+                }
+            }
+            alert('Resultado de la prueba:\n\n' + resultados.join('\n'));
         },
         async lzOnEstadoChange() {
             this.lzIdPlantillaEmail = ''; this.lzTemplatesEmail = []; if (!this.lzEstadoLead) return;
@@ -559,7 +601,7 @@ var app = function() {
             if (!this.puedeCargarCola()) { alert('Selecciona al menos Estado del Lead y Plantilla de Email'); return; }
             this.lzCola = []; this.lzColaPaginada = []; this.lzColaPageCurrent = 0; this.lzColaIndex = 0;
             this.lzColaCompletados = {}; this.lzLogEnviados = []; this.lzLogEnviadosPaginados = []; this.lzLogPageCurrent = 0; this.lzMotorEstado = 'PAUSADO';
-            const params = new URLSearchParams({ estado_lead: this.lzEstadoLead, federacion: this.lzFederacion, id_plantilla_email: this.lzIdPlantillaEmail, id_plantilla_wa: this.lzIdPlantillaWa, habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0', random_mode: this.randomMode ? '1' : '0' });
+            const params = new URLSearchParams({ estado_lead: this.lzEstadoLead, federacion: this.lzFederacion, id_plantilla_email: this.lzIdPlantillaEmail, id_plantilla_wa: this.lzIdPlantillaWa, habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0', random_mode: this.randomMode ? '1' : '0', campaign_id: this.lzCampaignId || '' });
             try { const r = await fetch('api/get_cola.php?' + params.toString()); const j = await r.json();
                 if (!j.ok) { alert('Error: ' + (j.error || 'Desconocido')); return; }
                 this.lzCola = j.cola || [];
@@ -570,13 +612,14 @@ var app = function() {
             setTimeout(() => lucide.createIcons(), 100);
         },
         async iniciarMotor() {
+            if (!this.lzCampaignId) { alert('Selecciona una campaña antes de enviar.'); return; }
             if (this.lzCola.length === 0) return;
             this.lzMotorEstado = 'ACTIVO'; this.lzAbortController = new AbortController(); const signal = this.lzAbortController.signal;
             for (let i = this.lzColaIndex; i < this.lzCola.length; i++) {
                 if (signal.aborted) break; if (this.lzMotorEstado === 'PAUSADO' || this.lzMotorEstado === 'DETENIDO') break;
                 this.lzColaIndex = i; const lead = this.lzCola[i]; if (!lead) continue;
                 const r = Math.random(); const vAb = r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C');
-                const fd = new FormData(); fd.append('id_club', lead.id); fd.append('id_plantilla', this.lzIdPlantillaEmail); fd.append('id_cuenta_smtp', lead.smtp_asignada_id); fd.append('modo_test', this.modeTest ? '1' : '0'); fd.append('variante_ab', vAb);
+                const fd = new FormData(); fd.append('id_club', lead.id); fd.append('id_plantilla', this.lzIdPlantillaEmail); fd.append('id_cuenta_smtp', lead.smtp_asignada_id); fd.append('modo_test', this.modeTest ? '1' : '0'); fd.append('variante_ab', vAb); fd.append('campaign_id', this.lzCampaignId);
                 if (this.modeTest && this.testEmailsList.length > 0) { fd.append('test_email', this.testEmailsList[i % this.testEmailsList.length]); }
                 try {
                     const r = await fetch('api/enviar_lote.php', { method: 'POST', body: fd, signal: signal }); const j = await r.json();
@@ -635,6 +678,7 @@ var app = function() {
         },
         async openSmtp(id) {
             this.se = id;
+            this.sp = false;
             if (id > 0) { const r = await fetch('api/smtp.php?action=get_accounts'); const j = await r.json(); const a = j.accounts.find(x => x.id == id);
                 if (a) { this.sf = { email: a.email, host: a.host, puerto: a.puerto, usuario: a.usuario, password: a.password, seguridad: a.seguridad, limite_diario: a.limite_diario, nombre_emisor: a.nombre_emisor || '', cargo_emisor: a.cargo_emisor || '' }; }
             } else { this.sf = { email: '', host: 'mail.getfutprotec.com', puerto: 465, usuario: '', password: '', seguridad: 'ssl', limite_diario: 50 }; }
@@ -726,6 +770,42 @@ var app = function() {
                 const j = await r.json();
                 if (j.ok) this.mockupCap = j;
             } catch (e) { console.error('loadMockupCapacity:', e); }
+        },
+
+        // ─── Respuestas (FASE 4C) ────────────────────────────────────────
+        async loadRespuestas() {
+            this.respuestas = [];
+            try {
+                const p = new URLSearchParams({ action: 'get_respuestas' });
+                if (this.respuestasFiltro) p.append('clasificacion', this.respuestasFiltro);
+                const r = await fetch('?' + p.toString());
+                const j = await r.json();
+                if (j && j.ok) this.respuestas = j.respuestas || [];
+            } catch (e) { console.error('loadRespuestas:', e); }
+        },
+        async abrirRespuesta(id) {
+            this.rsRespuesta = null; this.rsEnvio = null; this.rsModal = true;
+            try {
+                const r = await fetch('?action=get_respuesta&id=' + id);
+                const j = await r.json();
+                if (j && j.ok) { this.rsRespuesta = j.respuesta; this.rsEnvio = j.envio || {}; }
+            } catch (e) { console.error('abrirRespuesta:', e); }
+        },
+        async clasificarRespuesta(id, clasif) {
+            try {
+                const f = new FormData();
+                f.append('action', 'clasificar_respuesta');
+                f.append('id', id);
+                f.append('clasificacion', clasif);
+                const r = await fetch('', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j && j.ok) {
+                    if (this.rsRespuesta && this.rsRespuesta.id == id) this.rsRespuesta.clasificacion = j.clasificacion;
+                    this.loadRespuestas();
+                } else {
+                    alert('Error: ' + (j.error || 'Desconocido'));
+                }
+            } catch (e) { console.error('clasificarRespuesta:', e); }
         },
 
         // ─── Snapshot (F2.12) ──────────────────────────────────────────────

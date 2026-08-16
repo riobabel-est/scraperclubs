@@ -1,0 +1,200 @@
+<?php
+/**
+ * respuestas.php — Módulo FASE 4B: captura/clasificación de respuestas inbound.
+ * Registro manual/asistido, idempotente, con Message-ID y clasificación humana.
+ * No implementa IMAP/POP/webhook. Sin envíos.
+ */
+
+declare(strict_types=1);
+
+const CLASIFICACIONES_VALIDAS = ['PENDING', 'POSITIVE', 'NEGATIVE', 'NEUTRAL', 'UNSUBSCRIBE', 'OOO'];
+
+/**
+ * Genera un Message-ID válido y estable para un envío lógico.
+ * Se deriva del tracking_id del envío, por lo que un retry produce el MISMO valor
+ * (inmutabilidad del identidad del mensaje). No sustituye a envio_id.
+ */
+function generarMessageIdEnvio(string $trackingId, string $smtpEmail = ''): string
+{
+    $dominio = '';
+    if ($smtpEmail !== '' && str_contains($smtpEmail, '@')) {
+        $dominio = substr($smtpEmail, strrpos($smtpEmail, '@') + 1);
+    }
+    if ($dominio === '') {
+        $dominio = 'getfutprotec.com';
+    }
+    return '<' . $trackingId . '@' . $dominio . '>';
+}
+
+/**
+ * Registra una respuesta inbound de forma idempotente.
+ *
+ * Identificador único de idempotencia, por prioridad:
+ *   1. message_id de la respuesta (UNIQUE).
+ *   2. hash estable (message_id + remitente + envio_id) si el proveedor no da message_id.
+ *
+ * Envía `$datos` con: envio_id, remitente, destinatario, subject, cuerpo,
+ * message_id, in_reply_to, references, clasificacion, fecha_respuesta.
+ *
+ * @return array{ok:bool, id:int|null, duplicado:bool, error:string}
+ */
+function registrarRespuesta(SQLite3 $db, array $datos): array
+{
+    $envioId = (int)($datos['envio_id'] ?? 0);
+    if ($envioId <= 0) {
+        return ['ok' => false, 'id' => null, 'duplicado' => false, 'error' => 'envio_id requerido'];
+    }
+
+    $envio = $db->querySingle("SELECT id, lead_id, campaign_id, variant, message_id FROM envios WHERE id = {$envioId}", true);
+    if (!$envio) {
+        return ['ok' => false, 'id' => null, 'duplicado' => false, 'error' => 'envio_id no existe'];
+    }
+
+    $remitente  = trim((string)($datos['remitente'] ?? ''));
+    $messageId  = trim((string)($datos['message_id'] ?? ''));
+    $subject    = trim((string)($datos['subject'] ?? ''));
+    $cuerpo     = (string)($datos['cuerpo'] ?? '');
+    $inReplyTo  = trim((string)($datos['in_reply_to'] ?? ''));
+    $references = trim((string)($datos['references'] ?? ''));
+    $clasif     = strtoupper(trim((string)($datos['clasificacion'] ?? 'PENDING')));
+    if (!in_array($clasif, CLASIFICACIONES_VALIDAS, true)) {
+        $clasif = 'PENDING';
+    }
+    $fechaResp = !empty($datos['fecha_respuesta']) ? (string)$datos['fecha_respuesta'] : date('Y-m-d H:i:s');
+
+    // Idempotencia: si viene message_id, prioridad 1. Sino, hash estable (prioridad 3).
+    $uniqueKey = null;
+    if ($messageId !== '') {
+        $uniqueKey = $messageId;
+    } else {
+        // Fallback: hash estable (no usar solo email+fecha).
+        $uniqueKey = 'h:' . sha1($envioId . '|' . strtolower($remitente) . '|' . $cuerpo);
+    }
+
+    // Si ya existe message_id (o hash), no duplicar.
+    $existente = $db->querySingle(
+        "SELECT id FROM respuestas WHERE message_id = '" . $db->escapeString($uniqueKey) . "' LIMIT 1",
+        true
+    );
+    if ($existente) {
+        return ['ok' => true, 'id' => (int)$existente['id'], 'duplicado' => true, 'error' => ''];
+    }
+
+    // UNSUBSCRIBE → supresión inmediata del lead (integración con la única fuente).
+    if ($clasif === 'UNSUBSCRIBE' && $envio['lead_id']) {
+        $db->exec("UPDATE clubes_crm SET estado_lead = 'Lista Negra', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = " . (int)$envio['lead_id']);
+    }
+
+    $stmt = $db->prepare(
+        "INSERT INTO respuestas
+            (envio_id, fecha_respuesta, remitente, destinatario, subject, cuerpo,
+             message_id, in_reply_to, \"references\", clasificacion,
+             fecha_clasificacion, estado_procesamiento)
+         VALUES
+            (:envio, :fecha, :rem, :dest, :subj, :cuerpo,
+             :mid, :irt, :ref, :clas,
+             CASE WHEN :clas != 'PENDING' THEN CURRENT_TIMESTAMP ELSE NULL END, :estado)"
+    );
+    $stmt->bindValue(':envio',  $envioId, SQLITE3_INTEGER);
+    $stmt->bindValue(':fecha',  $fechaResp, SQLITE3_TEXT);
+    $stmt->bindValue(':rem',    $remitente, SQLITE3_TEXT);
+    $stmt->bindValue(':dest',   trim((string)($datos['destinatario'] ?? '')), SQLITE3_TEXT);
+    $stmt->bindValue(':subj',   $subject, SQLITE3_TEXT);
+    $stmt->bindValue(':cuerpo', $cuerpo, SQLITE3_TEXT);
+    $stmt->bindValue(':mid',    $uniqueKey, SQLITE3_TEXT);
+    $stmt->bindValue(':irt',    $inReplyTo, SQLITE3_TEXT);
+    $stmt->bindValue(':ref',    $references, SQLITE3_TEXT);
+    $stmt->bindValue(':clas',   $clasif, SQLITE3_TEXT);
+    $stmt->bindValue(':estado', $clasif === 'PENDING' ? 'nuevo' : 'clasificado', SQLITE3_TEXT);
+
+    try {
+        $stmt->execute();
+        return ['ok' => true, 'id' => (int)$db->lastInsertRowID(), 'duplicado' => false, 'error' => ''];
+    } catch (\Exception $e) {
+        // Race: si dos procesos insertaron el mismo key, devolver el existente.
+        if (str_contains($e->getMessage(), 'UNIQUE')) {
+            $existente = $db->querySingle(
+                "SELECT id FROM respuestas WHERE message_id = '" . $db->escapeString($uniqueKey) . "' LIMIT 1",
+                true
+            );
+            if ($existente) {
+                return ['ok' => true, 'id' => (int)$existente['id'], 'duplicado' => true, 'error' => ''];
+            }
+        }
+        return ['ok' => false, 'id' => null, 'duplicado' => false, 'error' => $e->getMessage()];
+    }
+}
+
+/**
+ * Clasifica/rec lasifica una respuesta de forma idempotente.
+ * Solo actualiza `clasificacion`/`fecha_clasificacion`/`estado_procesamiento`.
+ * No modifica envio_id, lead/campaign/variant/plantilla/smtp ni message_id.
+ * UNSUBSCRIBE activa la MISMA supresión (Lista Negra), idempotente.
+ */
+function clasificarRespuesta(SQLite3 $db, int $respuestaId, string $clasificacion): array
+{
+    $clasif = strtoupper(trim($clasificacion));
+    if (!in_array($clasif, CLASIFICACIONES_VALIDAS, true)) {
+        return ['ok' => false, 'error' => 'clasificacion invalida'];
+    }
+
+    $resp = $db->querySingle("SELECT envio_id FROM respuestas WHERE id = {$respuestaId}", true);
+    if (!$resp) {
+        return ['ok' => false, 'error' => 'respuesta no encontrada'];
+    }
+
+    // UNSUBSCRIBE → supresión del lead del envío (misma fuente de baja).
+    if ($clasif === 'UNSUBSCRIBE') {
+        $envio = $db->querySingle("SELECT lead_id FROM envios WHERE id = " . (int)$resp['envio_id'], true);
+        if ($envio && $envio['lead_id']) {
+            $db->exec("UPDATE clubes_crm SET estado_lead = 'Lista Negra', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = " . (int)$envio['lead_id']);
+        }
+    }
+
+    $stmt = $db->prepare("UPDATE respuestas SET clasificacion = :c, fecha_clasificacion = CURRENT_TIMESTAMP, estado_procesamiento = :e WHERE id = :id");
+    $stmt->bindValue(':c', $clasif, SQLITE3_TEXT);
+    $stmt->bindValue(':e', $clasif === 'PENDING' ? 'nuevo' : 'clasificado', SQLITE3_TEXT);
+    $stmt->bindValue(':id', $respuestaId, SQLITE3_INTEGER);
+    $stmt->execute();
+
+    return ['ok' => true, 'id' => $respuestaId, 'clasificacion' => $clasif];
+}
+
+/**
+ * Resuelve la correlación estándar (In-Reply-To / References) → envio_id.
+ * NO usa email ni "último envío" como atribución automática.
+ * @return int|null  envio_id o null si no hay coincidencia inequívoca.
+ */
+function resolverEnvioPorCorrelacion(SQLite3 $db, string $inReplyTo = '', string $references = ''): ?int
+{
+    $candidatos = [];
+    if ($inReplyTo !== '') {
+        $candidatos[] = trim($inReplyTo);
+    }
+    if ($references !== '') {
+        foreach (preg_split('/\s+/', trim($references)) ?: [] as $ref) {
+            if ($ref !== '') $candidatos[] = trim($ref);
+        }
+    }
+
+    foreach ($candidatos as $c) {
+        $id = $db->querySingle("SELECT id FROM envios WHERE message_id = '" . $db->escapeString($c) . "' LIMIT 1");
+        if ($id) {
+            return (int)$id;
+        }
+    }
+    return null;
+}
+
+/**
+ * Recupera el contexto completo (lead, campaña, variante, plantilla, smtp) de un
+ * envio, sin joins ambiguos por email.
+ */
+function contextoEnvio(SQLite3 $db, int $envioId): ?array
+{
+    return $db->querySingle(
+        "SELECT id, lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, asunto
+         FROM envios WHERE id = {$envioId}",
+        true
+    ) ?: null;
+}

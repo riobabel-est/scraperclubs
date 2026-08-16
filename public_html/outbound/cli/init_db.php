@@ -686,12 +686,8 @@ function mapEstadoLegacy(string $estadoLegacy, string $email, SQLite3 $db): stri
     $envio = $res->fetchArray(SQLITE3_ASSOC);
 
     if ($envio) {
-        $numAperturas = (int)($envio['num_aperturas'] ?? 0);
-        if ($numAperturas > 0) {
-            return 'Impactado / Abrio Email';
-        }
-        return 'Email Enviado / En Secuencia';
+        return '02 Contactado';
     }
 
-    return 'Sin Contactar';
+    return '01 Sin Contactar';
 }

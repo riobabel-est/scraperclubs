@@ -34,6 +34,45 @@ $db->enableExceptions(true);
 $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
+require_once __DIR__ . '/../inc/eligibilidad.php';
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 0. CAMPAÑA OBLIGATORIA (FASE 2C) — cron no envía sin campaña válida y trazable
+// ═════════════════════════════════════════════════════════════════════════════
+$opts = getopt('', ['campaign-id:', 'campaign:']);
+$campaignRaw = $opts['campaign-id'] ?? $opts['campaign'] ?? null;
+
+if ($campaignRaw === null || trim((string)$campaignRaw) === '') {
+    echo "[" . date('Y-m-d H:i:s') . "] BLOCKED / NO CAMPAIGN — usa --campaign-id=N\n";
+    $db->close();
+    exit(1);
+}
+
+$campaignId = (int)$campaignRaw;
+if ($campaignId <= 0) {
+    echo "[" . date('Y-m-d H:i:s') . "] BLOCKED / NO CAMPAIGN — campaign-id debe ser entero positivo\n";
+    $db->close();
+    exit(1);
+}
+
+$modoEntornoGlobal = (string)($db->querySingle("SELECT valor FROM config WHERE clave = 'modo_entorno'") ?: 'test');
+$validacion = validarCampanaActiva($db, $campaignId, $modoEntornoGlobal);
+$reasonLabels = [
+    'NO_CAMPAIGN'         => 'NO CAMPAIGN',
+    'INVALID_CAMPAIGN'    => 'INVALID CAMPAIGN',
+    'CAMPAIGN_NOT_ACTIVE' => 'CAMPAIGN NOT ACTIVE',
+    'ENVIRONMENT_MISMATCH'=> 'ENVIRONMENT MISMATCH',
+];
+if (!$validacion['ok']) {
+    $label = $reasonLabels[$validacion['razon']] ?? 'CAMPAIGN INVALID';
+    echo "[" . date('Y-m-d H:i:s') . "] BLOCKED / {$label}\n";
+    $db->close();
+    exit(1);
+}
+
+$campaign = $validacion['campaña'];
+echo "[" . date('Y-m-d H:i:s') . "] Campaña válida: #{$campaignId} (estado={$campaign['estado']}, entorno={$campaign['entorno']})\n";
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. Verificar si el motor está activado
 // ═════════════════════════════════════════════════════════════════════════════
@@ -71,12 +110,18 @@ echo "[" . date('Y-m-d H:i:s') . "] Cuenta SMTP seleccionada: {$cuentaRow['email
 // ═════════════════════════════════════════════════════════════════════════════
 // 3. Seleccionar siguiente lead en cola (estado = "Sin Contactar")
 // ═════════════════════════════════════════════════════════════════════════════
+// AISLAMIENTO TEST/REAL (FASE 6F.6): la selección SQL NO puede devolver un
+// lead incompatible con la campaña (campaña TEST → sólo leads TEST; campaña no
+// TEST → nunca leads TEST). Mismo fragmento SQL que get_cola.php.
+$filtroCompatibilidad = sqlFiltroCompatibilidadLeadCampana($db, $campaignId);
+
 $leadRow = $db->querySingle(
     "SELECT c.* FROM clubes_crm c
      LEFT JOIN envios e ON LOWER(e.email) = LOWER(c.email) AND e.estado = 'enviado'
-     WHERE c.estado_lead = 'Sin Contactar'
+      WHERE c.estado_lead = '01 Sin Contactar'
        AND c.email IS NOT NULL AND c.email != ''
        AND e.id IS NULL
+       {$filtroCompatibilidad}
      ORDER BY c.creado_el ASC
      LIMIT 1",
     true
@@ -89,6 +134,16 @@ if (!$leadRow) {
 }
 
 echo "[" . date('Y-m-d H:i:s') . "] Lead seleccionado: #{$leadRow['id']} — {$leadRow['nombre_club']} ({$leadRow['email']})\n";
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3.5 Elegibilidad central (supresión) — defensa en profundidad
+// ═════════════════════════════════════════════════════════════════════════════
+$elig = esElegibleParaEnvio($db, (int)$leadRow['id'], $campaignId);
+if (!$elig['ok']) {
+    echo "[" . date('Y-m-d H:i:s') . "] 🚫 Lead #{$leadRow['id']} NO elegible ({$elig['razon']}). Se salta.\n";
+    $db->close();
+    exit(0);
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 4. Verificar modo de entorno (test / producción)
@@ -110,6 +165,12 @@ if (!$plantilla) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// 6. Variante determinística + contenido por variante (FASE 3)
+// ═════════════════════════════════════════════════════════════════════════════
+$variantUsada = asignarVariante((int)$leadRow['id'], $campaignId);
+$contenido = resolverContenidoVariante($plantilla, $variantUsada);
+
+// ═════════════════════════════════════════════════════════════════════════════
 // 6. Construir email
 // ═════════════════════════════════════════════════════════════════════════════
 $asunto = str_replace(
@@ -120,7 +181,7 @@ $asunto = str_replace(
         $leadRow['federacion'] ?? '',
         date('Y'),
     ],
-    $plantilla['asunto']
+    $contenido['asunto']
 );
 
 $cuerpo = str_replace(
@@ -131,15 +192,50 @@ $cuerpo = str_replace(
         $leadRow['federacion'] ?? '',
         date('Y'),
     ],
-    $plantilla['cuerpo']
+    $contenido['cuerpo']
 );
 
 // Generar tracking ID único
 $trackingId = bin2hex(random_bytes(16));
 
 // Incluir pixel de tracking en el cuerpo HTML
-$pixelUrl = "https://" . ($_SERVER['HTTP_HOST'] ?? 'getfutprotec.com') . "/outbound/track.php?id={$trackingId}";
+$pixelUrl = "https://" . ($_SERVER['HTTP_HOST'] ?? 'getfutprotec.com') . "/outbound/api/track.php?id={$trackingId}";
 $cuerpo .= "\n<img src=\"{$pixelUrl}\" width=\"1\" height=\"1\" alt=\"\" style=\"display:none;\">";
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 6.5 Reservar envío lógico ANTES de SMTP (idempotencia por lead_id+campaign_id)
+// ═════════════════════════════════════════════════════════════════════════════
+$reserva = reservarEnvioLogico(
+    $db,
+    (int)$leadRow['id'],
+    $campaignId,
+    $leadRow['nombre_club'],
+    $leadRow['email'],
+    $leadRow['federacion'] ?? '',
+    $cuentaRow['email'],
+    $trackingId,
+    $asunto,
+    $cuerpo,
+    $variantUsada,
+    (int)$plantilla['id'],
+    (int)$cuentaRow['id']
+);
+
+$envioRow = $db->querySingle(
+    "SELECT id, estado, tracking_id, asunto, cuerpo_mensaje, message_id FROM envios WHERE id = " . $reserva['id'],
+    true
+);
+if (!$envioRow) {
+    echo "[" . date('Y-m-d H:i:s') . "] ERROR: no se pudo reservar el envío lógico.\n";
+    $db->close();
+    exit(1);
+}
+
+if (in_array($envioRow['estado'], ['enviado', 'abierto'], true)) {
+    echo "[" . date('Y-m-d H:i:s') . "] ⏭ Lead ya enviado en esta campaña (envio_id=" . $envioRow['id'] . "). No se reenvía.\n";
+    $db->close();
+    exit(0);
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 7. Enviar email
@@ -152,6 +248,7 @@ $headers = [
     'X-Mailer'     => 'FutProtec Cron Engine',
     'X-Tracking-ID' => $trackingId,
     'X-Campaign'   => 'outbound_v1',
+    'Message-ID'   => $envioRow['message_id'] ?? '',
 ];
 
 $headerString = '';
@@ -203,21 +300,12 @@ if ($modoEntorno === 'produccion') {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 8. Registrar envío en BD
+// 8. Actualizar el envío lógico reservado con el resultado SMTP
 // ═════════════════════════════════════════════════════════════════════════════
 if ($enviado) {
-    // Registrar en tabla envios
-    $stmt = $db->prepare(
-        "INSERT INTO envios (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje)
-         VALUES (:club, :email, :fed, :cuenta, 'enviado', :tid, :asunto, :cuerpo)"
-    );
-    $stmt->bindValue(':club',   $leadRow['nombre_club'], SQLITE3_TEXT);
-    $stmt->bindValue(':email',  $leadRow['email'],       SQLITE3_TEXT);
-    $stmt->bindValue(':fed',    $leadRow['federacion'] ?? '', SQLITE3_TEXT);
-    $stmt->bindValue(':cuenta', $cuentaRow['email'],     SQLITE3_TEXT);
-    $stmt->bindValue(':tid',    $trackingId,             SQLITE3_TEXT);
-    $stmt->bindValue(':asunto', $asunto,                 SQLITE3_TEXT);
-    $stmt->bindValue(':cuerpo', $cuerpo,                 SQLITE3_TEXT);
+    // Marcar la MISMA fila reservada como enviada, con resultado SMTP inmutable.
+    $stmt = $db->prepare("UPDATE envios SET estado = 'enviado', resultado_envio = 'ACCEPTED', fecha_resultado_envio = CURRENT_TIMESTAMP WHERE id = :id");
+    $stmt->bindValue(':id', (int)$envioRow['id'], SQLITE3_INTEGER);
     $stmt->execute();
 
     // Registrar en comunicaciones_log
@@ -233,20 +321,25 @@ if ($enviado) {
     $stmtLog->execute();
 
     // Actualizar estado del lead
-    $db->exec("UPDATE clubes_crm SET estado_lead = 'Email Enviado / En Secuencia', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadRow['id']}");
+    $db->exec("UPDATE clubes_crm SET estado_lead = '02 Contactado', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadRow['id']}");
 
     // Incrementar contador de envíos de la cuenta SMTP
     $db->exec("UPDATE cuentas_smtp SET enviados_hoy = enviados_hoy + 1 WHERE id = {$cuentaRow['id']}");
 
     echo "[" . date('Y-m-d H:i:s') . "] ✅ Email enviado correctamente a {$leadRow['email']} (tracking: {$trackingId})\n";
-    echo "[" . date('Y-m-d H:i:s') . "] Lead #{$leadRow['id']} actualizado a 'Email Enviado / En Secuencia'\n";
+    echo "[" . date('Y-m-d H:i:s') . "] Lead #{$leadRow['id']} actualizado a '02 Contactado'\n";
     echo "[" . date('Y-m-d H:i:s') . "] Cuenta SMTP {$cuentaRow['email']}: " . ($enviadosHoy + 1) . "/{$limiteCuenta} envíos hoy\n";
 } else {
+    // Marcar la fila reservada como error (retryable, sin duplicar), resultado inmutable FAILED.
+    $stmt = $db->prepare("UPDATE envios SET estado = 'error', resultado_envio = 'FAILED', fecha_resultado_envio = CURRENT_TIMESTAMP WHERE id = :id");
+    $stmt->bindValue(':id', (int)$envioRow['id'], SQLITE3_INTEGER);
+    $stmt->execute();
+
     // Registrar error en la cuenta SMTP
     $db->exec("UPDATE cuentas_smtp SET ultimo_error = '" . $db->escapeString($errorMsg) . "' WHERE id = {$cuentaRow['id']}");
 
     echo "[" . date('Y-m-d H:i:s') . "] ❌ ERROR al enviar a {$leadRow['email']}: {$errorMsg}\n";
-    echo "[" . date('Y-m-d H:i:s') . "] Error registrado en cuenta SMTP #{$cuentaRow['id']}\n";
+    echo "[" . date('Y-m-d H:i:s') . "] Error registrado en cuenta SMTP #{$cuentaRow['id']} (envio_id={$envioRow['id']} queda 'error')\n";
 }
 
 $db->close();
@@ -289,6 +382,10 @@ function enviarSMTP(
             throw new \RuntimeException("No se pudo conectar a {$host}:{$port} — {$errstr} ({$errno})");
         }
 
+        // Timeout de LECTURA explícito: evita que fgets() quede bloqueado
+        // indefinidamente si el servidor acepta la conexión pero no responde.
+        stream_set_timeout($socket, 15);
+
         // Leer saludo del servidor
         $resp = leerRespuestaSMTP($socket);
         if (substr($resp, 0, 3) !== '220') {
@@ -310,6 +407,7 @@ function enviarSMTP(
                 throw new \RuntimeException("STARTTLS fallido: {$resp}");
             }
             stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+            stream_set_timeout($socket, 15);
             fwrite($socket, "EHLO getfutprotec.com\r\n");
             leerRespuestaSMTP($socket);
         }
@@ -397,12 +495,16 @@ function enviarSMTP(
 function leerRespuestaSMTP($socket): string
 {
     $resp = '';
-    while ($line = fgets($socket, 512)) {
+    while (($line = fgets($socket, 512)) !== false) {
         $resp .= $line;
         // Las respuestas SMTP multilínea tienen '-' después del código en líneas intermedias
         if (isset($line[3]) && $line[3] === ' ') {
             break;
         }
+    }
+    $meta = stream_get_meta_data($socket);
+    if (!empty($meta['timed_out'])) {
+        throw new \RuntimeException('Timeout de lectura SMTP');
     }
     return trim($resp);
 }

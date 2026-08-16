@@ -39,6 +39,9 @@ $db->enableExceptions(true);
 $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
+require_once __DIR__ . '/inc/eligibilidad.php';
+require_once __DIR__ . '/inc/metricas.php';
+
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
 // ═══════════════ AUTENTICACIÓN PARA ENDPOINTS AJAX ════════════════════════════
@@ -382,6 +385,16 @@ if ($action === 'save_template') {
     header('Content-Type: application/json');
     try {
         $id  = (int)($_POST['id'] ?? 0);
+
+        // Congelación de plantillas (FASE 3A AJUSTE 2): no sobrescribir una
+        // plantilla usada por una campaña PILOT/ACTIVE. El snapshot histórico
+        // sigue siendo la fuente del mensaje; esta regla evita mezclar dos
+        // contenidos bajo el mismo plantilla_id.
+        if ($id > 0 && plantillaEstaCongelada($db, $id)) {
+            echo json_encode(['ok' => false, 'error' => 'Plantilla congelada (usada por campaña PILOT/ACTIVE). Crea una nueva plantilla.']);
+            exit;
+        }
+
         $n   = $_POST['nombre'] ?? '';
         $a   = $_POST['asunto'] ?? '';
         $ab  = $_POST['asunto_b'] ?? '';
@@ -575,6 +588,80 @@ if ($action === 'get_followups') {
         'sin_proxima_accion' => $sinProximaAccion,
         'kpis' => $kpisOperativos
     ]);
+    exit;
+}
+
+// ─── get_respuestas ──────────────────────────────────────────────────────────
+if ($action === 'get_respuestas') {
+    header('Content-Type: application/json');
+    $filtro = trim($_GET['clasificacion'] ?? '');
+    $where = '';
+    if ($filtro !== '' && in_array(strtoupper($filtro), CLASIFICACIONES_VALIDAS, true)) {
+        $where = "WHERE r.clasificacion = '" . $db->escapeString(strtoupper($filtro)) . "'";
+    }
+    $sql = "
+        SELECT r.id, r.envio_id, r.fecha_respuesta, r.remitente, r.subject AS subject_respuesta,
+               r.clasificacion, r.estado_procesamiento,
+               e.club, e.email, e.campaign_id, e.variant, e.fecha_envio, e.asunto AS asunto_envio,
+               p.nombre AS campaña_nombre
+        FROM respuestas r
+        JOIN envios e ON e.id = r.envio_id
+        LEFT JOIN pipelines p ON p.id = e.campaign_id
+        {$where}
+        ORDER BY r.fecha_respuesta DESC
+        LIMIT 200";
+    $res = $db->query($sql);
+    $items = [];
+    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+        $items[] = $row;
+    }
+    echo json_encode(['ok' => true, 'respuestas' => $items]);
+    exit;
+}
+
+// ─── get_respuesta ───────────────────────────────────────────────────────────
+if ($action === 'get_respuesta') {
+    header('Content-Type: application/json');
+    $id = (int)($_GET['id'] ?? 0);
+    if ($id <= 0) { echo json_encode(['ok' => false, 'error' => 'id requerido']); exit; }
+    $resp = $db->querySingle("SELECT * FROM respuestas WHERE id = {$id}", true);
+    if (!$resp) { echo json_encode(['ok' => false, 'error' => 'no encontrada']); exit; }
+    $envio = $db->querySingle(
+        "SELECT e.*, p.nombre AS campaña_nombre FROM envios e LEFT JOIN pipelines p ON p.id = e.campaign_id WHERE e.id = " . (int)$resp['envio_id'],
+        true
+    );
+    echo json_encode(['ok' => true, 'respuesta' => $resp, 'envio' => $envio]);
+    exit;
+}
+
+// ─── clasificar_respuesta ────────────────────────────────────────────────────
+if ($action === 'clasificar_respuesta') {
+    header('Content-Type: application/json');
+    $id = (int)($_POST['id'] ?? 0);
+    $clasif = strtoupper(trim($_POST['clasificacion'] ?? ''));
+    if ($id <= 0) { echo json_encode(['ok' => false, 'error' => 'id requerido']); exit; }
+    $res = clasificarRespuesta($db, $id, $clasif);
+    echo json_encode($res);
+    exit;
+}
+
+// ─── get_piloto_metricas (FASE 5B) ──────────────────────────────────────────
+if ($action === 'get_piloto_metricas') {
+    header('Content-Type: application/json');
+    $cid = (int)($_GET['campaign_id'] ?? $_GET['id_campana'] ?? 0);
+    echo json_encode(calcularMetricas($db, $cid));
+    exit;
+}
+
+// ─── get_piloto_campanas (FASE 5D) ──────────────────────────────────────────
+if ($action === 'get_piloto_campanas') {
+    header('Content-Type: application/json');
+    $campos = [];
+    $res = $db->query("SELECT id, nombre, identificador, estado, entorno, activo FROM pipelines ORDER BY id ASC");
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
+        $campos[] = $r;
+    }
+    echo json_encode(['ok' => true, 'campanas' => $campos]);
     exit;
 }
 
@@ -901,14 +988,6 @@ function escHtml(string $s): string {
             <span class="font-bold text-slate-100 text-sm tracking-tight">FutProtec Outbound CRM</span>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
-            <button @click="toggleRandom()"
-                class="px-3 py-1 rounded-full text-xs font-semibold transition border"
-                :class="randomMode ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-slate-700 text-slate-400 border-slate-600'"
-                x-text="randomMode ? '🎲 ALEATORIO ON' : '🎲 ALEATORIO OFF'"></button>
-            <button @click="toggleModo()"
-                class="px-3 py-1 rounded-full text-xs font-semibold transition"
-                :class="modeTest ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'"
-                x-text="modeTest ? 'MODO PRUEBAS' : 'MODO PRODUCCION'"></button>
             <a href="?logout=1" class="text-slate-500 hover:text-slate-300 text-xs transition ml-2">
                 <i data-lucide="log-out" class="w-4 h-4 inline"></i>
             </a>
@@ -984,6 +1063,9 @@ function escHtml(string $s): string {
         <button @click="tab='followups'"
             class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'followups' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Follow-ups</button>
+        <button @click="tab='respuestas'; loadRespuestas()"
+            class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'respuestas' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Respuestas</button>
     </nav>
 </div>
 
@@ -1008,6 +1090,9 @@ function escHtml(string $s): string {
 </div>
 <div x-show="tab === 'followups'" x-cloak class="max-w-full mx-auto px-4 py-4">
     <?php include __DIR__ . '/tabs/followups.php'; ?>
+</div>
+<div x-show="tab === 'respuestas'" x-cloak class="max-w-full mx-auto px-4 py-4">
+    <?php include __DIR__ . '/tabs/respuestas.php'; ?>
 </div>
 
 <!-- ═══════════ MODALS ═══════════ -->
@@ -1040,7 +1125,7 @@ include __DIR__ . '/tabs/modals.php';
 <script>
 window._cfg = {motorActivo:<?= $motorActivo?'true':'false' ?>,modeTest:<?= $modoPruebas?'true':'false' ?>};
 </script>
-<script src="js/app.js?v=6"></script>
+<script src="js/app.js?v=9"></script>
 </body>
 </html>
 <?php

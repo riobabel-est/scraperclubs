@@ -1,0 +1,106 @@
+# Checkpoint FASE ABC-FINAL.5 — Candidato único para variante B
+
+- Fecha: 2026-08-16
+- Rol: ingeniero senior CRM Outbound FutProtec V4.3
+- Carácter de la fase: **SOLO LECTURA**
+
+```text
+FASE ABC-FINAL.5
+SOLO LECTURA
+CANDIDATO B ENCONTRADO
+NO SE CREÓ NINGÚN LEAD
+NO SE REALIZÓ NINGÚN ENVÍO
+```
+
+---
+
+## Estado previo (contexto de ABC-FINAL.4)
+
+Dummies existentes y su variante calculada con la función real `asignarVariante(lead_id, 3)`:
+
+| lead_id | variante |
+|---------|----------|
+| 1814 | C |
+| 1815 | A |
+| 1816 | C |
+
+Faltaba una variante **B**, por lo que ABC-FINAL.4 quedó `BLOCKED`.
+
+---
+
+## Objetivo de esta fase
+
+Resolver únicamente el bloqueo de la variante B, determinando en memoria (sin escribir en BD) el **primer ID futuro** cuya `asignarVariante(id, 3) = 'B'`.
+
+---
+
+## Resultado de la búsqueda
+
+`MAX(clubes_crm.id)` actual confirmado: **1816**.
+
+Tabla de candidatos evaluados (se detiene en el primer B):
+
+| ID candidato | variante |
+| -----------: | :------: |
+| 1817 | **B** |
+
+Primer ID futuro con variante B: **1817**.
+
+```text
+CANDIDATO_B_ID = 1817
+CANDIDATO_B_VARIANTE = B
+MAX_ID_ACTUAL = 1816
+```
+
+---
+
+## Validaciones confirmadas
+
+| Comprobación | Valor | Resultado |
+|---|---|---|
+| ID candidato no existe actualmente | `COUNT(clubes_crm WHERE id=1817) = 0` | OK (no existe) |
+| `asignarVariante(1817, 3)` | `B` | OK |
+| Campaña 3 | `{"id":3,"estado":"PILOT","entorno":"test","activo":1}` | OK |
+| Plantilla 2 | `{"id":2,"activo":1,"test_ab":1}` | OK |
+| `config.modo_entorno` | `test` | OK |
+| `config.motor_estado` | `pausado` | OK |
+| `MAX(envios.id)` | `7` | OK |
+
+---
+
+## Seguridad
+
+```text
+SOLO LECTURA      = SÍ
+leads creados     = 0
+BD modificada     = NO
+envíos            = NO
+SMTP              = NO
+POST              = NO
+cron              = NO
+Evolution API     = NO
+plantilla modificada = NO
+configuración modificada = NO
+```
+
+No se insertó, no se reservó, no se alteró absolutamente nada. La conexión a BD se abrió con `SQLITE3_OPEN_READONLY`.
+
+---
+
+## Parada obligatoria
+
+Se encontró el primer ID candidato B y se detiene la fase:
+
+```text
+CANDIDATO B = 1817 (variante B)
+```
+
+**No se creó el lead 1817, no se envió nada y no se continúa automáticamente.** Se devuelve el ID candidato y se espera la siguiente fase.
+
+---
+
+## Artefactos de la fase
+
+- `scripts/fase_abcfinal5_candidato_b.php` — script de solo lectura que calcula la variante de los IDs futuros hasta hallar el primer B.
+
+(Nota: durante la creación se generó además un archivo accesorio `scripts/fase_ab` por un problema de nombrado del editor; el script canónico es `scripts/fase_abcfinal5_candidato_b.php`.)
