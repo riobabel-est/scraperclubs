@@ -87,6 +87,7 @@ var app = function() {
         lzColaPageSize: 50,
         lzColaPageCurrent: 0,
         lzColaCompletados: {},
+        lzColaResultados: {},
         lzLogEnviados: [],
         lzLogEnviadosPaginados: [],
         lzLogPageSize: 30,
@@ -667,7 +668,7 @@ var app = function() {
         async cargarCola() {
             if (!this.puedeCargarCola()) { alert('Selecciona al menos Estado del Lead y Plantilla de Email'); return; }
             this.lzCola = []; this.lzColaPaginada = []; this.lzColaPageCurrent = 0; this.lzColaIndex = 0;
-            this.lzColaCompletados = {}; this.lzLogEnviados = []; this.lzLogEnviadosPaginados = []; this.lzLogPageCurrent = 0; this.lzMotorEstado = 'PAUSADO';
+            this.lzColaCompletados = {}; this.lzColaResultados = {}; this.lzLogEnviados = []; this.lzLogEnviadosPaginados = []; this.lzLogPageCurrent = 0; this.lzMotorEstado = 'PAUSADO';
             const params = new URLSearchParams({ estado_lead: this.lzEstadoLead, federacion: this.lzFederacion, id_plantilla_email: this.lzIdPlantillaEmail, id_plantilla_wa: this.lzIdPlantillaWa, habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0', random_mode: this.randomMode ? '1' : '0', campaign_id: this.lzCampaignId || '' });
             try { const r = await fetch('api/get_cola.php?' + params.toString()); const j = await r.json();
                 if (!j.ok) { alert('Error: ' + (j.error || 'Desconocido')); return; }
@@ -691,6 +692,7 @@ var app = function() {
                 try {
                     const r = await fetch('api/enviar_lote.php', { method: 'POST', body: fd, signal: signal }); const j = await r.json();
                     this.lzColaCompletados[lead.id] = true;
+                    this.lzColaResultados[lead.id] = { ok: !!j.envio_exitoso, error: j.error_smtp || j.error || '' };
                     this.lzLogEnviados.unshift({ timestamp: j.timestamp || new Date().toISOString(), club: j.club || lead.nombre_club, email: j.email || lead.email, cuenta_smtp: j.cuenta_smtp || lead.smtp_asignada_email, envio_exitoso: j.envio_exitoso || false, error_smtp: j.error_smtp || '' });
                     if (this.lzLogEnviadosPaginados.length === 0) { this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length)); this.lzLogPageCurrent = 1; }
                     const smtpIdx = this.lzCuentasSmtp.findIndex(c => c.id == lead.smtp_asignada_id);
@@ -700,6 +702,7 @@ var app = function() {
                 } catch (e) {
                     if (e.name === 'AbortError') break;
                     this.lzColaCompletados[lead.id] = true;
+                    this.lzColaResultados[lead.id] = { ok: false, error: e.message || 'Error de red' };
                     this.lzLogEnviados.unshift({ timestamp: new Date().toISOString(), club: lead.nombre_club, email: lead.email, cuenta_smtp: lead.smtp_asignada_email || '—', envio_exitoso: false, error_smtp: e.message || 'Error de red' });
                     if (this.lzLogEnviadosPaginados.length === 0) { this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length)); this.lzLogPageCurrent = 1; }
                 }

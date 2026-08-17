@@ -349,6 +349,7 @@
                             <th class="px-2 py-1.5 text-left font-semibold hidden sm:table-cell">Email</th>
                             <th class="px-2 py-1.5 text-left font-semibold">SMTP</th>
                             <th class="px-2 py-1.5 text-right font-semibold">Est.</th>
+                            <th class="px-2 py-1.5 text-center font-semibold w-20">Estado</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -356,19 +357,35 @@
                             <tr class="border-b border-slate-800/50 transition"
                                 :class="{
                                     'bg-amber-500/10 border-l-2 border-l-amber-400': idx === lzColaIndex,
-                                    'opacity-40 saturate-50 pointer-events-none': lzColaCompletados[item.id],
+                                    'bg-emerald-500/10': lzColaCompletados[item.id] && lzColaResultados[item.id] && lzColaResultados[item.id].ok,
+                                    'bg-rose-500/10': lzColaCompletados[item.id] && lzColaResultados[item.id] && !lzColaResultados[item.id].ok,
                                     'hover:bg-slate-800/30': !lzColaCompletados[item.id] && idx !== lzColaIndex
                                 }">
-                                <td class="px-2 py-1.5 text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-700' : 'text-slate-500'" x-text="idx + 1"></td>
+                                <td class="px-2 py-1.5 text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-400' : 'text-slate-500'" x-text="idx + 1"></td>
                                 <td class="px-2 py-1.5">
-                                    <span class="font-normal text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-700 line-through' : 'text-slate-200'" x-text="item.nombre_club"></span>
-                                    <span class="text-xs block" :class="lzColaCompletados[item.id] ? 'text-slate-800' : 'text-slate-500'" x-text="item.federacion?.substring(0, 25) || ''"></span>
+                                    <span class="font-normal text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-300' : 'text-slate-200'" x-text="item.nombre_club"></span>
+                                    <span class="text-xs block" :class="lzColaCompletados[item.id] ? 'text-slate-500' : 'text-slate-500'" x-text="item.federacion?.substring(0, 25) || ''"></span>
                                 </td>
                                 <td class="px-2 py-1.5 hidden sm:table-cell">
-                                    <code class="text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-700' : 'text-slate-400'" x-text="item.email"></code>
+                                    <code class="text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-400' : 'text-slate-400'" x-text="item.email"></code>
                                 </td>
-                                <td class="px-2 py-1.5 text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-700' : 'text-slate-300'" x-text="item.smtp_asignada_email?.split('@')[0] || '—'"></td>
-                                <td class="px-2 py-1.5 text-right text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-700' : 'text-slate-400'" x-text="item.hora_estimada"></td>
+                                <td class="px-2 py-1.5 text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-300' : 'text-slate-300'" x-text="item.smtp_asignada_email?.split('@')[0] || '—'"></td>
+                                <td class="px-2 py-1.5 text-right text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-400' : 'text-slate-400'" x-text="item.hora_estimada"></td>
+                                <td class="px-2 py-1.5 text-center">
+                                    <span x-show="idx === lzColaIndex && !lzColaCompletados[item.id]"
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> PROCESANDO
+                                    </span>
+                                    <span x-show="lzColaCompletados[item.id] && lzColaResultados[item.id] && lzColaResultados[item.id].ok"
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> ENVIADO
+                                    </span>
+                                    <span x-show="lzColaCompletados[item.id] && lzColaResultados[item.id] && !lzColaResultados[item.id].ok"
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30 cursor-help"
+                                        :title="lzColaResultados[item.id].error || 'Error desconocido'">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> ERROR
+                                    </span>
+                                </td>
                             </tr>
                         </template>
                     </tbody>
