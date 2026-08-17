@@ -584,37 +584,78 @@ var app = function() {
             if (!this.lzIdPlantillaEmail) { alert('Selecciona primero una plantilla de email en la configuración del lote.'); return; }
             const emails = this.testEmailsList;
             if (emails.length === 0) { alert('Configura al menos un email de prueba en "Destinos de Prueba".'); return; }
-            let club = this.lzCola[0];
-            if (!club) {
-                try { const r = await fetch('api/leads.php?action=get_leads_table&page=1&per_page=1'); const j = await r.json(); club = (j.ok && j.data && j.data.length) ? j.data[0] : null; } catch (e) {}
+
+            // ─── Selección de leads SOLO compatibles con la campaña ─────────────
+            // Nunca se usa get_leads_table sin filtro de compatibilidad TEST/REAL.
+            // Si lzCola ya contiene leads compatibles (cargados por get_cola.php),
+            // se reutilizan. Si está vacía, se obtienen internamente vía get_cola.php
+            // con campaign_id, que aplica sqlFiltroCompatibilidadLeadCampana().
+            let candidatos = (this.lzCola || []).filter(c => c && c.id);
+            if (candidatos.length === 0) {
+                try {
+                    const params = new URLSearchParams();
+                    params.append('campaign_id', this.lzCampaignId);
+                    if (this.lzEstadoLead) params.append('estado_lead', this.lzEstadoLead);
+                    if (this.lzFederacion) params.append('federacion', this.lzFederacion);
+                    const r = await fetch('api/get_cola.php?' + params.toString());
+                    const j = await r.json();
+                    candidatos = (j.ok && Array.isArray(j.cola)) ? j.cola.filter(c => c && c.id) : [];
+                } catch (e) { candidatos = []; }
             }
-            if (!club || !club.id) { alert('No hay clubes disponibles para rellenar la plantilla de prueba.'); return; }
+            if (candidatos.length === 0) { alert('No hay leads compatibles con la campaña seleccionada para la prueba.\nCargue una cola válida o amplíe el universo TEST.\nNo se ha enviado nada.'); return; }
+
             const smtp = (this.lzCuentasSmtp || []).find(c => c.activa == 1) || (this.lzCuentasSmtp || [])[0];
             if (!smtp || !smtp.id) { alert('No hay cuentas SMTP configuradas.'); return; }
             const tpl = (this.lzTemplatesEmail || []).find(t => t.id == this.lzIdPlantillaEmail);
             const esAbc = tpl && parseInt(tpl.test_ab) === 1;
-            const variantes = esAbc ? ['A', 'B', 'C'] : ['A'];
-            const cantidad = variantes.length;
+
+            // ─── Selección A/B/C: buscar leads que cubran las variantes ─────────
+            // La variante la calcula el servidor (get_cola.php → asignarVariante()).
+            // No se fuerza variante: se elige un lead distinto por cada variante.
+            let seleccion = [];
+            if (esAbc) {
+                const porVariante = { A: null, B: null, C: null };
+                for (const c of candidatos) {
+                    const v = c.variante_ab || 'A';
+                    if (!porVariante[v]) porVariante[v] = c;
+                    if (porVariante.A && porVariante.B && porVariante.C) break;
+                }
+                if (!porVariante.A || !porVariante.B || !porVariante.C) {
+                    alert('No hay tres leads compatibles que cubran A/B/C.\nCargue una cola válida o amplíe el universo TEST.\nNo se ha enviado nada.');
+                    return;
+                }
+                seleccion = [
+                    { variante: 'A', club: porVariante.A },
+                    { variante: 'B', club: porVariante.B },
+                    { variante: 'C', club: porVariante.C },
+                ];
+            } else {
+                seleccion = [{ variante: 'A', club: candidatos[0] }];
+            }
+
+            const cantidad = seleccion.length;
             if (!confirm('Se enviarán ' + cantidad + (esAbc ? ' correos de prueba (variantes A, B y C)' : ' correo de prueba (mensaje único)') + ' a: ' + emails.join(', ') + ' usando la cuenta ' + smtp.email + '.\n\n¿Continuar?')) return;
             const resultados = [];
-            for (let i = 0; i < variantes.length; i++) {
+            for (let i = 0; i < seleccion.length; i++) {
+                const sel = seleccion[i];
                 const fd = new FormData();
-                fd.append('id_club', club.id);
+                fd.append('id_club', sel.club.id);
                 fd.append('id_plantilla', this.lzIdPlantillaEmail);
                 fd.append('id_cuenta_smtp', smtp.id);
                 fd.append('modo_test', '1');
                 fd.append('test_email', emails[i % emails.length]);
-                fd.append('variante_ab', variantes[i]);
+                fd.append('variante_ab', sel.variante);
                 fd.append('campaign_id', this.lzCampaignId);
                 try {
                     const r = await fetch('api/enviar_lote.php', { method: 'POST', body: fd });
                     const j = await r.json();
-                    resultados.push('Variante ' + variantes[i] + ': ' + (j.envio_exitoso ? '✅ OK' : '❌ ' + (j.error_smtp || j.error || 'error')));
+                    resultados.push('Variante ' + sel.variante + ': ' + (j.envio_exitoso ? '✅ OK' : '❌ ' + (j.error_smtp || j.error || 'error')));
                 } catch (e) {
-                    resultados.push('Variante ' + variantes[i] + ': ❌ ' + (e.message || 'error de red'));
+                    resultados.push('Variante ' + sel.variante + ': ❌ ' + (e.message || 'error de red'));
                 }
             }
             alert('Resultado de la prueba:\n\n' + resultados.join('\n'));
+
         },
         async lzOnEstadoChange() {
             this.lzIdPlantillaEmail = ''; this.lzTemplatesEmail = []; if (!this.lzEstadoLead) return;

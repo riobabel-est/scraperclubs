@@ -67,7 +67,7 @@
                         class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50 transition disabled:opacity-40 disabled:cursor-not-allowed">
                         <option value="">Seleccionar plantilla...</option>
                         <template x-for="tpl in lzTemplatesEmail" :key="tpl.id">
-                            <option :value="tpl.id" x-text="tpl.nombre"></option>
+                            <option :value="tpl.id" x-text="'[ID ' + tpl.id + '] ' + tpl.nombre"></option>
                         </template>
                     </select>
                 </div>

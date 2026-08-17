@@ -27,6 +27,8 @@ $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
 require_once __DIR__ . '/../inc/eligibilidad.php';
+require_once __DIR__ . '/../inc/abc.php';
+
 
 // ─── PARÁMETROS ──────────────────────────────────────────────────────────────
 $estadoLead   = trim($_GET['estado_lead'] ?? '');
@@ -182,7 +184,14 @@ try {
         $lead['smtp_enviados_hoy']   = $usoHoy[$cuentaAsignada['id']] ?? 0;
         $lead['smtp_limite']         = (int)$cuentaAsignada['limite_diario'];
 
+        // Variante A/B/C determinística (FASE 3) calculada server-side con la
+        // función real asignarVariante(). Solo cuando hay campaña; si no, null.
+        // Permite a la lanzadera seleccionar leads que cubran A/B/C sin duplicar
+        // la lógica de asignación en JavaScript.
+        $lead['variante_ab'] = $idCampana > 0 ? asignarVariante((int)$lead['id'], $idCampana) : null;
+
         $cola[] = $lead;
+
     }
 
     // ─── 5. Calcular hora estimada ────────────────────────────────────────────
