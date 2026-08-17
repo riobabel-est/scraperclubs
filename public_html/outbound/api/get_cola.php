@@ -77,8 +77,17 @@ try {
     }
 
     // ─── 3. Consultar leads según el estado seleccionado ──────────────────────
+    // EXCLUSIÓN DE SUPRESIÓN (LISTA NEGRA): los leads con estado de supresión
+    // (opt-out real o bloqueo manual) NUNCA entran en la cola. Espejo SQL de
+    // esElegibleParaEnvio() (inc/eligibilidad.php) para que "pendientes" =
+    // candidatos realmente elegibles, no solo los que pasan el filtro de estado.
+    $estadosSupresion = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido'];
     $where = "c.email IS NOT NULL AND c.email != ''
-              AND c.es_duplicado = 0";
+              AND c.es_duplicado = 0
+              AND c.estado_lead NOT IN ('" . implode("','", array_map(function ($e) use ($db) {
+                  return $db->escapeString($e);
+              }, $estadosSupresion)) . "')";
+
 
     // AISLAMIENTO TEST/REAL (FASE 6F.6): si se filtra por campaña, la cola solo
     // devuelve leads compatibles (campaña TEST → sólo leads TEST; campaña no TEST

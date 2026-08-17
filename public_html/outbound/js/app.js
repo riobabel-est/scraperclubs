@@ -46,6 +46,17 @@ var app = function() {
         rsRespuesta: null,
         rsEnvio: null,
 
+        // Lista Negra (MEGA AUDITORÍA)
+        blSearch: '',
+        blResults: [],
+        blSearchMsg: '',
+        blSearchMsgOk: false,
+        blList: [],
+        blLoading: false,
+        blMsg: '',
+        blMsgOk: false,
+
+
         // Lanzadera v2
         lzMotorEstado: 'PAUSADO',
 
@@ -119,6 +130,18 @@ var app = function() {
         lzKpiSmtpActivas: 0,
         lzKpiEnviosHoy: 0,
 
+        // Envío dirigido (1 lead) + tamaño de lote
+        lzBatchSize: 1,
+        lzLeadSearch: '',
+        lzLeadResults: [],
+        lzLeadSearching: false,
+        lzSelectedLeadId: 0,
+        lzSelectedLead: null,
+        lzLeadValidating: false,
+        lzLeadValidation: null,
+        lzSendCalls: 0,
+
+
         // ─── Computed ─────────────────────────────────────────────────────────
         get waLink() {
             const m = this.ld.telefono_movil || '';
@@ -169,6 +192,20 @@ var app = function() {
         },
         get lzEnvioErrorPct() {
             return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioErrorCount / this.lzTotalProcesados) * 100) : 0;
+        },
+        // Fuente única de verdad del límite diario: la cuenta SMTP activa seleccionada.
+        // Proviene de lzCuentasSmtp (cargado desde get_cola.php → BD cuentas_smtp.limite_diario).
+        get lzCuentaActiva() {
+            return (this.lzCuentasSmtp || []).find(c => c.activa == 1) || (this.lzCuentasSmtp || [])[0] || null;
+        },
+        get lzCuentaActivaLimite() {
+            const c = this.lzCuentaActiva;
+            return c ? (parseInt(c.limite_diario) || 0) : null;
+        },
+        get lzCuentaActivaLabel() {
+            const c = this.lzCuentaActiva;
+            if (!c) return 'Sin cuentas SMTP activas';
+            return c.email + (c.activa == 1 ? '' : ' (inactiva)');
         },
 
         // ─── 🧪 Parser de emails de prueba ────────────────────────────────
@@ -681,16 +718,62 @@ var app = function() {
         },
         async iniciarMotor() {
             if (!this.lzCampaignId) { alert('Selecciona una campaña antes de enviar.'); return; }
+
+            // ─── CASO A: Envío dirigido (un único lead seleccionado) ──────────
+            // Si hay un lead seleccionado en "Envío Dirigido", se envía SOLO a ese
+            // lead, ignorando la cola. El tamaño de lote se fuerza a 1.
+            const dirigido = this.lzSelectedLeadId > 0 && this.lzSelectedLead;
+            if (dirigido) {
+                if (!this.lzIdPlantillaEmail) { alert('Selecciona una plantilla de email antes de enviar.'); return; }
+                this.lzMotorEstado = 'ACTIVO'; this.lzAbortController = new AbortController(); const signal = this.lzAbortController.signal;
+                this.lzSendCalls = 0;
+                const lead = this.lzSelectedLead;
+                const r = Math.random(); const vAb = r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C');
+                const fd = new FormData();
+                fd.append('id_club', lead.id);
+                fd.append('id_plantilla', this.lzIdPlantillaEmail);
+                fd.append('id_cuenta_smtp', (this.lzCuentasSmtp.find(c => c.activa == 1) || this.lzCuentasSmtp[0] || {}).id || '');
+                fd.append('modo_test', this.modeTest ? '1' : '0');
+                fd.append('variante_ab', vAb);
+                fd.append('campaign_id', this.lzCampaignId);
+                if (this.modeTest && this.testEmailsList.length > 0) { fd.append('test_email', this.testEmailsList[0]); }
+                try {
+                    const r = await fetch('api/enviar_lote.php', { method: 'POST', body: fd, signal: signal }); const j = await r.json();
+                    this.lzSendCalls++;
+                    this.lzColaCompletados[lead.id] = true;
+                    this.lzColaResultados[lead.id] = { ok: !!j.envio_exitoso, error: j.error_smtp || j.error || '' };
+                    this.lzLogEnviados.unshift({ timestamp: j.timestamp || new Date().toISOString(), club: j.club || lead.nombre_club, email: j.email || lead.email, cuenta_smtp: j.cuenta_smtp || '', envio_exitoso: j.envio_exitoso || false, error_smtp: j.error_smtp || '' });
+                    if (this.lzLogEnviadosPaginados.length === 0) { this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length)); this.lzLogPageCurrent = 1; }
+                    if (j.envio_exitoso) { this.lzKpiEnviosHoy = (this.lzKpiEnviosHoy || 0) + 1; }
+                } catch (e) {
+                    if (e.name !== 'AbortError') {
+                        this.lzColaCompletados[lead.id] = true;
+                        this.lzColaResultados[lead.id] = { ok: false, error: e.message || 'Error de red' };
+                        this.lzLogEnviados.unshift({ timestamp: new Date().toISOString(), club: lead.nombre_club, email: lead.email, cuenta_smtp: '—', envio_exitoso: false, error_smtp: e.message || 'Error de red' });
+                        if (this.lzLogEnviadosPaginados.length === 0) { this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length)); this.lzLogPageCurrent = 1; }
+                    }
+                }
+                this.lzMotorEstado = 'PAUSADO';
+                this.lzAbortController = null; setTimeout(() => lucide.createIcons(), 100);
+                return;
+            }
+
+            // ─── CASO B: Cola normal con límite de lote ───────────────────────
             if (this.lzCola.length === 0) return;
+            const batchSize = Math.max(1, parseInt(this.lzBatchSize) || 1);
             this.lzMotorEstado = 'ACTIVO'; this.lzAbortController = new AbortController(); const signal = this.lzAbortController.signal;
+            this.lzSendCalls = 0;
             for (let i = this.lzColaIndex; i < this.lzCola.length; i++) {
                 if (signal.aborted) break; if (this.lzMotorEstado === 'PAUSADO' || this.lzMotorEstado === 'DETENIDO') break;
+                // ─── DOBLE SALVAGUARDA: nunca superar el tamaño de lote ────────
+                if (this.lzSendCalls >= batchSize) { this.lzMotorEstado = 'PAUSADO'; break; }
                 this.lzColaIndex = i; const lead = this.lzCola[i]; if (!lead) continue;
                 const r = Math.random(); const vAb = r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C');
                 const fd = new FormData(); fd.append('id_club', lead.id); fd.append('id_plantilla', this.lzIdPlantillaEmail); fd.append('id_cuenta_smtp', lead.smtp_asignada_id); fd.append('modo_test', this.modeTest ? '1' : '0'); fd.append('variante_ab', vAb); fd.append('campaign_id', this.lzCampaignId);
                 if (this.modeTest && this.testEmailsList.length > 0) { fd.append('test_email', this.testEmailsList[i % this.testEmailsList.length]); }
                 try {
                     const r = await fetch('api/enviar_lote.php', { method: 'POST', body: fd, signal: signal }); const j = await r.json();
+                    this.lzSendCalls++;
                     this.lzColaCompletados[lead.id] = true;
                     this.lzColaResultados[lead.id] = { ok: !!j.envio_exitoso, error: j.error_smtp || j.error || '' };
                     this.lzLogEnviados.unshift({ timestamp: j.timestamp || new Date().toISOString(), club: j.club || lead.nombre_club, email: j.email || lead.email, cuenta_smtp: j.cuenta_smtp || lead.smtp_asignada_email, envio_exitoso: j.envio_exitoso || false, error_smtp: j.error_smtp || '' });
@@ -706,14 +789,17 @@ var app = function() {
                     this.lzLogEnviados.unshift({ timestamp: new Date().toISOString(), club: lead.nombre_club, email: lead.email, cuenta_smtp: lead.smtp_asignada_email || '—', envio_exitoso: false, error_smtp: e.message || 'Error de red' });
                     if (this.lzLogEnviadosPaginados.length === 0) { this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length)); this.lzLogPageCurrent = 1; }
                 }
+                // ─── Salvaguarda tras cada envío: parar al alcanzar el lote ───
+                if (this.lzSendCalls >= batchSize) { this.lzMotorEstado = 'PAUSADO'; break; }
                 if (i < this.lzCola.length - 1 && this.lzMotorEstado === 'ACTIVO') {
                     const baseMs = this.lzDelay * 1000; const ms = this.randomMode ? baseMs + Math.floor(Math.random() * this.lzDelay * 1000) - (this.lzDelay * 500) : baseMs;
                     await this.delay(Math.max(500, ms));
                 }
             }
-            if (this.lzColaIndex >= this.lzCola.length - 1 && this.lzMotorEstado === 'ACTIVO') { this.lzMotorEstado = 'PAUSADO'; }
+            if (this.lzMotorEstado === 'ACTIVO') { this.lzMotorEstado = 'PAUSADO'; }
             this.lzAbortController = null; setTimeout(() => lucide.createIcons(), 100);
         },
+
         pausarMotor() { this.lzMotorEstado = 'PAUSADO'; if (this.lzAbortController) { this.lzAbortController.abort(); this.lzAbortController = null; } },
         detenerMotor() { this.lzMotorEstado = 'DETENIDO'; if (this.lzAbortController) { this.lzAbortController.abort(); this.lzAbortController = null; } this.lzCola = []; this.lzColaIndex = 0; this.lzLogEnviados = []; },
         lzOnColaScroll() { const el = document.getElementById('lzColaScroll'); if (!el) return; if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && this.lzColaPaginada.length < this.lzCola.length) { this.lzLoadMoreCola(); } },
@@ -721,7 +807,56 @@ var app = function() {
         lzOnLogScroll() { const el = document.getElementById('lzLogScroll'); if (!el) return; if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && this.lzLogEnviadosPaginados.length < this.lzLogEnviados.length) { this.lzLoadMoreLog(); } },
         lzLoadMoreLog() { const start = this.lzLogPageCurrent * this.lzLogPageSize; if (start < this.lzLogEnviados.length) { this.lzLogEnviadosPaginados.push(...this.lzLogEnviados.slice(start, Math.min(this.lzLogEnviados.length, start + this.lzLogPageSize))); this.lzLogPageCurrent++; } },
         async lzSaveDelay() { const f = new FormData(); f.append('action', 'update_config'); f.append('key', 'lanzadera_delay'); f.append('value', this.lzDelay); await fetch('', { method: 'POST', body: f }); },
+
+        // ─── Envío dirigido (1 lead) + tamaño de lote ─────────────────────────
+        async lzSaveBatchSize() {
+            let v = parseInt(this.lzBatchSize) || 1;
+            if (v < 1) v = 1;
+            if (v > 500) v = 500;
+            this.lzBatchSize = v;
+        },
+        async lzSearchLeads() {
+            const q = (this.lzLeadSearch || '').trim();
+            if (!q) { this.lzLeadResults = []; return; }
+            this.lzLeadSearching = true;
+            try {
+                const params = new URLSearchParams({ q: q });
+                if (this.lzCampaignId) params.append('campaign_id', this.lzCampaignId);
+                const r = await fetch('api/lead_search.php?' + params.toString());
+                const j = await r.json();
+                this.lzLeadResults = (j.ok && Array.isArray(j.results)) ? j.results : [];
+            } catch (e) { this.lzLeadResults = []; }
+            this.lzLeadSearching = false;
+        },
+        lzSelectLead(lead) {
+            this.lzSelectedLeadId = lead.id;
+            this.lzSelectedLead = lead;
+            this.lzLeadValidation = null;
+            // Al seleccionar un lead dirigido, el tamaño de lote se fuerza a 1
+            this.lzBatchSize = 1;
+        },
+        lzClearLead() {
+            this.lzSelectedLeadId = 0;
+            this.lzSelectedLead = null;
+            this.lzLeadValidation = null;
+        },
+        async lzValidateLead() {
+            if (!this.lzSelectedLeadId) return;
+            if (!this.lzCampaignId) { this.lzLeadValidation = { ok: false, error: 'Selecciona una campaña antes de validar.' }; return; }
+            this.lzLeadValidating = true;
+            this.lzLeadValidation = null;
+            try {
+                const params = new URLSearchParams({ lead_id: this.lzSelectedLeadId, campaign_id: this.lzCampaignId });
+                const r = await fetch('api/lead_validate.php?' + params.toString());
+                const j = await r.json();
+                this.lzLeadValidation = j;
+            } catch (e) {
+                this.lzLeadValidation = { ok: false, error: 'Error de conexión al validar.' };
+            }
+            this.lzLeadValidating = false;
+        },
         delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); },
+
 
         // ─── SMTP ─────────────────────────────────────────────────────────────
         async loadSmtp() {
@@ -878,9 +1013,110 @@ var app = function() {
             } catch (e) { console.error('clasificarRespuesta:', e); }
         },
 
+        // ─── Lista Negra (MEGA AUDITORÍA) ─────────────────────────────────
+        // Gestión manual de supresión: opt-out real (protegido) y bloqueo manual.
+        // NUNCA borra historial: registra quién/cuándo/motivo en observaciones
+        // y comunicaciones_log.
+        async blBuscar() {
+            const q = (this.blSearch || '').trim();
+            this.blResults = [];
+            this.blSearchMsg = '';
+            if (!q) { this.blSearchMsg = 'Introduce nombre, email o ID para buscar.'; this.blSearchMsgOk = false; return; }
+            try {
+                const params = new URLSearchParams({ q: q });
+                const r = await fetch('api/lead_search.php?' + params.toString());
+                const j = await r.json();
+                if (j.ok) {
+                    this.blResults = j.results || [];
+                    this.blSearchMsg = this.blResults.length === 0 ? 'Sin resultados.' : '';
+                    this.blSearchMsgOk = this.blResults.length > 0;
+                } else {
+                    this.blSearchMsg = j.error || 'Error al buscar.';
+                    this.blSearchMsgOk = false;
+                }
+            } catch (e) {
+                this.blSearchMsg = 'Error de conexión al buscar.';
+                this.blSearchMsgOk = false;
+            }
+        },
+        blEsSuprimido(r) {
+            const estados = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido'];
+            return estados.includes(String(r.estado_lead || ''));
+        },
+        async blAdd(r) {
+            const motivo = prompt('Motivo del bloqueo manual (recomendado):\nEj: Lead de prueba, Importación incorrecta, Cliente no objetivo, Error humano, Bloqueo preventivo', '');
+            if (motivo === null) return; // cancelado
+            try {
+                const f = new FormData();
+                f.append('action', 'blacklist_add');
+                f.append('id', r.id);
+                f.append('motivo', motivo);
+                const resp = await fetch('', { method: 'POST', body: f });
+                const j = await resp.json();
+                if (j.ok) {
+                    this.blMsg = 'Lead añadido a Lista Negra (bloqueo manual).';
+                    this.blMsgOk = true;
+                    this.blResults = [];
+                    this.blSearch = '';
+                    this.blCargar();
+                } else {
+                    this.blMsg = j.error || 'Error al añadir a Lista Negra.';
+                    this.blMsgOk = false;
+                }
+            } catch (e) {
+                this.blMsg = 'Error de conexión al añadir a Lista Negra.';
+                this.blMsgOk = false;
+            }
+        },
+        async blRemove(l) {
+            if (!confirm('¿Quitar el bloqueo manual de "' + (l.nombre_club || '') + '"?\nEl lead volverá a "01 Sin Contactar".\nEl historial se conservará.')) return;
+            const motivo = prompt('Motivo de la reactivación (recomendado):', '');
+            if (motivo === null) return; // cancelado
+            try {
+                const f = new FormData();
+                f.append('action', 'blacklist_remove');
+                f.append('id', l.id);
+                f.append('motivo', motivo);
+                const resp = await fetch('', { method: 'POST', body: f });
+                const j = await resp.json();
+                if (j.ok) {
+                    this.blMsg = 'Bloqueo manual quitado. Lead reactivado.';
+                    this.blMsgOk = true;
+                    this.blCargar();
+                } else {
+                    this.blMsg = j.error || 'Error al quitar el bloqueo.';
+                    this.blMsgOk = false;
+                }
+            } catch (e) {
+                this.blMsg = 'Error de conexión al quitar el bloqueo.';
+                this.blMsgOk = false;
+            }
+        },
+        async blCargar() {
+            this.blLoading = true;
+            this.blMsg = '';
+            try {
+                const r = await fetch('?action=get_blacklist');
+                const j = await r.json();
+                if (j.ok) {
+                    this.blList = j.items || [];
+                } else {
+                    this.blList = [];
+                    this.blMsg = j.error || 'Error al cargar la Lista Negra.';
+                    this.blMsgOk = false;
+                }
+            } catch (e) {
+                this.blList = [];
+                this.blMsg = 'Error de conexión al cargar la Lista Negra.';
+                this.blMsgOk = false;
+            }
+            this.blLoading = false;
+        },
+
         // ─── Snapshot (F2.12) ──────────────────────────────────────────────
         snapshotMsg: '',
         async guardarSnapshot() {
+
             this.snapshotMsg = 'Guardando...';
             try {
                 const r = await fetch('?action=snapshot_crear', { method: 'POST' });

@@ -71,7 +71,17 @@
                         </template>
                     </select>
                 </div>
+                <!-- 1.4 Tamaño de lote (límite de envíos por ejecución) -->
+                <div>
+                    <label class="block text-xs uppercase tracking-wider text-slate-400 mb-1.5">4. Tamaño de Lote (máx. envíos)</label>
+                    <input type="number" x-model.number="lzBatchSize" min="1" max="500" step="1"
+                        @change="lzSaveBatchSize()"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50 transition"
+                        placeholder="1">
+                    <p class="text-xs text-slate-500 mt-1">1 = un único envío por ejecución</p>
+                </div>
             </div>
+
 
             <!-- Toggles de entorno + aleatorio -->
             <div class="mt-4 pt-3 border-t border-slate-800 flex items-center gap-3 flex-wrap">
@@ -111,7 +121,80 @@
             </div>
         </div>
 
+        <!-- BLOQUE 1.5 IZQ: ENVÍO DIRIGIDO (un único lead) -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <div class="flex items-center gap-3 mb-4">
+                <i data-lucide="crosshair" class="w-5 h-5 text-cyan-400"></i>
+                <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Envío Dirigido (1 lead)</h5>
+                <span class="text-xs text-slate-500">Busca y selecciona un único lead</span>
+            </div>
+
+            <!-- Buscador -->
+            <div class="flex items-center gap-2">
+                <input type="text" x-model="lzLeadSearch" @input.debounce.400ms="lzSearchLeads()" @keydown.enter.prevent="lzSearchLeads()"
+                    class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500/50 transition"
+                    placeholder="Buscar por nombre de club, email o ID...">
+                <button @click="lzSearchLeads()" type="button"
+                    class="px-4 py-2.5 rounded-lg text-sm font-semibold transition flex items-center gap-2 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30">
+                    <i data-lucide="search" class="w-4 h-4"></i>
+                    Buscar
+                </button>
+            </div>
+
+            <!-- Resultados de búsqueda -->
+            <div x-show="lzLeadResults.length > 0" class="mt-3 max-h-56 overflow-y-auto custom-scrollbar border border-slate-800 rounded-lg">
+                <template x-for="lead in lzLeadResults" :key="lead.id">
+                    <button @click="lzSelectLead(lead)" type="button"
+                        class="w-full text-left px-3 py-2.5 border-b border-slate-800/50 hover:bg-slate-800/40 transition flex items-center justify-between gap-2"
+                        :class="lzSelectedLeadId === lead.id ? 'bg-cyan-500/10 border-l-2 border-l-cyan-400' : ''">
+                        <div class="min-w-0">
+                            <div class="text-sm text-slate-200 truncate" x-text="'#' + lead.id + ' · ' + lead.nombre_club"></div>
+                            <div class="text-xs text-slate-500 truncate" x-text="lead.email + (lead.federacion ? ' · ' + lead.federacion : '')"></div>
+                        </div>
+                        <span class="text-xs shrink-0"
+                            :class="lead.es_test ? 'text-amber-400' : 'text-emerald-400'"
+                            x-text="lead.es_test ? 'TEST' : 'REAL'"></span>
+                    </button>
+                </template>
+            </div>
+            <div x-show="lzLeadSearch !== '' && lzLeadResults.length === 0 && !lzLeadSearching" class="mt-3 text-sm text-slate-500">
+                Sin resultados para "<span x-text="lzLeadSearch"></span>"
+            </div>
+
+            <!-- Lead seleccionado -->
+            <template x-if="lzSelectedLead">
+                <div class="mt-3 bg-cyan-500/5 border border-cyan-500/30 rounded-lg p-3">
+                    <div class="flex items-center justify-between gap-2 mb-2">
+                        <span class="text-xs uppercase tracking-wider text-cyan-400 font-semibold">Lead seleccionado</span>
+                        <button @click="lzClearLead()" type="button" class="text-xs text-slate-500 hover:text-rose-400 transition">✕ quitar</button>
+                    </div>
+                    <div class="text-sm text-slate-200" x-text="'#' + lzSelectedLeadId + ' · ' + (lzSelectedLead?.nombre_club || '')"></div>
+                    <div class="text-xs text-slate-400" x-text="lzSelectedLead?.email || ''"></div>
+                    <div class="text-xs text-slate-500 mt-1" x-text="'Federación: ' + (lzSelectedLead?.federacion || '—') + ' · Estado: ' + (lzSelectedLead?.estado_lead || '—')"></div>
+
+                    <!-- Validación -->
+                    <div class="flex items-center gap-2 mt-3">
+                        <button @click="lzValidateLead()" type="button" :disabled="lzLeadValidating"
+                            class="px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30 disabled:opacity-40 disabled:cursor-not-allowed">
+                            <i data-lucide="shield-check" class="w-4 h-4"></i>
+                            <span x-text="lzLeadValidating ? 'Validando...' : 'Validar elegibilidad'"></span>
+                        </button>
+                    </div>
+                    <template x-if="lzLeadValidation">
+                        <div class="mt-2 text-sm"
+                            :class="lzLeadValidation?.ok ? 'text-emerald-400' : 'text-rose-400'">
+                            <span x-text="lzLeadValidation?.ok ? '✅ ' + (lzLeadValidation?.mensaje || '') : '❌ ' + (lzLeadValidation?.error || '')"></span>
+                            <span x-show="lzLeadValidation?.ok" class="text-slate-400" x-text="' · Variante ' + (lzLeadValidation?.variante_ab || '')"></span>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
+            <p class="text-xs text-slate-500 mt-3">Al seleccionar un lead, la Lanzadera enviará SOLO a ese lead (ignora la cola). El tamaño de lote se fuerza a 1.</p>
+        </div>
+
         <!-- BLOQUE 2 IZQ: MONITORIZACIÓN DEL MOTOR + KPIs -->
+
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
             <div class="flex items-center gap-3 mb-4">
                 <i data-lucide="activity" class="w-5 h-5 text-amber-400"></i>
@@ -185,9 +268,11 @@
                 <div class="bg-slate-800/50 rounded-lg p-3">
                     <span class="text-xs text-slate-400 block mb-1">Límite Diario</span>
                     <div class="flex items-center gap-1">
-                        <span class="text-sm font-semibold text-slate-300">50</span>
+                        <span class="text-sm font-semibold text-slate-300"
+                            x-text="lzCuentaActivaLimite !== null ? lzCuentaActivaLimite : '—'">—</span>
                         <span class="text-xs text-slate-500">/ cuenta / día</span>
                     </div>
+                    <div class="text-xs text-slate-500 mt-1" x-text="lzCuentaActivaLabel"></div>
                 </div>
             </div>
         </div>
@@ -237,7 +322,7 @@
 
             <!-- BOTONES DE CONTROL al pie del log -->
             <div class="mt-4 pt-4 border-t border-slate-800 flex items-center justify-center gap-3 flex-wrap">
-                <button @click="iniciarMotor()" :disabled="lzCola.length === 0 || lzMotorEstado === 'ACTIVO'"
+                <button @click="iniciarMotor()" :disabled="lzMotorEstado === 'ACTIVO' || (lzCola.length === 0 && !(lzSelectedLeadId > 0 && lzSelectedLead))"
                     class="px-4 py-2.5 rounded-lg text-sm font-semibold transition flex items-center gap-2
                            bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30
                            disabled:opacity-30 disabled:cursor-not-allowed">
@@ -324,7 +409,7 @@
                     📋 Cola de Envíos en Espera
                 </h5>
                 <div class="flex items-center gap-2">
-                    <span class="text-xs text-slate-500" x-text="'(' + lzCola.length + ' pendientes)'"></span>
+                    <span class="text-xs text-slate-500" x-text="'(' + lzCola.length + ' candidatos)'"></span>
                     <button @click="cargarCola()" :disabled="!puedeCargarCola() || lzMotorEstado === 'ACTIVO'"
                         class="px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5
                                bg-blue-500/20 text-blue-400 hover:bg-blue-500/30
@@ -334,6 +419,23 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Explicación inequívoca: candidatos disponibles ≠ envíos de esta ejecución -->
+            <div class="mb-3 bg-slate-800/40 border border-slate-700 rounded-lg p-3 text-sm">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">📋 Candidatos elegibles</span>
+                    <span class="text-sm font-semibold text-slate-200" x-text="lzCola.length">0</span>
+                </div>
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Lote actual</span>
+                    <span class="text-sm font-semibold text-amber-400" x-text="lzBatchSize">1</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-1">
+                    Se enviarán como máximo <span class="text-amber-400 font-semibold" x-text="lzBatchSize">1</span> en esta ejecución.
+                    Los candidatos restantes permanecen en la cola para próximas ejecuciones.
+                </p>
+            </div>
+
 
             <div class="overflow-y-auto max-h-[500px] custom-scrollbar" id="lzColaScroll" @scroll="lzOnColaScroll()">
                 <div x-show="lzCola.length === 0" class="text-center py-10">

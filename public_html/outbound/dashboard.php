@@ -83,6 +83,32 @@ if ($action === 'update_lead') {
         } elseif ($field === 'estado_lead') {
             // Obtener estado anterior antes de actualizar
             $estadoAnterior = $db->querySingle("SELECT estado_lead FROM clubes_crm WHERE id = {$id}");
+
+            // ─── PROTECCIÓN OPT-OUT REAL (GO-LIVE) ─────────────────────────────
+            // Un opt-out real (baja solicitada por el destinatario vía email) NO
+            // puede deshacerse accidentalmente cambiando estado_lead desde el Kanban.
+            // Se detecta por el historial [BAJA] ... fuente=email en observaciones.
+            // Solo la acción explícita blacklist_remove (con registro de quién/cuándo/
+            // motivo) puede reactivarlo, y aun así se exige confirmación.
+            $estadosSupresion = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido'];
+            $esOptOutReal = false;
+            if (in_array($estadoAnterior, $estadosSupresion, true)) {
+                $obsLead = (string)$db->querySingle("SELECT observaciones FROM clubes_crm WHERE id = {$id}");
+                // Opt-out real = historial de baja con fuente=email (baja.php)
+                if (preg_match('/\[BAJA\][^\n]*fuente\s*=\s*email/i', $obsLead)) {
+                    $esOptOutReal = true;
+                }
+            }
+            if ($esOptOutReal && !in_array($value, $estadosSupresion, true)) {
+                // Bloquear reactivación accidental de un opt-out real.
+                echo json_encode([
+                    'ok'    => false,
+                    'error' => 'Este lead tiene una BAJA REAL del destinatario (opt-out). No puede reactivarse desde el Kanban. Usa la gestión de Lista Negra con confirmación explícita.',
+                    'razon' => 'OPTOUT_REAL_PROTEGIDO'
+                ]);
+                exit;
+            }
+
             $stmt = $db->prepare("UPDATE clubes_crm SET estado_lead = :val, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
             $stmt->bindValue(':val', $value, SQLITE3_TEXT);
             $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
@@ -103,6 +129,7 @@ if ($action === 'update_lead') {
             $stmt = $db->prepare("UPDATE clubes_crm SET {$field} = :val WHERE id = :id");
             $stmt->bindValue(':val', $value, SQLITE3_TEXT);
         }
+
         $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
         $stmt->execute();
         echo json_encode(['ok' => true]);
@@ -112,8 +139,152 @@ if ($action === 'update_lead') {
     exit;
 }
 
+// ─── blacklist_add (BLOQUEO MANUAL → Lista Negra) ──────────────────────────
+// Añade un lead a la Lista Negra por motivos operativos (lead de prueba,
+// importación incorrecta, cliente no objetivo, error humano, bloqueo preventivo).
+// Reutiliza el mecanismo de supresión existente (estado_lead='Lista Negra') y
+// registra el origen como BLOQUEO MANUAL en observaciones. NUNCA borra historial.
+if ($action === 'blacklist_add') {
+    header('Content-Type: application/json');
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+        $motivo = trim($_POST['motivo'] ?? '');
+        if ($id <= 0) {
+            echo json_encode(['ok' => false, 'error' => 'ID requerido']);
+            exit;
+        }
+        $lead = $db->querySingle("SELECT nombre_club, email, estado_lead, observaciones FROM clubes_crm WHERE id = {$id}", true);
+        if (!$lead) {
+            echo json_encode(['ok' => false, 'error' => 'Lead no encontrado']);
+            exit;
+        }
+        $fecha = date('Y-m-d H:i:s');
+        $motivoTxt = $motivo !== '' ? ' | motivo=' . $motivo : '';
+        $obs = (string)$lead['observaciones'];
+        $nuevaObs = $obs
+            . "\n[BLOQUEO MANUAL] " . $fecha . " | fuente=manual" . $motivoTxt;
+        $stmt = $db->prepare(
+            "UPDATE clubes_crm SET estado_lead = 'Lista Negra', observaciones = :o, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id"
+        );
+        $stmt->bindValue(':o', $nuevaObs, SQLITE3_TEXT);
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        // Trazabilidad en comunicaciones_log
+        $stmtLog = $db->prepare(
+            "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+             VALUES (:lid, :cid, 'blacklist_add', :det, CURRENT_TIMESTAMP)"
+        );
+        $stmtLog->bindValue(':lid', $id, SQLITE3_INTEGER);
+        $stmtLog->bindValue(':cid', $id, SQLITE3_INTEGER);
+        $stmtLog->bindValue(':det', 'Bloqueo manual añadido a Lista Negra' . ($motivo !== '' ? ' | motivo=' . $motivo : ''), SQLITE3_TEXT);
+        $stmtLog->execute();
+        echo json_encode(['ok' => true, 'tipo' => 'bloqueo_manual']);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ─── blacklist_remove (QUITAR BLOQUEO MANUAL) ───────────────────────────────
+// Quita un bloqueo manual de la Lista Negra. NUNCA borra historial: registra la
+// reactivación (quién/cuándo/motivo) en observaciones y comunicaciones_log.
+// PROTECCIÓN: si el lead tiene un opt-out REAL (baja del destinatario vía email),
+// NO se permite reactivarlo por esta vía rutinaria. Solo se permite si el lead
+// fue bloqueado manualmente (sin historial [BAJA] fuente=email).
+if ($action === 'blacklist_remove') {
+    header('Content-Type: application/json');
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+        $motivo = trim($_POST['motivo'] ?? '');
+        if ($id <= 0) {
+            echo json_encode(['ok' => false, 'error' => 'ID requerido']);
+            exit;
+        }
+        $lead = $db->querySingle("SELECT nombre_club, email, estado_lead, observaciones FROM clubes_crm WHERE id = {$id}", true);
+        if (!$lead) {
+            echo json_encode(['ok' => false, 'error' => 'Lead no encontrado']);
+            exit;
+        }
+        $obs = (string)$lead['observaciones'];
+        // Detectar opt-out real (baja del destinatario vía email)
+        $esOptOutReal = (bool)preg_match('/\[BAJA\][^\n]*fuente\s*=\s*email/i', $obs);
+        if ($esOptOutReal) {
+            echo json_encode([
+                'ok'    => false,
+                'error' => 'Este lead tiene una BAJA REAL del destinatario (opt-out). No puede reactivarse por esta vía. El opt-out debe respetarse.',
+                'razon' => 'OPTOUT_REAL_PROTEGIDO'
+            ]);
+            exit;
+        }
+        $fecha = date('Y-m-d H:i:s');
+        $motivoTxt = $motivo !== '' ? ' | motivo=' . $motivo : '';
+        $nuevaObs = $obs
+            . "\n[REACTIVACIÓN] " . $fecha . " | fuente=manual | quitar_bloqueo_manual" . $motivoTxt;
+        $stmt = $db->prepare(
+            "UPDATE clubes_crm SET estado_lead = '01 Sin Contactar', observaciones = :o, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id"
+        );
+        $stmt->bindValue(':o', $nuevaObs, SQLITE3_TEXT);
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        // Trazabilidad en comunicaciones_log
+        $stmtLog = $db->prepare(
+            "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+             VALUES (:lid, :cid, 'blacklist_remove', :det, CURRENT_TIMESTAMP)"
+        );
+        $stmtLog->bindValue(':lid', $id, SQLITE3_INTEGER);
+        $stmtLog->bindValue(':cid', $id, SQLITE3_INTEGER);
+        $stmtLog->bindValue(':det', 'Bloqueo manual quitado de Lista Negra' . ($motivo !== '' ? ' | motivo=' . $motivo : ''), SQLITE3_TEXT);
+        $stmtLog->execute();
+        echo json_encode(['ok' => true, 'tipo' => 'bloqueo_manual_quitado']);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ─── get_blacklist (LISTA NEGRA — listado con tipo de supresión) ───────────
+// Devuelve los leads en estado de supresión con su tipo:
+//   - optout_real    → historial [BAJA] ... fuente=email (baja del destinatario)
+//   - bloqueo_manual → sin historial de baja real (bloqueo operativo manual)
+// NUNCA borra historial. Solo lectura.
+if ($action === 'get_blacklist') {
+    header('Content-Type: application/json');
+    try {
+        $estadosSupresion = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido'];
+        $inList = "'" . implode("','", array_map(function ($e) use ($db) { return $db->escapeString($e); }, $estadosSupresion)) . "'";
+        $res = $db->query("SELECT id, nombre_club, email, estado_lead, observaciones FROM clubes_crm WHERE estado_lead IN ({$inList}) ORDER BY id DESC LIMIT 500");
+        $items = [];
+        while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
+            $obs = (string)$r['observaciones'];
+            $esOptOutReal = (bool)preg_match('/\[BAJA\][^\n]*fuente\s*=\s*email/i', $obs);
+            // Extraer motivo/fecha de la última marca de supresión
+            $motivo = '';
+            $fecha = '';
+            if (preg_match('/\[(?:BAJA|BLOQUEO MANUAL)\][^\n]*?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})[^\n]*?(?:motivo=([^\n|]*))?/i', $obs, $m)) {
+                $fecha = $m[1] ?? '';
+                $motivo = trim($m[2] ?? '');
+            }
+            $items[] = [
+                'id'          => (int)$r['id'],
+                'nombre_club' => $r['nombre_club'],
+                'email'       => $r['email'],
+                'estado_lead' => $r['estado_lead'],
+                'tipo'        => $esOptOutReal ? 'optout_real' : 'bloqueo_manual',
+                'motivo'      => $motivo,
+                'fecha'       => $fecha,
+            ];
+        }
+        echo json_encode(['ok' => true, 'items' => $items, 'total' => count($items)]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // ─── add_lead (con validación MX y WhatsApp auto-detect) ────────────────────
 if ($action === 'add_lead') {
+
+
     header('Content-Type: application/json');
     try {
         $n  = $_POST['nombre'] ?? '';
@@ -1066,10 +1237,14 @@ function escHtml(string $s): string {
         <button @click="tab='respuestas'; loadRespuestas()"
             class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'respuestas' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Respuestas</button>
+        <button @click="tab='lista_negra'; blCargar()"
+            class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'lista_negra' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Lista Negra</button>
     </nav>
 </div>
 
 <!-- ═══════════ TAB CONTENTS (includes) ═══════════ -->
+
 <div x-show="tab === 'kanban'" x-cloak class="max-w-full mx-auto px-4 py-4">
     <?php include __DIR__ . '/tabs/kanban.php'; ?>
 </div>
@@ -1094,8 +1269,12 @@ function escHtml(string $s): string {
 <div x-show="tab === 'respuestas'" x-cloak class="max-w-full mx-auto px-4 py-4">
     <?php include __DIR__ . '/tabs/respuestas.php'; ?>
 </div>
+<div x-show="tab === 'lista_negra'" x-cloak class="max-w-full mx-auto px-4 py-4">
+    <?php include __DIR__ . '/tabs/lista_negra.php'; ?>
+</div>
 
 <!-- ═══════════ MODALS ═══════════ -->
+
 <?php
 $federacionesSelect = [
     'Real Federación Andaluza de Fútbol',

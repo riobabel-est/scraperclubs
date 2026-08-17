@@ -30,6 +30,7 @@ $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
 require_once __DIR__ . '/../inc/eligibilidad.php';
+require_once __DIR__ . '/../inc/mime.php';
 
 // ─── PARÁMETROS ──────────────────────────────────────────────────────────────
 $idClub     = (int)($_POST['id_club'] ?? 0);
@@ -198,15 +199,54 @@ try {
     // Generar tracking_id único para el píxel de seguimiento
     $trackingId = 'fut_' . dechex(time()) . '_' . bin2hex(random_bytes(6));
 
-    // Inyectar píxel de tracking y fingerprint anti-detección al final del cuerpo
-    $fingerprint = bin2hex(random_bytes(8));  // 🎲 hash único por email (anti-spam)
-    $pixel = '<img src="' . $TRACK_URL . '?id=' . $trackingId . '" width="1" height="1" style="display:none" alt="">';
-    $antiDetect = "\n<!-- fpid:{$fingerprint} -->\n";  // invisible para humanos, único para filtros
-    if (stripos($cuerpo, '</body>') !== false) {
-        $cuerpo = str_ireplace('</body>', $pixel . $antiDetect . "\n</body>", $cuerpo);
-    } else {
-        $cuerpo .= "\n" . $pixel . $antiDetect;
+    // ─── 4.1b Enlace de baja seguro (GO-LIVE UNSUBSCRIBE) ─────────────────────
+    // Para nuevos envíos se sustituye el enlace de baja `?email={email}` por la
+    // versión con token `?t={tracking_id}`. El tracking_id es un token aleatorio
+    // criptográficamente seguro que NO expone el email en la URL y permite a
+    // baja.php resolver el destinatario desde la tabla `envios`.
+    // Compatibilidad: los enlaces antiguos `?email=` siguen funcionando en baja.php.
+    $bajaUrlEmail = 'https://getfutprotec.com/outbound/api/baja.php?email=' . $emailClub;
+    $bajaUrlToken = 'https://getfutprotec.com/outbound/api/baja.php?t=' . $trackingId;
+    if (strpos($cuerpo, $bajaUrlEmail) !== false) {
+        $cuerpo = str_replace($bajaUrlEmail, $bajaUrlToken, $cuerpo);
     }
+
+    // Tipo de plantilla: decide el Content-Type MIME y la construcción de partes.
+
+    // - texto_plano → multipart/alternative con text/plain (contenido original con
+    //   saltos de línea) + text/html (mismo contenido convertido a HTML mínimo con
+    //   el píxel de tracking). El píxel SOLO vive en la parte HTML.
+    // - html        → text/html; charset=UTF-8, se inyecta el píxel de tracking.
+    $tipoPlantilla = strtolower(trim((string)($plantilla['tipo'] ?? 'texto_plano')));
+    $esHtml = ($tipoPlantilla === 'html');
+
+    // ─── 4.1 Construcción de partes MIME ──────────────────────────────────────
+    // Ambas partes proceden de la MISMA variable base $cuerpo (contenido comercial
+    // tras sustituir placeholders). Esto evita divergencias A/B/C.
+    $plainPart = '';
+    $htmlPart  = '';
+
+    if ($esHtml) {
+        // Plantilla HTML: comportamiento histórico intacto. El cuerpo ya es HTML
+        // y se inyecta el píxel de tracking + fingerprint anti-detección.
+        $fingerprint = bin2hex(random_bytes(8));  // 🎲 hash único por email (anti-spam)
+        $pixel = '<img src="' . $TRACK_URL . '?id=' . $trackingId . '" width="1" height="1" style="display:none" alt="">';
+        $antiDetect = "\n<!-- fpid:{$fingerprint} -->\n";  // invisible para humanos, único para filtros
+        if (stripos($cuerpo, '</body>') !== false) {
+            $cuerpo = str_ireplace('</body>', $pixel . $antiDetect . "\n</body>", $cuerpo);
+        } else {
+            $cuerpo .= "\n" . $pixel . $antiDetect;
+        }
+        $htmlPart = $cuerpo;
+    } else {
+        // Plantilla texto_plano: construir las dos representaciones del MISMO
+        // contenido comercial.
+        //  - plainPart: contenido original con saltos de línea, SIN HTML, SIN píxel.
+        //  - htmlPart : mismo contenido convertido a HTML mínimo + píxel de tracking.
+        $plainPart = $cuerpo;
+        $htmlPart  = convertirContenidoAHtml($cuerpo, $TRACK_URL, $trackingId);
+    }
+
 
     // ─── 5. Determinar destinatario ────────────────────────────────────────────
     $testEmailOverride = trim($_POST['test_email'] ?? '');
@@ -272,7 +312,17 @@ try {
     // ─── 7. Enviar SMTP usando el contenido ya reservado ────────────────────────
     $asuntoEnvio = $envioRow['asunto'] !== '' ? $envioRow['asunto'] : $asunto;
     $cuerpoEnvio = $envioRow['cuerpo_mensaje'] !== '' ? $envioRow['cuerpo_mensaje'] : $cuerpo;
-    $resultado = enviarSMTPAutenticado($cuenta, $emailDestino, $asuntoEnvio, $cuerpoEnvio, $envioRow['message_id'] ?? null);
+    $resultado = enviarSMTPAutenticado(
+        $cuenta,
+        $emailDestino,
+        $asuntoEnvio,
+        $cuerpoEnvio,
+        $envioRow['message_id'] ?? null,
+        $tipoPlantilla,
+        $plainPart,
+        $htmlPart
+    );
+
 
     $estadoEnvio = $resultado['ok'] ? 'enviado' : 'error';
     $errorMsg    = $resultado['error'] ?? '';
@@ -398,128 +448,5 @@ function escribirLogEnvio(string $logDir, string $resultado, string $club, strin
     @file_put_contents($archivo, $linea, FILE_APPEND | LOCK_EX);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// FUNCIÓN SMTP AUTENTICADO NATIVO
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asunto, string $cuerpoHTML, ?string $messageId = null): array
-{
-    $fromEmail = $cuenta['email'];
-    $smtpHost  = $cuenta['host'];
-    $smtpPort  = (int)$cuenta['puerto'];
-    $smtpUser  = $cuenta['usuario'];
-    $smtpPass  = $cuenta['password'];
-    $seguridad = $cuenta['seguridad'] ?? 'ssl';
-
-    $timeout = 30;
-    $readTimeout = 15;
-
-    try {
-        $ctx = stream_context_create([
-            'ssl' => [
-                'verify_peer'       => false,
-                'verify_peer_name'  => false,
-                'allow_self_signed' => true,
-            ]
-        ]);
-
-        $remote = ($smtpPort === 465)
-            ? "ssl://{$smtpHost}:{$smtpPort}"
-            : "tcp://{$smtpHost}:{$smtpPort}";
-
-        $fp = @stream_socket_client($remote, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT, $ctx);
-
-        if (!$fp) {
-            return ['ok' => false, 'error' => "Conexión fallida: {$errstr} ({$errno})"];
-        }
-
-        // Timeout de LECTURA explícito: evita que fgets() quede bloqueado
-        // indefinidamente si el servidor acepta la conexión pero no responde.
-        stream_set_timeout($fp, $readTimeout);
-
-        $read = function() use ($fp): string {
-            $resp = '';
-            while (($line = fgets($fp, 512)) !== false) {
-                $resp .= $line;
-                if (preg_match('/^\d{3}\s/', $line)) break;
-                if (!preg_match('/^\d{3}[- ]/', $line)) break;
-            }
-            $meta = stream_get_meta_data($fp);
-            if (!empty($meta['timed_out'])) {
-                throw new \RuntimeException('Timeout de lectura SMTP');
-            }
-            return $resp;
-        };
-
-        $cmd = function(string $c) use ($fp, $read): string {
-            fwrite($fp, $c . "\r\n");
-            return $read();
-        };
-
-        // Leer banner
-        $read();
-
-        // EHLO
-        $cmd("EHLO getfutprotec.com");
-
-        // STARTTLS si puerto 587
-        if ($smtpPort === 587) {
-            $cmd("STARTTLS");
-            stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
-            stream_set_timeout($fp, $readTimeout);
-            $cmd("EHLO getfutprotec.com");
-        }
-
-        // AUTH LOGIN
-        $cmd("AUTH LOGIN");
-        $cmd(base64_encode($smtpUser));
-        $cmd(base64_encode($smtpPass));
-
-        // MAIL FROM
-        $cmd("MAIL FROM:<{$fromEmail}>");
-
-        // RCPT TO
-        $cmd("RCPT TO:<{$destinatario}>");
-
-        // DATA
-        $cmd("DATA");
-
-        // Construir mensaje con nombre del remitente dinámico
-        $senderName  = $cuenta['nombre_emisor'] ?? '';
-        $fromName = !empty($senderName) ? $senderName : ucfirst(explode('@', $fromEmail)[0]);
-        $mensaje = "From: {$fromName} <{$fromEmail}>\r\n";
-        $mensaje .= "Reply-To: {$fromEmail}\r\n";
-        $mensaje .= "To: <{$destinatario}>\r\n";
-        $mensaje .= "Subject: =?UTF-8?B?" . base64_encode($asunto) . "?=\r\n";
-        if ($messageId !== null && $messageId !== '') {
-            $mensaje .= "Message-ID: {$messageId}\r\n";
-        }
-        $mensaje .= "MIME-Version: 1.0\r\n";
-        $mensaje .= "Content-Type: text/html; charset=UTF-8\r\n";
-        $mensaje .= "X-Mailer: FutProtec-Lanzadera/2.0\r\n";
-        $mensaje .= "\r\n";
-        $mensaje .= $cuerpoHTML;
-        $mensaje .= "\r\n.\r\n";
-
-        fwrite($fp, $mensaje);
-        $dataResp = $read();
-
-        // Verificar respuesta (250 OK esperado)
-        $sendOk = str_contains($dataResp, '250');
-
-        // QUIT
-        $cmd("QUIT");
-        fclose($fp);
-
-        if ($sendOk) {
-            return ['ok' => true, 'error' => ''];
-        }
-        return ['ok' => false, 'error' => 'Respuesta SMTP inesperada: ' . trim($dataResp)];
-
-    } catch (\Throwable $e) {
-        if (isset($fp) && is_resource($fp)) {
-            @fclose($fp);
-        }
-        return ['ok' => false, 'error' => $e->getMessage()];
-    }
-}
+// Las funciones convertirContenidoAHtml() y enviarSMTPAutenticado() se definen
+// en inc/mime.php (incluido arriba). Se mantienen aquí SOLO escribirLogEnvio().
