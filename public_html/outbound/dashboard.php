@@ -399,8 +399,8 @@ if ($action === 'get_lead') {
     $id = (int)($_GET['id'] ?? 0);
     $row = $db->querySingle("
         SELECT c.*,
-               (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email)) AS total_envios,
-               (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email)) AS total_aperturas
+               (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS total_envios,
+               (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS total_aperturas
         FROM clubes_crm c WHERE c.id = {$id}", true);
     if ($row) {
         $mockup = $db->querySingle("SELECT * FROM mockups WHERE lead_id = {$id} ORDER BY id DESC LIMIT 1", true);
@@ -530,8 +530,10 @@ if ($action === 'snapshot_crear') {
         $negociacion = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 8");
         $ganado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 9");
         $perdido = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 10");
-        $rebotado = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes");
-        $baja = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra','Baja / Opt-Out')");
+        // Rebotes y bajas comerciales: excluyen TEST (envios.es_test=0 y leads TEST).
+        // rebotes se une por email (esquema LIVE: id, email, motivo, fecha_rebote).
+        $rebotado = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes r JOIN envios e ON LOWER(r.email)=LOWER(e.email) WHERE COALESCE(e.es_test,0)=0");
+        $baja = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra','Baja / Opt-Out') AND NOT (LOWER(email) LIKE '%@futprotec.local%' OR LOWER(nombre_club) LIKE 'test%')");
 
         $stmt = $db->prepare(
             "INSERT INTO snapshots (fecha, total_leads, sin_contactar, contactado, respondio, interesado, cualificado, propuesta, negociacion, ganado, perdido, rebotado, baja_optout, metadata)
@@ -721,7 +723,8 @@ if ($action === 'preview_template') {
 // ─── get_last_envios ─────────────────────────────────────────────────────────
 if ($action === 'get_last_envios') {
     header('Content-Type: application/json');
-    $res = $db->query("SELECT id, club, email, cuenta_emision, fecha_envio, estado FROM envios ORDER BY id DESC LIMIT 10");
+    // HISTÓRICO COMERCIAL: solo envíos REALES (excluye TEST).
+    $res = $db->query("SELECT e.id, e.club, e.email, e.cuenta_emision, e.fecha_envio, e.estado FROM envios e WHERE 1=1" . sqlFiltroComercial('e') . " ORDER BY e.id DESC LIMIT 10");
     $envs = [];
     while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
         $envs[] = $r;
@@ -730,27 +733,30 @@ if ($action === 'get_last_envios') {
     exit;
 }
 
+
 // ─── get_followups (F4.1 + F4.2 + F4.3) ───────────────────────────────────
 if ($action === 'get_followups') {
     header('Content-Type: application/json');
     $excluirTest = ($_GET['excluir_test'] ?? '1') !== '0';
-    $whereCommercial = $excluirTest ? "AND c.nombre_club NOT LIKE '%TEST%'" : '';
+    // Regla central de exclusión de leads TEST (espejo de esLeadTest()).
+    $whereCommercial = $excluirTest ? "AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" : '';
+
 
     // ─── F4.1: No respondedores ──────────────────────────────────────────
     // Leads en estado Contactado, con envíos, sin respuesta, no rebotados, no baja
     $noRespondedores = [];
     $sqlNR = "SELECT c.id, c.nombre_club, c.email, c.persona_contacto, c.estado_lead,
-        (SELECT MAX(e.fecha_envio) FROM envios e WHERE LOWER(e.email) = LOWER(c.email)) as ultimo_envio,
-        (SELECT e.asunto FROM envios e WHERE LOWER(e.email) = LOWER(c.email) ORDER BY e.id DESC LIMIT 1) as ultimo_asunto,
-        (SELECT MAX(a.fecha_apertura) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email)) as ultima_apertura,
-        (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email)) as num_envios,
-        (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email)) as num_aperturas,
+        (SELECT MAX(e.fecha_envio) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) as ultimo_envio,
+        (SELECT e.asunto FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0 ORDER BY e.id DESC LIMIT 1) as ultimo_asunto,
+        (SELECT MAX(a.fecha_apertura) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) as ultima_apertura,
+        (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) as num_envios,
+        (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) as num_aperturas,
         c.proxima_accion, c.ultimo_contacto
     FROM clubes_crm c
     WHERE c.estado_lead = '02 Contactado'
     {$whereCommercial}
     AND c.estado_lead NOT IN ('Baja / Opt-Out','Opt-Out','Unsubscribed','Lista Negra')
-    AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email))
+    AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0)
     AND NOT EXISTS (SELECT 1 FROM comunicaciones_log cl WHERE cl.lead_id = c.id AND cl.tipo_evento = 'cambio_estado' AND cl.detalles LIKE '%Respondió%')
     ORDER BY c.ultimo_contacto DESC";
     $resNR = $db->query($sqlNR);
@@ -808,7 +814,7 @@ if ($action === 'get_respuestas') {
     $filtro = trim($_GET['clasificacion'] ?? '');
     $where = '';
     if ($filtro !== '' && in_array(strtoupper($filtro), CLASIFICACIONES_VALIDAS, true)) {
-        $where = "WHERE r.clasificacion = '" . $db->escapeString(strtoupper($filtro)) . "'";
+        $where = "AND r.clasificacion = '" . $db->escapeString(strtoupper($filtro)) . "'";
     }
     $sql = "
         SELECT r.id, r.envio_id, r.fecha_respuesta, r.remitente, r.subject AS subject_respuesta,
@@ -818,9 +824,12 @@ if ($action === 'get_respuestas') {
         FROM respuestas r
         JOIN envios e ON e.id = r.envio_id
         LEFT JOIN pipelines p ON p.id = e.campaign_id
+        WHERE 1=1" . sqlFiltroComercial('e') . "
         {$where}
         ORDER BY r.fecha_respuesta DESC
         LIMIT 200";
+
+
     $res = $db->query($sql);
     $items = [];
     while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
@@ -882,34 +891,41 @@ if ($action === 'get_analytics') {
     $tab = $_GET['tab'] ?? 'envios';
     $data = ['ok' => true, 'tab' => $tab];
     if ($tab === 'envios') {
-        $data['total'] = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE estado='enviado'");
-        $data['hoy']   = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE DATE(fecha_envio)=DATE('now')");
+        // HISTÓRICO COMERCIAL: solo envíos REALES (excluye TEST).
+        $data['total'] = (int)$db->querySingle("SELECT COUNT(*) FROM envios e WHERE e.estado='enviado'" . sqlFiltroComercial('e'));
+        $data['hoy']   = (int)$db->querySingle("SELECT COUNT(*) FROM envios e WHERE DATE(e.fecha_envio)=DATE('now')" . sqlFiltroComercial('e'));
         $data['ultimos'] = [];
-        $r2 = $db->query("SELECT id, club, email, cuenta_emision, fecha_envio, estado, asunto, cuerpo_mensaje FROM envios ORDER BY id DESC LIMIT 50");
+        $r2 = $db->query("SELECT e.id, e.club, e.email, e.cuenta_emision, e.fecha_envio, e.estado, e.asunto, e.cuerpo_mensaje FROM envios e WHERE 1=1" . sqlFiltroComercial('e') . " ORDER BY e.id DESC LIMIT 50");
         while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
     } elseif ($tab === 'aperturas') {
-        $data['total']    = (int)$db->querySingle("SELECT COUNT(DISTINCT tracking_id) FROM aperturas");
-        $data['hoy']      = (int)$db->querySingle("SELECT COUNT(*) FROM aperturas WHERE DATE(fecha_apertura)=DATE('now')");
+        // Aperturas comerciales: solo de envíos REALES.
+        $data['total']    = (int)$db->querySingle("SELECT COUNT(DISTINCT a.tracking_id) FROM aperturas a JOIN envios e ON a.tracking_id=e.tracking_id WHERE 1=1" . sqlFiltroComercial('e'));
+        $data['hoy']      = (int)$db->querySingle("SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id=e.tracking_id WHERE DATE(a.fecha_apertura)=DATE('now')" . sqlFiltroComercial('e'));
         $data['ultimos']  = [];
-        $r2 = $db->query("SELECT a.*, e.club, e.email FROM aperturas a LEFT JOIN envios e ON a.tracking_id=e.tracking_id ORDER BY a.id DESC LIMIT 50");
+        $r2 = $db->query("SELECT a.*, e.club, e.email FROM aperturas a LEFT JOIN envios e ON a.tracking_id=e.tracking_id WHERE 1=1" . sqlFiltroComercial('e') . " ORDER BY a.id DESC LIMIT 50");
         while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
     } elseif ($tab === 'rebotes') {
-        $data['total']   = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes");
+        // Rebotes comerciales: solo de envíos REALES. rebotes se une por email (esquema LIVE).
+        $data['total']   = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes r JOIN envios e ON LOWER(r.email)=LOWER(e.email) WHERE 1=1" . sqlFiltroComercial('e'));
         $data['ultimos'] = [];
-        $r2 = $db->query("SELECT * FROM rebotes ORDER BY id DESC LIMIT 50");
+        $r2 = $db->query("SELECT r.*, e.club, e.email FROM rebotes r LEFT JOIN envios e ON LOWER(r.email)=LOWER(e.email) WHERE 1=1" . sqlFiltroComercial('e') . " ORDER BY r.id DESC LIMIT 50");
         while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
     } elseif ($tab === 'bajas') {
-        $data['total']   = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra')");
+        // Bajas comerciales: excluye leads TEST (regla central esLeadTest).
+        $data['total']   = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra') AND NOT (LOWER(email) LIKE '%@futprotec.local%' OR LOWER(nombre_club) LIKE 'test%')");
         $data['ultimos'] = [];
-        $r2 = $db->query("SELECT id, nombre_club, email, estado_lead, observaciones FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra') ORDER BY id DESC LIMIT 50");
+        $r2 = $db->query("SELECT id, nombre_club, email, estado_lead, observaciones FROM clubes_crm WHERE estado_lead IN ('Opt-Out','Unsubscribed','Lista Negra') AND NOT (LOWER(email) LIKE '%@futprotec.local%' OR LOWER(nombre_club) LIKE 'test%') ORDER BY id DESC LIMIT 50");
         while ($row = $r2->fetchArray(SQLITE3_ASSOC)) { $data['ultimos'][] = $row; }
+
     } elseif ($tab === 'dashboard') {
         $pipeline = $_GET['pipeline'] ?? '';
         $variante = $_GET['variante'] ?? '';
         $excluirTest = ($_GET['excluir_test'] ?? '1') !== '0';
-        $whereCommercial = $excluirTest ? "AND c.nombre_club NOT LIKE '%TEST%'" : '';
+        // Regla central de exclusión de leads TEST (espejo de esLeadTest()).
+        $whereCommercial = $excluirTest ? "AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" : '';
         $wherePipeline = $pipeline ? "AND lp.pipeline_id = " . (int)$pipeline : '';
         $whereVariante = $variante ? "AND lp.variante_ab = '" . $db->escapeString($variante) . "'" : '';
+
 
         // Helper: stage_order
         $stageOrder = "CASE c.estado_lead
@@ -923,11 +939,11 @@ if ($action === 'get_analytics') {
         // 1. Contactados
         $cntTotal = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE 1=1 {$whereCommercial}");
         $cntContactados = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 2 {$whereCommercial}");
-        // 2. Entregados = Contactados - Rebotes
-        $cntRebotesContactados = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN rebotes r ON LOWER(r.email) = LOWER(c.email) WHERE {$stageOrder} >= 2 {$whereCommercial}");
+        // 2. Entregados = Contactados - Rebotes (solo envíos REALES). rebotes se une por email.
+        $cntRebotesContactados = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN rebotes r ON LOWER(r.email) = LOWER(c.email) JOIN envios e ON LOWER(e.email) = LOWER(r.email) WHERE COALESCE(e.es_test,0)=0 AND {$stageOrder} >= 2 {$whereCommercial}");
         $cntEntregados = max($cntContactados - $cntRebotesContactados, 0);
-        // 3. Abrieron (leads con al menos una apertura)
-        $cntAbrieron = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email) = LOWER(c.email) JOIN aperturas a ON a.tracking_id = e.tracking_id WHERE 1=1 {$whereCommercial}");
+        // 3. Abrieron (leads con al menos una apertura de envío REAL)
+        $cntAbrieron = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email) = LOWER(c.email) JOIN aperturas a ON a.tracking_id = e.tracking_id WHERE COALESCE(e.es_test,0)=0 {$whereCommercial}");
         // 4. Respondieron
         $cntRespondio = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 4 {$whereCommercial}");
         // 5. Respuestas positivas
@@ -990,11 +1006,11 @@ if ($action === 'get_analytics') {
             $cv['variante'] = $v;
             // Leads asignados
             $cv['leads'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE 1=1 {$whereCommercial} {$vWhere}");
-            // Entregados (con envío, sin rebote)
-            $cv['entregados'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN envios e ON LOWER(e.email)=LOWER(c.email) WHERE e.estado='enviado' {$whereCommercial} {$vWhere}");
-            $cv['rebotes'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN rebotes r ON LOWER(r.email)=LOWER(c.email) WHERE 1=1 {$whereCommercial} {$vWhere}");
-            // Aperturas
-            $cv['aperturas'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN envios e ON LOWER(e.email)=LOWER(c.email) JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE 1=1 {$whereCommercial} {$vWhere}");
+            // Entregados (con envío REAL, sin rebote)
+            $cv['entregados'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN envios e ON LOWER(e.email)=LOWER(c.email) WHERE e.estado='enviado' AND COALESCE(e.es_test,0)=0 {$whereCommercial} {$vWhere}");
+            $cv['rebotes'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN rebotes r ON LOWER(r.email)=LOWER(c.email) JOIN envios e ON LOWER(e.email)=LOWER(r.email) WHERE COALESCE(e.es_test,0)=0 {$whereCommercial} {$vWhere}");
+            // Aperturas (solo de envíos REALES)
+            $cv['aperturas'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN envios e ON LOWER(e.email)=LOWER(c.email) JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE COALESCE(e.es_test,0)=0 {$whereCommercial} {$vWhere}");
             $cv['tasa_apertura'] = $cv['entregados']>0 ? round($cv['aperturas']/$cv['entregados']*100,1) : 0;
             // Respuestas
             $cv['respondio'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
@@ -1056,12 +1072,107 @@ if ($action === 'get_analytics') {
     exit;
 }
 
+// ─── GESTIÓN DE PRUEBAS (AISLAMIENTO TEST/REAL) ─────────────────────────────
+// Endpoints para administrar destinatarios de prueba y leads TEST, y limpiar
+// el histórico de pruebas. Los TEST NUNCA alteran métricas comerciales.
+
+// get_test_recipients — lista destinatarios de prueba
+if ($action === 'get_test_recipients') {
+    header('Content-Type: application/json');
+    $items = [];
+    $res = $db->query("SELECT id, email, nombre, activo FROM destinatarios_test ORDER BY id ASC");
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $items[] = $r; }
+    echo json_encode(['ok' => true, 'items' => $items]);
+    exit;
+}
+
+// add_test_recipient — añade un destinatario de prueba
+if ($action === 'add_test_recipient') {
+    header('Content-Type: application/json');
+    try {
+        $email = strtolower(trim($_POST['email'] ?? ''));
+        $nombre = trim($_POST['nombre'] ?? '');
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            echo json_encode(['ok' => false, 'error' => 'Email inválido']);
+            exit;
+        }
+        $stmt = $db->prepare("INSERT INTO destinatarios_test (email, nombre, activo) VALUES (:e, :n, 1)");
+        $stmt->bindValue(':e', $email, SQLITE3_TEXT);
+        $stmt->bindValue(':n', $nombre, SQLITE3_TEXT);
+        $stmt->execute();
+        echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID()]);
+    } catch (\Exception $e) { echo json_encode(['ok' => false, 'error' => $e->getMessage()]); }
+    exit;
+}
+
+// delete_test_recipient — elimina un destinatario de prueba
+if ($action === 'delete_test_recipient') {
+    header('Content-Type: application/json');
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) { echo json_encode(['ok' => false, 'error' => 'ID requerido']); exit; }
+        $db->exec("DELETE FROM destinatarios_test WHERE id = {$id}");
+        echo json_encode(['ok' => true]);
+    } catch (\Exception $e) { echo json_encode(['ok' => false, 'error' => $e->getMessage()]); }
+    exit;
+}
+
+// get_test_leads — lista leads TEST (regla central esLeadTest)
+if ($action === 'get_test_leads') {
+    header('Content-Type: application/json');
+    $items = [];
+    $res = $db->query("SELECT id, nombre_club, email, estado_lead FROM clubes_crm WHERE LOWER(email) LIKE '%@futprotec.local%' OR LOWER(nombre_club) LIKE 'test%' ORDER BY id DESC LIMIT 200");
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $items[] = $r; }
+    echo json_encode(['ok' => true, 'items' => $items]);
+    exit;
+}
+
+// get_test_history — histórico de envíos TEST (es_test = 1)
+if ($action === 'get_test_history') {
+    header('Content-Type: application/json');
+    $items = [];
+    $res = $db->query("SELECT id, club, email, fecha_envio, estado, campaign_id, plantilla_id, tracking_id FROM envios WHERE COALESCE(es_test,0)=1 ORDER BY id DESC LIMIT 200");
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $items[] = $r; }
+    echo json_encode(['ok' => true, 'items' => $items]);
+    exit;
+}
+
+// clear_test_history — limpia el histórico de pruebas (solo es_test=1)
+if ($action === 'clear_test_history') {
+    header('Content-Type: application/json');
+    try {
+        $confirm = ($_POST['confirm'] ?? '') === 'CONFIRMAR';
+        if (!$confirm) {
+            echo json_encode(['ok' => false, 'error' => 'Se requiere confirmación explícita (confirm=CONFIRMAR)']);
+            exit;
+        }
+        // Backup previo del histórico TEST antes de limpiar.
+        $backupDir = __DIR__ . '/data/backups';
+        if (!is_dir($backupDir)) { @mkdir($backupDir, 0755, true); }
+        $backupFile = $backupDir . '/test_history_' . date('Ymd_His') . '.db';
+        @copy($DB_PATH, $backupFile);
+
+        // Eliminar de forma transaccional: aperturas y comunicaciones asociadas a envíos TEST.
+        $db->exec("BEGIN");
+        $db->exec("DELETE FROM aperturas WHERE tracking_id IN (SELECT tracking_id FROM envios WHERE COALESCE(es_test,0)=1)");
+        $db->exec("DELETE FROM comunicaciones_log WHERE lead_id IN (SELECT DISTINCT lead_id FROM envios WHERE COALESCE(es_test,0)=1)");
+        $db->exec("DELETE FROM envios WHERE COALESCE(es_test,0)=1");
+        $db->exec("COMMIT");
+        echo json_encode(['ok' => true, 'backup' => basename($backupFile)]);
+    } catch (\Exception $e) {
+        @$db->exec("ROLLBACK");
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // ─── AUTENTICACIÓN ───────────────────────────────────────────────────────────
 if (empty($_SESSION['auth_outbound'])) {
     $db->close();
     showLoginForm($loginError ?? '');
     exit;
 }
+
 
 // ═══════════════ CARGAR DATOS PARA EL DASHBOARD ══════════════════════════════
 $config = [];
@@ -1072,16 +1183,17 @@ while ($r = $resCfg->fetchArray(SQLITE3_ASSOC)) {
 $motorActivo  = ($config['motor_estado'] ?? 'pausado') === 'activo';
 $modoPruebas  = ($config['modo_entorno'] ?? 'test') === 'test';
 
-// KPIs — Históricos y Globales
+// KPIs — Históricos y Globales (solo envíos REALES; los TEST no alteran métricas comerciales)
 $totalLeads      = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm");
-$totalEnviados   = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE estado = 'enviado'");
-$totalAperturas  = (int)$db->querySingle("SELECT COUNT(DISTINCT tracking_id) FROM aperturas");
+$totalEnviados   = (int)$db->querySingle("SELECT COUNT(*) FROM envios e WHERE e.estado = 'enviado'" . sqlFiltroComercial('e'));
+$totalAperturas  = (int)$db->querySingle("SELECT COUNT(DISTINCT a.tracking_id) FROM aperturas a JOIN envios e ON a.tracking_id=e.tracking_id WHERE 1=1" . sqlFiltroComercial('e'));
 $tasaApertura    = $totalEnviados > 0 ? round(($totalAperturas / $totalEnviados) * 100, 1) : 0;
-$totalRebotes    = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes");
+$totalRebotes    = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes r JOIN envios e ON LOWER(r.email)=LOWER(e.email) WHERE 1=1" . sqlFiltroComercial('e'));
 $tasaRebote      = $totalEnviados > 0 ? round(($totalRebotes / $totalEnviados) * 100, 1) : 0;
-$totalBajas      = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('Opt-Out', 'Unsubscribed', 'Lista Negra')");
+$totalBajas      = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('Opt-Out', 'Unsubscribed', 'Lista Negra') AND NOT (LOWER(email) LIKE '%@futprotec.local%' OR LOWER(nombre_club) LIKE 'test%')");
 $smtpActivas     = (int)$db->querySingle("SELECT COUNT(*) FROM cuentas_smtp WHERE activa = 1");
 $smtpEnviadosHoy = (int)$db->querySingle("SELECT COALESCE(SUM(enviados_hoy), 0) FROM cuentas_smtp");
+
 
 // Estados Kanban — V4.3 (8 columnas definitivas)
 $estadosKanban = [
@@ -1105,7 +1217,7 @@ $colClasses = [
 $kanbanData = [];
 foreach ($estadosKanban as $est) {
     $stmt = $db->prepare("
-        SELECT c.*, (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email)) AS num_opens
+        SELECT c.*, (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS num_opens
         FROM clubes_crm c WHERE c.estado_lead = :estado ORDER BY c.nombre_club ASC
     ");
     $stmt->bindValue(':estado', $est, SQLITE3_TEXT);

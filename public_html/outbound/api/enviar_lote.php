@@ -277,8 +277,10 @@ try {
         $cuerpo,
         ($campaignIdParaReserva > 0) ? $varianteUsada : $varianteAb,
         $idPlantilla,
-        $idSmtp
+        $idSmtp,
+        $modoTest ? 1 : 0
     );
+
 
     $envioRow = $db->querySingle(
         "SELECT id, estado, tracking_id, asunto, cuerpo_mensaje, message_id FROM envios WHERE id = {$reserva['id']}",

@@ -62,7 +62,8 @@ $db->exec("CREATE TABLE envios (
     plantilla_id INTEGER,
     smtp_id INTEGER,
     resultado_envio TEXT,
-    fecha_resultado_envio TEXT
+    fecha_resultado_envio TEXT,
+    es_test INTEGER DEFAULT 0
 )");
 
 // Índice único parcial del que depende reservarEnvioLogico() para la idempotencia

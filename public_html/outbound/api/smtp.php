@@ -240,6 +240,83 @@ if ($action === 'test_smtp') {
     exit;
 }
 
+// ═══════════════════════════════════ GESTIÓN DE PRUEBAS ═════════════════════
+// Aislamiento TEST/REAL (BLOQUE 8 y 15). Los destinatarios de prueba se guardan
+// en la tabla `destinatarios_test` (aislada del CRM comercial). NO se guardan
+// contraseñas. Los leads TEST se listan desde `clubes_crm` usando la regla
+// central esLeadTest() (email @futprotec.local o nombre_club test*).
+
+// ─── get_test_recipients ─────────────────────────────────────────────────────
+if ($action === 'get_test_recipients') {
+    header('Content-Type: application/json');
+    $items = [];
+    $res = $db->query("SELECT id, email, nombre, activo, creado_en FROM destinatarios_test ORDER BY id ASC");
+    while ($row = $res->fetchArray(SQLITE3_ASSOC)) { $items[] = $row; }
+    echo json_encode(['ok' => true, 'items' => $items]);
+    exit;
+}
+
+// ─── add_test_recipient ──────────────────────────────────────────────────────
+if ($action === 'add_test_recipient') {
+    header('Content-Type: application/json');
+    try {
+        $email  = trim($_POST['email'] ?? '');
+        $nombre = trim($_POST['nombre'] ?? '');
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            echo json_encode(['ok' => false, 'error' => 'Email invalido']);
+            exit;
+        }
+        $stmt = $db->prepare("INSERT INTO destinatarios_test (email, nombre) VALUES (:email, :nombre)");
+        $stmt->bindValue(':email', $email, SQLITE3_TEXT);
+        $stmt->bindValue(':nombre', $nombre, SQLITE3_TEXT);
+        $stmt->execute();
+        echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID()]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ─── delete_test_recipient ───────────────────────────────────────────────────
+if ($action === 'delete_test_recipient') {
+    header('Content-Type: application/json');
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) { echo json_encode(['ok' => false, 'error' => 'ID invalido']); exit; }
+        $stmt = $db->prepare("DELETE FROM destinatarios_test WHERE id = :id");
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        echo json_encode(['ok' => true]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ─── get_test_leads ──────────────────────────────────────────────────────────
+if ($action === 'get_test_leads') {
+    header('Content-Type: application/json');
+    $items = [];
+    // Regla central esLeadTest(): email @futprotec.local o nombre_club test*.
+    $res = $db->query(
+        "SELECT id, nombre_club, email, estado_lead
+         FROM clubes_crm
+         WHERE LOWER(email) LIKE '%@futprotec.local%'
+            OR LOWER(nombre_club) LIKE 'test%'
+         ORDER BY id ASC LIMIT 200"
+    );
+    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+        $items[] = [
+            'id'     => $row['id'],
+            'club'   => $row['nombre_club'],
+            'email'  => $row['email'],
+            'estado' => $row['estado_lead'],
+        ];
+    }
+    echo json_encode(['ok' => true, 'items' => $items]);
+    exit;
+}
+
 // Default
 header('Content-Type: application/json');
 echo json_encode(['ok' => false, 'error' => 'Accion no reconocida']);

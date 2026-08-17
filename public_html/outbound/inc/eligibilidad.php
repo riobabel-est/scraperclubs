@@ -55,6 +55,58 @@ function esCampanaTest(SQLite3 $db, int $idCampana): bool
 }
 
 /**
+ * DEFINICIÓN DE ENVÍO TEST (única fuente de verdad — AISLAMIENTO TEST/REAL).
+ *
+ * Un envío se considera TEST si cumple AL MENOS UNA de estas condiciones:
+ *   - `envios.es_test = 1` (marca inequívoca, fuente de verdad primaria), y/o
+ *   - su `email` contiene "@futprotec.local" (comparación case-insensitive), y/o
+ *   - su `club` empieza por "test" (comparación case-insensitive).
+ *
+ * La marca `es_test` es la fuente primaria. Los criterios de email/club actúan
+ * como red de seguridad para filas legacy que aún no tengan la marca (p. ej.
+ * antes de la migración), garantizando que NUNCA se mezcle un TEST con el
+ * histórico comercial.
+ *
+ * @param array $envio fila de envios (debe incluir `es_test`, `email` y `club`)
+ */
+function esEnvioTest(array $envio): bool
+{
+    // Fuente primaria: marca inequívoca.
+    if ((int)($envio['es_test'] ?? 0) === 1) {
+        return true;
+    }
+
+    // Red de seguridad legacy (espejo de esLeadTest()).
+    $emailLower = strtolower((string)($envio['email'] ?? ''));
+    $clubLower  = mb_strtolower((string)($envio['club'] ?? ''), 'UTF-8');
+
+    if ($emailLower !== '' && str_contains($emailLower, '@futprotec.local')) {
+        return true;
+    }
+    if ($clubLower !== '' && str_starts_with($clubLower, 'test')) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Fragmento SQL (WHERE) que restringe las consultas de ESTADÍSTICAS COMERCIALES
+ * a los envíos REALES (excluye TEST). Es la regla central equivalente a
+ * `es_test = 0` para todas las consultas de analytics/followups/envios/aperturas.
+ *
+ * Uso: añadir a la cláusula WHERE de cualquier consulta comercial.
+ *   $sql = "SELECT ... FROM envios e WHERE 1=1 " . sqlFiltroComercial('e');
+ *
+ * @param string $alias alias de la tabla `envios` en la consulta (default 'e')
+ */
+function sqlFiltroComercial(string $alias = 'e'): string
+{
+    $a = $alias !== '' ? $alias . '.' : '';
+    return " AND COALESCE({$a}es_test, 0) = 0";
+}
+
+
+/**
  * Fragmento SQL (WHERE) que restringe los leads de la tabla `clubes_crm`
  * (alias `c`) a los COMPATIBLES con la campaña indicada.
  *
@@ -198,7 +250,8 @@ function reservarEnvioLogico(
     string $cuerpo,
     ?string $variant = null,
     ?int $plantillaId = null,
-    ?int $smtpId = null
+    ?int $smtpId = null,
+    int $esTest = 0
 ): array {
     // INMUTABILIDAD: para campaña real la variante es determinística e
     // independiente del valor que pase el llamador (impide random por envío).
@@ -214,10 +267,10 @@ function reservarEnvioLogico(
         $stmt = $db->prepare(
             "INSERT OR IGNORE INTO envios
                 (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje,
-                 lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id)
+                 lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, es_test)
              VALUES
                 (:club, :email, :fed, :cuenta, 'pendiente', :tid, :asunto, :cuerpo,
-                 :lid, :cid, :variant, :pid, :sid, :mid)"
+                 :lid, :cid, :variant, :pid, :sid, :mid, :estest)"
         );
         $stmt->bindValue(':club',  $club,  SQLITE3_TEXT);
         $stmt->bindValue(':email', $email, SQLITE3_TEXT);
@@ -232,12 +285,12 @@ function reservarEnvioLogico(
         $stmt->bindValue(':pid',   $plantillaId, SQLITE3_INTEGER);
         $stmt->bindValue(':sid',   $smtpId, SQLITE3_INTEGER);
         $stmt->bindValue(':mid',   $messageId, SQLITE3_TEXT);
+        $stmt->bindValue(':estest', $esTest, SQLITE3_INTEGER);
         $stmt->execute();
 
         if ($db->changes() > 0) {
-            return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
-        }
-
+    return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
+}
         // Ya existe: devolver la fila existente (no crear segundo envío lógico).
         $row = $db->querySingle(
             "SELECT id, estado FROM envios WHERE lead_id = {$leadId} AND campaign_id = {$campaignId} ORDER BY id DESC LIMIT 1",
@@ -253,10 +306,10 @@ function reservarEnvioLogico(
     $stmt = $db->prepare(
         "INSERT INTO envios
             (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje,
-             lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id)
+             lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, es_test)
          VALUES
             (:club, :email, :fed, :cuenta, 'pendiente', :tid, :asunto, :cuerpo,
-             :lid, :cid, :variant, :pid, :sid, :mid)"
+             :lid, :cid, :variant, :pid, :sid, :mid, :estest)"
     );
     $stmt->bindValue(':club',  $club,  SQLITE3_TEXT);
     $stmt->bindValue(':email', $email, SQLITE3_TEXT);
@@ -271,6 +324,7 @@ function reservarEnvioLogico(
     $stmt->bindValue(':pid',   $plantillaId, SQLITE3_INTEGER);
     $stmt->bindValue(':sid',   $smtpId, SQLITE3_INTEGER);
     $stmt->bindValue(':mid',   $messageId, SQLITE3_TEXT);
+    $stmt->bindValue(':estest', $esTest, SQLITE3_INTEGER);
     $stmt->execute();
 
     return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
