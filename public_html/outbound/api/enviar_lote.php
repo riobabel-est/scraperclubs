@@ -58,7 +58,11 @@ if (!in_array($varianteAb, ['A', 'B', 'C'], true)) {
 }
 
 // ─── Validación de campaña (existencia + estado + activo + entorno) ──────
-// Política ÚNICA compartida con P3 (cron.php).
+// Política ÚNICA compartida con P3 (cron.php). SIN debilitamientos: se aplica
+// igual en MODO PRUEBAS y en PRODUCCIÓN. Una campaña DRAFT NO es operable para
+// pruebas de envío; debe estar PILOT/ACTIVE (y coherente con el entorno) para
+// poder llegar a SMTP. La UI realiza la misma prevalidación para no prometer
+// un envío que el backend va a rechazar.
 try {
     $validacion = validarCampanaActiva($db, $idCampana, $modoEntornoBD);
     if (!$validacion['ok']) {
@@ -72,8 +76,12 @@ try {
     exit;
 }
 
-// ─── Variante determinística (FASE 3) — inmutable en retry ──────────────
-$varianteUsada = asignarVariante($idClub, $idCampana);
+// ─── Variante (FASE 3) ──────────────────────────────────────────────────
+// - PRODUCCIÓN/real: determinística e inmutable (asignarVariante), para que
+//   un retry/reanudación nunca cambie la variante.
+// - PRUEBA (modo_test): respeta la variante explícita A/B/C elegida en la UI,
+//   de modo que "Enviar correos de prueba" entregue las 3 variantes distintas.
+$varianteUsada = $modoTest ? $varianteAb : asignarVariante($idClub, $idCampana);
 
 // ─── VALIDAR ─────────────────────────────────────────────────────────────────
 try {
@@ -211,10 +219,15 @@ try {
     }
 
     // ─── 6. Reservar el envío lógico ANTES de SMTP (idempotencia + concurrencia) ──
+    // PRUEBA (modo_test): reserva con campaign_id NULL para que las 3 variantes
+    // A/B/C sobre el MISMO lead no colisionen con idx_envios_lead_campaign ni
+    // bloqueen el envío comercial posterior. PRODUCCIÓN: idempotente contra
+    // campaign_id (un lead → una fila por campaña), comportamiento intacto.
+    $campaignIdParaReserva = $modoTest ? 0 : $idCampana;
     $reserva = reservarEnvioLogico(
         $db,
         (int)$club['id'],
-        $idCampana,
+        $campaignIdParaReserva,
         $nombreClub,
         $emailClub,
         $federacion,
@@ -222,7 +235,7 @@ try {
         $trackingId,
         $asunto,
         $cuerpo,
-        ($idCampana > 0) ? $varianteUsada : null,
+        ($campaignIdParaReserva > 0) ? $varianteUsada : $varianteAb,
         $idPlantilla,
         $idSmtp
     );
@@ -287,7 +300,10 @@ try {
     $stmtLog->bindValue(':res', $resultado['ok'] ? 'exito' : 'error', SQLITE3_TEXT);
     $stmtLog->bindValue(':err', mb_substr($errorMsg, 0, 255),  SQLITE3_TEXT);
     $stmtLog->bindValue(':vab', $varianteUsada,                 SQLITE3_TEXT);
-    $stmtLog->bindValue(':det', 'Envío a ' . $emailClub . ' con plantilla ' . $plantilla['nombre'], SQLITE3_TEXT);
+    $detalleLog = $modoTest
+        ? '[TEST campaña ' . $idCampana . '] Envío a ' . $emailClub . ' con plantilla ' . $plantilla['nombre']
+        : 'Envío a ' . $emailClub . ' con plantilla ' . $plantilla['nombre'];
+    $stmtLog->bindValue(':det', $detalleLog, SQLITE3_TEXT);
     $stmtLog->execute();
 
     // Actualizar contador de cuenta SMTP

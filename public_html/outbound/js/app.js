@@ -553,8 +553,34 @@ var app = function() {
             await fetch('', { method: 'POST', body: f });
         },
         lzOnCampaignChange() { /* la campaña se lee de lzCampaignId en el envío */ },
+        // Prevalidación de campaña en UI (SOLO UX). NO sustituye a
+        // validarCampanaActiva()/esEntornoCoherente() del backend, que siguen
+        // siendo la autoridad. Espejo de inc/abc.php para no prometer envíos
+        // condenados a fallar en el servidor.
+        campanaOperable(c) {
+            if (!c) return { ok: false, motivo: 'Campaña no encontrada. Recarga la página.' };
+            const estado = String(c.estado || '').toUpperCase();
+            if (!['PILOT', 'ACTIVE'].includes(estado)) {
+                return { ok: false, motivo: 'Campaña ' + (c.estado || 'sin estado') + ': no operable para pruebas de envío (solo PILOT o ACTIVE).' };
+            }
+            if (parseInt(c.activo) !== 1) {
+                return { ok: false, motivo: 'Campaña inactiva: no operable para pruebas de envío.' };
+            }
+            const ce = String(c.entorno || 'test').toLowerCase();
+            const me = this.modeTest ? 'test' : 'produccion';
+            if (me === 'produccion' && ce === 'test') {
+                return { ok: false, motivo: 'La campaña es de entorno TEST y no puede enviarse en producción.' };
+            }
+            if (me === 'test' && (ce === 'pilot' || ce === 'production')) {
+                return { ok: false, motivo: 'La campaña es de entorno ' + (c.entorno || 'pilot') + ' y no puede probarse en este entorno (campaña comercial).' };
+            }
+            return { ok: true, motivo: '' };
+        },
         async enviarCorreoPrueba() {
             if (!this.lzCampaignId) { alert('Selecciona una campaña antes de enviar.'); return; }
+            const campana = (this.lzCampanas || []).find(c => String(c.id) === String(this.lzCampaignId));
+            const op = this.campanaOperable(campana);
+            if (!op.ok) { alert(op.motivo); return; }
             if (!this.lzIdPlantillaEmail) { alert('Selecciona primero una plantilla de email en la configuración del lote.'); return; }
             const emails = this.testEmailsList;
             if (emails.length === 0) { alert('Configura al menos un email de prueba en "Destinos de Prueba".'); return; }
