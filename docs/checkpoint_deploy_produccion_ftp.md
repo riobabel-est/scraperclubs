@@ -171,6 +171,29 @@ DEPLOY_PRODUCTION_CODE_PASS
 
 ---
 
+## N. ACTUALIZACIÓN POST-COMMIT/PUSH (2026-08-17 04:11)
+
+Tras el deploy inicial, el usuario solicitó commit + push + re-deploy para dejar 100% operativo.
+
+| Paso | Resultado |
+|------|-----------|
+| Commit | `72077a2` — feat: A/B/C variant assignment, login password toggle, template ID, deploy scripts + checkpoints |
+| Push | `c869591..72077a2 main -> main` (origin) ✅ |
+| Re-deploy SiteGround | 29/29 archivos OK (dashboard.php ahora 72407 bytes con password toggle) |
+| MD5 local==remoto | 29/29 OK |
+| stats.db | size 749568 intacto; mtime 20260817020332 (escritura runtime de la app, NO del deploy; data/ no se tocó) |
+| data/ | solo `stats.db` (no nueva BD) |
+| get_cola.php | HTTP 200, JSON válido con datos reales |
+| dashboard.php | HTTP 200 |
+| js/app.js?v=10 | HTTP 200 |
+| track.php | HTTP 200 |
+
+**Excluidos del commit:** `backups_deploy/` (credenciales SMTP producción, gitignored), `tailwindcss-windows-x64.exe` (build tool), `tmp_*.php` (temporales).
+
+**Estado final:** `DEPLOY_PRODUCTION_CODE_PASS` — CRM 100% operativo en `getfutprotec.com/outbound/`.
+
+---
+
 ## PARADA
 
 **DETENIDO.** No se cambió `modo_entorno`. No se activó campaña 2. No se inició motor. No se enviaron correos. No se ejecutó cron.
