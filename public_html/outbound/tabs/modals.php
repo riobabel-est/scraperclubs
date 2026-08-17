@@ -100,7 +100,39 @@
 </select>
 </div>
 
+<!-- ═══ LISTA NEGRA (BLOQUE 4) ═══ -->
+<div class="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4 space-y-3">
+    <template x-if="!ldEsListaNegra()">
+        <div>
+            <div class="flex items-center gap-2 mb-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span>
+                <span class="text-sm font-semibold text-emerald-400">Contacto operativo</span>
+            </div>
+            <button type="button" @click="blAdd(ld)" class="w-full px-4 py-2 bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-lg text-sm font-semibold hover:bg-rose-500/20 transition">
+                <i data-lucide="ban" class="w-4 h-4 inline-block mr-1"></i> Añadir a Lista Negra
+            </button>
+        </div>
+    </template>
+    <template x-if="ldEsListaNegra()">
+        <div>
+            <div class="flex items-center gap-2 mb-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                <span class="text-sm font-semibold text-rose-400">En Lista Negra</span>
+            </div>
+            <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-3 text-xs space-y-1">
+                <div class="flex justify-between"><span class="text-slate-500">Tipo:</span><span class="text-slate-300" x-text="ldTipoSupresion()"></span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Fecha:</span><span class="text-slate-300" x-text="ldFechaSupresion()"></span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Motivo:</span><span class="text-slate-300" x-text="ldMotivoSupresion()"></span></div>
+            </div>
+            <button type="button" @click="blRemove(ld)" class="mt-2 w-full px-4 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-sm font-semibold hover:bg-emerald-500/20 transition">
+                <i data-lucide="check-circle" class="w-4 h-4 inline-block mr-1"></i> Quitar de Lista Negra
+            </button>
+        </div>
+    </template>
+</div>
+
 <!-- ═══ CUALIFICACION ═══ -->
+
 <div x-show="['04 Interesado','05 Cualificado','06 Propuesta','07 Negociacion','08 Ganado','09 Perdido'].includes(ld.estado_lead)" class="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4 space-y-3">
 <h6 class="text-xs text-amber-400 uppercase tracking-wider font-bold">Cualificacion Comercial</h6>
 <div class="grid grid-cols-2 gap-3">

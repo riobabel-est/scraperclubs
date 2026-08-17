@@ -77,7 +77,7 @@
                             <td class="px-3 py-2 text-slate-400 hidden md:table-cell" x-text="l.email"></td>
                             <td class="px-3 py-2">
                                 <span x-show="l.tipo === 'optout_real'" class="inline-flex items-center gap-1 text-rose-400 text-xs font-semibold">
-                                    <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> 🔴 Baja solicitada por destinatario
+                                    <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> 🔴 Baja por email
                                 </span>
                                 <span x-show="l.tipo === 'bloqueo_manual'" class="inline-flex items-center gap-1 text-amber-400 text-xs font-semibold">
                                     <i data-lucide="user-x" class="w-3.5 h-3.5"></i> 🟠 Bloqueo manual
@@ -86,15 +86,11 @@
                             <td class="px-3 py-2 text-xs text-slate-500 hidden lg:table-cell" x-text="l.motivo"></td>
                             <td class="px-3 py-2 text-xs text-slate-500 hidden lg:table-cell" x-text="l.fecha"></td>
                             <td class="px-3 py-2 text-right">
-                                <template x-if="l.tipo === 'bloqueo_manual'">
-                                    <button @click="blRemove(l)" class="px-3 py-1.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold hover:bg-emerald-500/25 transition flex items-center gap-1 ml-auto">
-                                        <i data-lucide="user-check" class="w-3.5 h-3.5"></i> Quitar bloqueo manual
-                                    </button>
-                                </template>
-                                <template x-if="l.tipo === 'optout_real'">
-                                    <span class="text-xs text-slate-600" title="Opt-out real: no reactivable por vía rutinaria">Protegido</span>
-                                </template>
+                                <button @click="blRemove(l)" class="px-3 py-1.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold hover:bg-emerald-500/25 transition flex items-center gap-1 ml-auto">
+                                    <i data-lucide="user-check" class="w-3.5 h-3.5"></i> Quitar de Lista Negra
+                                </button>
                             </td>
+
                         </tr>
                     </template>
                 </tbody>

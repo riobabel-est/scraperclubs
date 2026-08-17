@@ -1043,8 +1043,32 @@ var app = function() {
             const estados = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido'];
             return estados.includes(String(r.estado_lead || ''));
         },
+        // ─── Helpers de la ficha del lead (BLOQUE 4) ─────────────────────────
+        // Determinan si el lead está en Lista Negra y extraen tipo/fecha/motivo
+        // de la última marca de supresión en observaciones. NUNCA borran historial.
+        ldEsListaNegra() {
+            return this.blEsSuprimido(this.ld);
+        },
+        ldTipoSupresion() {
+            const obs = String(this.ld.observaciones || '');
+            if (/\[BAJA\][^\n]*fuente\s*=\s*email/i.test(obs)) return 'Baja por email';
+            if (/\[LISTA NEGRA\]/i.test(obs)) return 'Bloqueo manual';
+            if (/\[BLOQUEO MANUAL\]/i.test(obs)) return 'Bloqueo manual';
+            return String(this.ld.estado_lead || 'Lista Negra');
+        },
+        ldFechaSupresion() {
+            const obs = String(this.ld.observaciones || '');
+            const m = obs.match(/\[(?:BAJA|BLOQUEO MANUAL|LISTA NEGRA)\][^\n]*?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/i);
+            return m ? m[1] : '';
+        },
+        ldMotivoSupresion() {
+            const obs = String(this.ld.observaciones || '');
+            const m = obs.match(/\[(?:BAJA|BLOQUEO MANUAL|LISTA NEGRA)\][^\n]*?(?:motivo=([^\n|]*))/i);
+            return m ? m[1] : '';
+        },
         async blAdd(r) {
-            const motivo = prompt('Motivo del bloqueo manual (recomendado):\nEj: Lead de prueba, Importación incorrecta, Cliente no objetivo, Error humano, Bloqueo preventivo', '');
+
+            const motivo = prompt('Añadir a Lista Negra\n\nMotivo:\nEj: Cliente pidió no recibir comunicaciones, Lead de prueba, Importación incorrecta, Cliente no objetivo, Error humano, Bloqueo preventivo', '');
             if (motivo === null) return; // cancelado
             try {
                 const f = new FormData();
@@ -1054,11 +1078,12 @@ var app = function() {
                 const resp = await fetch('', { method: 'POST', body: f });
                 const j = await resp.json();
                 if (j.ok) {
-                    this.blMsg = 'Lead añadido a Lista Negra (bloqueo manual).';
+                    this.blMsg = 'Lead añadido a Lista Negra.';
                     this.blMsgOk = true;
                     this.blResults = [];
                     this.blSearch = '';
                     this.blCargar();
+                    this.blRefreshUI();
                 } else {
                     this.blMsg = j.error || 'Error al añadir a Lista Negra.';
                     this.blMsgOk = false;
@@ -1069,29 +1094,71 @@ var app = function() {
             }
         },
         async blRemove(l) {
-            if (!confirm('¿Quitar el bloqueo manual de "' + (l.nombre_club || '') + '"?\nEl lead volverá a "01 Sin Contactar".\nEl historial se conservará.')) return;
-            const motivo = prompt('Motivo de la reactivación (recomendado):', '');
+            // BLOQUE 6: confirmación explícita con motivo OBLIGATORIO.
+            if (!confirm('¿Quitar de Lista Negra?\n\n"' + (l.nombre_club || '') + '" dejará de estar suprimido y volverá a ser elegible para futuras campañas si cumple el resto de criterios.\n\nEl histórico de bajas y bloqueos NO se eliminará.')) return;
+            const motivo = prompt('Motivo de la reactivación (OBLIGATORIO):\n\nEj: Cliente volvió a solicitar contacto, Solicitó recibir información de nuevo, Bloqueo introducido por error, Cliente activo / relación comercial, Prueba / QA, Otro', '');
             if (motivo === null) return; // cancelado
+            if (motivo.trim() === '') {
+                this.blMsg = 'El motivo de reactivación es obligatorio.';
+                this.blMsgOk = false;
+                return;
+            }
             try {
                 const f = new FormData();
                 f.append('action', 'blacklist_remove');
                 f.append('id', l.id);
-                f.append('motivo', motivo);
+                f.append('motivo', motivo.trim());
                 const resp = await fetch('', { method: 'POST', body: f });
                 const j = await resp.json();
                 if (j.ok) {
-                    this.blMsg = 'Bloqueo manual quitado. Lead reactivado.';
+                    this.blMsg = 'Quitado de Lista Negra. Lead reactivado.';
                     this.blMsgOk = true;
                     this.blCargar();
+                    this.blRefreshUI();
                 } else {
-                    this.blMsg = j.error || 'Error al quitar el bloqueo.';
+                    this.blMsg = j.error || 'Error al quitar de Lista Negra.';
                     this.blMsgOk = false;
                 }
             } catch (e) {
-                this.blMsg = 'Error de conexión al quitar el bloqueo.';
+                this.blMsg = 'Error de conexión al quitar de Lista Negra.';
                 this.blMsgOk = false;
             }
         },
+        // BLOQUE 9: refresca ficha, estado, elegibilidad visual y cola tras
+        // añadir/quitar de Lista Negra, sin obligar a cerrar sesión.
+        async blRefreshUI() {
+            // Refrescar ficha del lead si está abierta (this.ld)
+            if (this.ld && this.ld.id) {
+                try {
+                    const resp = await fetch('?action=get_lead&id=' + this.ld.id);
+                    const j = await resp.json();
+                    if (j && j.id) {
+                        this.ld = j;
+                        this.ldOriginal = JSON.parse(JSON.stringify(this.ld));
+                        this.ldChanged = false;
+                    }
+                } catch (e) {}
+            }
+            // Refrescar cola si está cargada (this.lzCola)
+            if (this.lzCola && this.lzCola.length !== undefined) {
+                try {
+                    const params = new URLSearchParams({
+                        estado_lead: this.lzEstadoLead || '',
+                        federacion: this.lzFederacion || '',
+                        id_plantilla_email: this.lzIdPlantillaEmail || '',
+                        id_plantilla_wa: this.lzIdPlantillaWa || '',
+                        habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0',
+                        random_mode: this.randomMode ? '1' : '0',
+                        campaign_id: this.lzCampaignId || ''
+                    });
+                    const resp = await fetch('api/get_cola.php?' + params.toString());
+                    const j = await resp.json();
+                    if (j && j.ok) this.lzCola = j.cola || [];
+                } catch (e) {}
+            }
+        },
+
+
         async blCargar() {
             this.blLoading = true;
             this.blMsg = '';
