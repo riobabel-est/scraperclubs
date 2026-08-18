@@ -82,7 +82,7 @@ var app = function() {
          ],
          categorias: [], templates: [],
          edNombre: '', edAsunto: '', edAsuntoB: '', edAsuntoC: '', edTestAb: 0,
-         edCuerpo: '', edCuerpoB: '', edCuerpoC: '', edTipo: 'html',
+         edCuerpo: '', edCuerpoB: '', edCuerpoC: '', edTipo: 'html', edFocus: 'edCuerpo',
          previewClubId: '', debounceTimer: null,
          pvLive: false, pvLiveA: '', pvLiveB: '', pvLiveC: '', previewClubCache: {}, senderCache: null,
 
@@ -517,7 +517,20 @@ var app = function() {
             if (j.ok) { this.en = false; this.et = j.id; this.onCategoriaChange(); alert('Plantilla guardada'); }
             else { alert('Error: ' + (j.error || 'Desconocido')); }
         },
-        insertTag(tag) { this.edCuerpo += tag; this.renderLivePreview(); },
+        insertTag(tag) {
+            const campo = this.edFocus === 'edCuerpoB' ? 'edCuerpoB' : (this.edFocus === 'edCuerpoC' ? 'edCuerpoC' : 'edCuerpo');
+            const el = document.getElementById(campo);
+            const val = this[campo] || '';
+            const start = el ? el.selectionStart : val.length;
+            const end = el ? el.selectionEnd : start;
+            this[campo] = val.slice(0, start) + tag + val.slice(end);
+            if (el) {
+                const pos = start + tag.length;
+                el.focus();
+                el.setSelectionRange(pos, pos);
+            }
+            this.renderLivePreview();
+        },
         onCuerpoInput() { clearTimeout(this.debounceTimer); this.debounceTimer = setTimeout(() => this.renderLivePreview(), 400); },
         async getPreviewClub() {
             const id = this.previewClubId;

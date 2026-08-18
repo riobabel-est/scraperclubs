@@ -169,18 +169,26 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 <!-- ═══ A/B/C CUERPOS (solo si hay test A/B) ═══ -->
 <div x-show="edTestAb && edPlataforma === 'email'" class="mb-3 bg-slate-800/30 rounded-lg p-3 border border-purple-500/20">
 <label class="text-xs text-purple-400 font-semibold flex items-center gap-1 mb-2">🧪 Cuerpos A/B/C <span class="text-slate-500 font-normal">(cada variante puede tener texto distinto)</span></label>
+<div class="flex gap-1 mb-2 flex-wrap">
+<template x-for="tag in ['{{CLUB}}','{{CONTACTO}}','{{FEDERACION}}','{{ANIO}}']">
+<button type="button" @click="insertTag(tag)" class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-xs text-amber-400 hover:bg-slate-700 transition font-mono" x-text="tag"></button>
+</template>
+<template x-for="tag in ['{{SENDER_NAME}}','{{SENDER_TITLE}}','{{SENDER_EMAIL}}']">
+<button type="button" @click="insertTag(tag)" class="px-2 py-0.5 bg-slate-800 border border-purple-500/30 rounded text-xs text-purple-400 hover:bg-slate-700 transition font-mono" x-text="tag"></button>
+</template>
+</div>
 <div class="space-y-3">
 <div>
 <label class="text-xs text-slate-400 uppercase tracking-wider">Cuerpo A <span class="text-slate-600">(33%)</span></label>
-<textarea x-model="edCuerpo" @input="onCuerpoInput()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 h-32 resize-y"></textarea>
+<textarea id="edCuerpo" x-model="edCuerpo" @input="onCuerpoInput()" @focus="edFocus='edCuerpo'" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 h-32 resize-y"></textarea>
 </div>
 <div>
 <label class="text-xs text-purple-400 uppercase tracking-wider">Cuerpo B <span class="text-purple-400">(33%)</span></label>
-<textarea x-model="edCuerpoB" @input="onCuerpoInput()" class="w-full bg-slate-800 border border-purple-500/30 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-purple-500/50 h-32 resize-y"></textarea>
+<textarea id="edCuerpoB" x-model="edCuerpoB" @input="onCuerpoInput()" @focus="edFocus='edCuerpoB'" class="w-full bg-slate-800 border border-purple-500/30 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-purple-500/50 h-32 resize-y"></textarea>
 </div>
 <div>
 <label class="text-xs text-cyan-400 uppercase tracking-wider">Cuerpo C <span class="text-cyan-400">(33%)</span></label>
-<textarea x-model="edCuerpoC" @input="onCuerpoInput()" class="w-full bg-slate-800 border border-cyan-500/30 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-cyan-500/50 h-32 resize-y"></textarea>
+<textarea id="edCuerpoC" x-model="edCuerpoC" @input="onCuerpoInput()" @focus="edFocus='edCuerpoC'" class="w-full bg-slate-800 border border-cyan-500/30 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-cyan-500/50 h-32 resize-y"></textarea>
 </div>
 </div>
 </div>
@@ -193,13 +201,13 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 </div>
 <div class="flex gap-1 mb-1.5 flex-wrap">
 <template x-for="tag in ['{{CLUB}}','{{CONTACTO}}','{{FEDERACION}}','{{ANIO}}']">
-<button @click="insertTag(tag)" class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-xs text-amber-400 hover:bg-slate-700 transition font-mono" x-text="tag"></button>
+<button type="button" @click="insertTag(tag)" class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-xs text-amber-400 hover:bg-slate-700 transition font-mono" x-text="tag"></button>
 </template>
 <template x-for="tag in ['{{SENDER_NAME}}','{{SENDER_TITLE}}','{{SENDER_EMAIL}}']" x-show="edPlataforma==='email'">
-<button @click="insertTag(tag)" class="px-2 py-0.5 bg-slate-800 border border-purple-500/30 rounded text-xs text-purple-400 hover:bg-slate-700 transition font-mono" x-text="tag"></button>
+<button type="button" @click="insertTag(tag)" class="px-2 py-0.5 bg-slate-800 border border-purple-500/30 rounded text-xs text-purple-400 hover:bg-slate-700 transition font-mono" x-text="tag"></button>
 </template>
 </div>
-<textarea x-model="edCuerpo" @input="onCuerpoInput()" :maxlength="edPlataforma==='whatsapp'?4096:null"
+<textarea id="edCuerpo" x-model="edCuerpo" @input="onCuerpoInput()" :maxlength="edPlataforma==='whatsapp'?4096:null"
 class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 h-48 resize-y"></textarea>
 </div>
 
