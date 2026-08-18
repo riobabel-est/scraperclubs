@@ -518,8 +518,11 @@ var app = function() {
             else { alert('Error: ' + (j.error || 'Desconocido')); }
         },
         insertTag(tag) {
+            // El textarea A del bloque A/B/C usa x-model="edCuerpo" (mismo modelo
+            // que el cuerpo único). Por eso, cuando edFocus es 'edCuerpoA', se debe
+            // escribir en this.edCuerpo, no en una propiedad inexistente edCuerpoA.
             const campo = this.edFocus === 'edCuerpoB' ? 'edCuerpoB' : (this.edFocus === 'edCuerpoC' ? 'edCuerpoC' : 'edCuerpo');
-            const el = document.getElementById(campo);
+            const el = document.getElementById(this.edFocus === 'edCuerpoA' ? 'edCuerpoA' : campo);
             const val = this[campo] || '';
             const start = el ? el.selectionStart : val.length;
             const end = el ? el.selectionEnd : start;

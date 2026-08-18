@@ -180,7 +180,7 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 <div class="space-y-3">
 <div>
 <label class="text-xs text-slate-400 uppercase tracking-wider">Cuerpo A <span class="text-slate-600">(33%)</span></label>
-<textarea id="edCuerpo" x-model="edCuerpo" @input="onCuerpoInput()" @focus="edFocus='edCuerpo'" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 h-32 resize-y"></textarea>
+<textarea id="edCuerpoA" x-model="edCuerpo" @input="onCuerpoInput()" @focus="edFocus='edCuerpoA'" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 h-32 resize-y"></textarea>
 </div>
 <div>
 <label class="text-xs text-purple-400 uppercase tracking-wider">Cuerpo B <span class="text-purple-400">(33%)</span></label>
@@ -207,7 +207,7 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 <button type="button" @click="insertTag(tag)" class="px-2 py-0.5 bg-slate-800 border border-purple-500/30 rounded text-xs text-purple-400 hover:bg-slate-700 transition font-mono" x-text="tag"></button>
 </template>
 </div>
-<textarea id="edCuerpo" x-model="edCuerpo" @input="onCuerpoInput()" :maxlength="edPlataforma==='whatsapp'?4096:null"
+<textarea id="edCuerpo" x-model="edCuerpo" @input="onCuerpoInput()" @focus="edFocus='edCuerpo'" :maxlength="edPlataforma==='whatsapp'?4096:null"
 class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 h-48 resize-y"></textarea>
 </div>
 

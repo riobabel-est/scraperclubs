@@ -735,6 +735,211 @@ if ($action === 'calcular_precio') {
     exit;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: update_lead — Actualiza un campo de un lead (con protección opt-out)
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'update_lead') {
+    header('Content-Type: application/json');
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+        $field = $_POST['field'] ?? '';
+        $value = $_POST['value'] ?? '';
+        $allowed = ['estado_lead', 'persona_contacto', 'cargo_contacto',
+                    'telefono_movil', 'telefono_fijo', 'tiene_whatsapp', 'observaciones',
+                    'federacion', 'volumen_estimado', 'num_jugadores', 'categorias',
+                    'fecha_decision_prevista', 'objeciones', 'proxima_accion',
+                    'canal_interaccion', 'motivo_perdida'];
+        if ($id <= 0 || !in_array($field, $allowed, true)) {
+            echo json_encode(['ok' => false]);
+            exit;
+        }
+        if ($field === 'tiene_whatsapp') {
+            $value = $value ? '1' : '0';
+        }
+        if ($field === 'observaciones') {
+            $existing = $db->querySingle("SELECT observaciones FROM clubes_crm WHERE id = {$id}");
+            $ts = date('d/m H:i');
+            $merged = $existing ? $existing . "\n[{$ts}] {$value}" : "[{$ts}] {$value}";
+            $stmt = $db->prepare("UPDATE clubes_crm SET observaciones = :val, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
+            $stmt->bindValue(':val', $merged, SQLITE3_TEXT);
+        } elseif ($field === 'estado_lead') {
+            // Obtener estado anterior antes de actualizar
+            $estadoAnterior = $db->querySingle("SELECT estado_lead FROM clubes_crm WHERE id = {$id}");
+
+            // ─── PROTECCIÓN OPT-OUT REAL (GO-LIVE) ─────────────────────────────
+            // Un opt-out real (baja solicitada por el destinatario vía email) NO
+            // puede deshacerse accidentalmente cambiando estado_lead desde el Kanban.
+            // Se detecta por el historial [BAJA] ... fuente=email en observaciones.
+            $estadosSupresion = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido'];
+            $esOptOutReal = false;
+            if (in_array($estadoAnterior, $estadosSupresion, true)) {
+                $obsLead = (string)$db->querySingle("SELECT observaciones FROM clubes_crm WHERE id = {$id}");
+                if (preg_match('/\[BAJA\][^\n]*fuente\s*=\s*email/i', $obsLead)) {
+                    $esOptOutReal = true;
+                }
+            }
+            if ($esOptOutReal && !in_array($value, $estadosSupresion, true)) {
+                echo json_encode([
+                    'ok'    => false,
+                    'error' => 'Este lead tiene una BAJA REAL del destinatario (opt-out). No puede reactivarse desde el Kanban. Usa la gestión de Lista Negra con confirmación explícita.',
+                    'razon' => 'OPTOUT_REAL_PROTEGIDO'
+                ]);
+                exit;
+            }
+
+            $stmt = $db->prepare("UPDATE clubes_crm SET estado_lead = :val, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
+            $stmt->bindValue(':val', $value, SQLITE3_TEXT);
+            $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+            $stmt->execute();
+            // Registrar cambio de estado en comunicaciones_log (trazabilidad)
+            $stmtLog = $db->prepare(
+                "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+                 VALUES (:lid, :cid, 'cambio_estado', :det, CURRENT_TIMESTAMP)"
+            );
+            $stmtLog->bindValue(':lid', $id, SQLITE3_INTEGER);
+            $stmtLog->bindValue(':cid', $id, SQLITE3_INTEGER);
+            $detalle = "Estado cambiado de '{$estadoAnterior}' a '{$value}'";
+            $stmtLog->bindValue(':det', $detalle, SQLITE3_TEXT);
+            $stmtLog->execute();
+            echo json_encode(['ok' => true]);
+            exit;
+        } else {
+            $stmt = $db->prepare("UPDATE clubes_crm SET {$field} = :val WHERE id = :id");
+            $stmt->bindValue(':val', $value, SQLITE3_TEXT);
+        }
+
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        echo json_encode(['ok' => true]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: add_lead — Alta manual de lead (con validación MX y WhatsApp auto)
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'add_lead') {
+    header('Content-Type: application/json');
+    try {
+        $n  = $_POST['nombre'] ?? '';
+        $e  = $_POST['email'] ?? '';
+        $f  = $_POST['federacion'] ?? '';
+        $m  = $_POST['telefono_movil'] ?? '';
+        $fi = $_POST['telefono_fijo'] ?? '';
+        $p  = $_POST['persona_contacto'] ?? '';
+        $c  = $_POST['cargo_contacto'] ?? '';
+
+        if ($n === '' || $e === '') {
+            echo json_encode(['ok' => false, 'error' => 'Nombre y Email obligatorios']);
+            exit;
+        }
+        if (!filter_var($e, FILTER_VALIDATE_EMAIL)) {
+            echo json_encode(['ok' => false, 'error' => 'Email con formato invalido']);
+            exit;
+        }
+        $domain = substr(strrchr($e, '@'), 1);
+        if (!checkdnsrr($domain, 'MX')) {
+            echo json_encode(['ok' => false, 'error' => "El dominio {$domain} no tiene servidor de correo (MX)"]);
+            exit;
+        }
+        // WhatsApp: si móvil empieza por 6 o 7 (9 dígitos)
+        $wa = 0;
+        if ($m !== '') {
+            $limpio = preg_replace('/[^0-9]/', '', $m);
+            if (strlen($limpio) === 9 && in_array($limpio[0], ['6', '7'], true)) {
+                $wa = 1;
+            }
+        }
+        $stmt = $db->prepare("INSERT INTO clubes_crm
+            (nombre_club, email, federacion, telefono_movil, telefono_fijo, persona_contacto, cargo_contacto, tiene_whatsapp, estado_lead)
+            VALUES (:n, :e, :f, :m, :fi, :p, :c, :wa, '01 Sin Contactar')");
+        $stmt->bindValue(':n',  $n,  SQLITE3_TEXT);
+        $stmt->bindValue(':e',  strtolower($e), SQLITE3_TEXT);
+        $stmt->bindValue(':f',  $f,  SQLITE3_TEXT);
+        $stmt->bindValue(':m',  $m,  SQLITE3_TEXT);
+        $stmt->bindValue(':fi', $fi, SQLITE3_TEXT);
+        $stmt->bindValue(':p',  $p,  SQLITE3_TEXT);
+        $stmt->bindValue(':c',  $c,  SQLITE3_TEXT);
+        $stmt->bindValue(':wa', $wa, SQLITE3_INTEGER);
+        $stmt->execute();
+        echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID(), 'mx_ok' => true, 'whatsapp' => $wa]);
+    } catch (\Exception $ex) {
+        echo json_encode(['ok' => false, 'error' => $ex->getMessage()]);
+    }
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_lead — Devuelve un lead con sus métricas de envío/apertura
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_lead') {
+    header('Content-Type: application/json');
+    $id = (int)($_GET['id'] ?? 0);
+    $row = $db->querySingle("
+        SELECT c.*,
+               (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS total_envios,
+               (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS total_aperturas
+        FROM clubes_crm c WHERE c.id = {$id}", true);
+    if ($row) {
+        $mockup = $db->querySingle("SELECT * FROM mockups WHERE lead_id = {$id} ORDER BY id DESC LIMIT 1", true);
+        $row['mockup'] = $mockup ?: null;
+        $presupuesto = $db->querySingle("SELECT * FROM presupuestos WHERE lead_id = {$id} ORDER BY version DESC LIMIT 1", true);
+        $row['presupuesto'] = $presupuesto ?: null;
+    }
+    echo json_encode($row ?: null);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: get_interacciones — Historial de interacciones de un lead
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_interacciones') {
+    header('Content-Type: application/json');
+    $leadId = (int)($_GET['lead_id'] ?? 0);
+    if ($leadId <= 0) { echo json_encode(['ok'=>false,'error'=>'lead_id requerido']); exit; }
+    $interacciones = [];
+    $res = $db->query("SELECT * FROM comunicaciones_log WHERE lead_id = {$leadId} ORDER BY fecha DESC LIMIT 30");
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $interacciones[] = $r; }
+    echo json_encode(['ok' => true, 'interacciones' => $interacciones]);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: registrar_interaccion — Registra una interacción manual
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'registrar_interaccion') {
+    header('Content-Type: application/json');
+    try {
+        $leadId = (int)($_POST['lead_id'] ?? 0);
+        $canal  = $_POST['canal'] ?? 'email';
+        $tipoEvento = $_POST['tipo_evento'] ?? 'nota_manual';
+        $resumen = $_POST['resumen'] ?? '';
+        $resultado = $_POST['resultado'] ?? '';
+        $proximaAccion = $_POST['proxima_accion'] ?? '';
+        if ($leadId <= 0 || $resumen === '') {
+            echo json_encode(['ok'=>false,'error'=>'lead_id y resumen obligatorios']);
+            exit;
+        }
+        $stmt = $db->prepare(
+            "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, canal, resumen, resultado, proxima_accion, fecha)
+             VALUES (:lid, :cid, :tipo, :det, :canal, :res, :resul, :prox, CURRENT_TIMESTAMP)"
+        );
+        $stmt->bindValue(':lid', $leadId, SQLITE3_INTEGER);
+        $stmt->bindValue(':cid', $leadId, SQLITE3_INTEGER);
+        $stmt->bindValue(':tipo', $tipoEvento, SQLITE3_TEXT);
+        $stmt->bindValue(':det', $resumen, SQLITE3_TEXT);
+        $stmt->bindValue(':canal', $canal, SQLITE3_TEXT);
+        $stmt->bindValue(':res', $resumen, SQLITE3_TEXT);
+        $stmt->bindValue(':resul', $resultado, SQLITE3_TEXT);
+        $stmt->bindValue(':prox', $proximaAccion, SQLITE3_TEXT);
+        $stmt->execute();
+        echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID()]);
+    } catch (\Exception $e) { echo json_encode(['ok'=>false,'error'=>$e->getMessage()]); }
+    exit;
+}
+
 // Default
 header('Content-Type: application/json');
 ob_clean();
