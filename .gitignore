@@ -9,6 +9,9 @@ __pycache__/
 *.sqlite
 *.sqlite3
 backups/
+backups_deploy/
+*.db-shm
+*.db-wal
 
 # ─── Outputs de scraping ─────────────────────────────────────
 output/
@@ -34,6 +37,15 @@ scripts/a.py
 scripts/f
 scripts/fase0*
 scripts/prue
+tmp_*.php
+tmp_*.js
+audit_*.txt
+audit_*.py
+audit_output*.txt
+audit_inventario*.txt
+audit_datos*.txt
+public_html/outbound/tailwindcss-windows-x64.exe
+public_html/outbound/cli/migracion_live_runner.php
 
 # ─── IDE ─────────────────────────────────────────────────────
 .vscode/

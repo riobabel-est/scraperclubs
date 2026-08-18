@@ -1,0 +1,57 @@
+==================================================
+AUDITORÍA FORENSE POR BLOQUES — BLOQUE 4: ACTIVIDAD COMERCIAL
+Fecha: 2026-08-18 03:30 (Europe/Madrid)
+READ-ONLY — Sin modificaciones
+Fuente: backups_deploy/stats_db_faseC2_pre_20260818_025142.db (BD producción)
+==================================================
+
+Reconstrucción de la campaña comercial campaign_id=2.
+
+--- RESUMEN ---
+Total envíos campaign_id=2: 22
+REAL (es_test=0): 22
+TEST (es_test=1): 0
+Fecha mínima: 2026-08-17 03:08:09
+Fecha máxima: 2026-08-17 21:33:26
+Todos con message_id y smtp_id (envíos reales desde la lanzadera).
+Todos corresponden a leads REAL (ninguno es lead TEST del pipeline 1).
+
+--- DETALLE DE LOS 22 ENVÍOS (id, lead, email, fecha, variante, estado, smtp) ---
+id=18 lead=1808 info@fsnazareno.es 2026-08-17 03:08:09 B enviado smtp9
+id=19 lead=1818 hola@riobabel.com 2026-08-17 15:17:33 B abierto smtp9
+id=23 lead=155 clubadpparador@gmail.com 2026-08-17 17:22:05 C enviado smtp9
+id=24 lead=156 entretorresf7@hotmail.com 2026-08-17 17:22:13 A enviado smtp3
+id=25 lead=157 vnavamari@hotmail.com 2026-08-17 17:22:21 C enviado smtp4
+id=26 lead=1373 isanchez10790@gmail.com 2026-08-17 17:22:30 B abierto smtp6
+id=27 lead=1 acrefaguilas07@gmail.com 2026-08-17 17:22:38 A enviado smtp8
+id=29 lead=1045 atleticoserrada@hotmail.com 2026-08-17 18:05:49 C enviado smtp10
+id=30 lead=1116 cdfabero1953@gmail.com 2026-08-17 18:06:01 A abierto smtp3
+id=31 lead=1487 cdcondeorgaz@hotmail.es 2026-08-17 18:06:12 A enviado smtp10
+id=32 lead=599 clubsanbernabe@gmail.com 2026-08-17 18:06:22 A enviado smtp8
+id=33 lead=303 clubatleticobahia@gmail.com 2026-08-17 18:06:31 B abierto smtp6
+id=39 lead=412 c.d.empalme@hotmail.com 2026-08-17 21:32:07 A enviado smtp9
+id=40 lead=1387 elrealdemanzanaresad@gmail.com 2026-08-17 21:32:14 A abierto smtp2
+id=41 lead=59 maravillassd@hotmail.es 2026-08-17 21:32:21 C enviado smtp9
+id=42 lead=1694 edalmudena@gmail.com 2026-08-17 21:32:31 A abierto smtp4
+id=43 lead=148 presidencia@sdlogrones.com 2026-08-17 21:32:39 A enviado smtp4
+id=44 lead=154 yagueclubdefutbol@gmail.com 2026-08-17 21:32:47 C enviado smtp8
+id=45 lead=1401 info@adnversalles-loranca.es 2026-08-17 21:32:59 A enviado smtp3
+id=46 lead=1498 deportes@colegioestudianteslastablas.edu.es 2026-08-17 21:33:07 C enviado smtp3
+id=47 lead=834 barsilvia2013@gmail.com 2026-08-17 21:33:16 B enviado smtp3
+id=48 lead=7 nuevaadguadalupe@yahoo.com 2026-08-17 21:33:26 B enviado smtp6
+
+--- ANÁLISIS ---
+- Los 22 envíos son actividad comercial legítima (todos REAL, con message_id y smtp_id).
+- Todos son posteriores al inicio de actividad comercial (2026-08-17).
+- Ninguno corresponde a leads TEST (pipeline 1).
+- NO se tratan como discrepancias: son actividad comercial real desde la lanzadera.
+
+--- NOTA SOBRE "31 ENVÍOS COMUNICADOS" ---
+El usuario reporta 31 envíos comunicados. El backup de producción (02:51 del 18 ago)
+tiene 22 envíos en campaign2 + 2 REAL antiguos (ids 1,2) = 24 REAL totales.
+La diferencia (31 vs 24) puede deberse a envíos posteriores al backup (el backup es
+una fotografía del 02:51 del 18 ago; la actividad comercial pudo continuar después).
+El backup es la mejor fuente disponible localmente.
+
+--- ESTADO BLOQUE 4 ---
+COMPLETADO.

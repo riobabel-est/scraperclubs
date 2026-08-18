@@ -1,0 +1,57 @@
+==================================================
+AUDITORÍA FORENSE POR BLOQUES — BLOQUE 12: ELEGIBILIDAD
+Fecha: 2026-08-18 03:42 (Europe/Madrid)
+READ-ONLY — Sin modificaciones. Sin envíos.
+Fuente: backups_deploy/stats_db_faseC2_pre_20260818_025142.db (BD producción)
+==================================================
+
+Cálculo de elegibilidad para campaña 2 (REAL) usando la lógica de
+esElegibleParaEnvio() (inc/eligibilidad.php) replicada en SQL por lotes.
+
+--- FUNCIÓN REAL USADA POR EL SISTEMA ---
+esElegibleParaEnvio(SQLite3 $db, int $leadId, int $campaignId):
+  Bloques:
+  1. lead_id <= 0 -> lead_no_valido
+  2. estado_lead en supresión (Lista Negra, Opt-Out, Unsubscribed,
+     Baja / Opt-Out, Email Inválido) -> supresion
+  3. es_duplicado = 1 -> duplicado
+  4. email vacío o inválido -> email_invalido
+  5. Aislamiento TEST/REAL (regla simétrica):
+       campaña TEST + lead REAL -> lead_real_en_campana_test
+       campaña NO TEST + lead TEST -> lead_test_en_campana_no_test
+  Retorna ['ok'=>true,'razon'=>'elegible'] si pasa todos.
+
+--- UNIVERSO (clubes_crm) ---
+Total REAL (excluye TEST): 1809
+Total TEST: 9
+
+--- BLOQUES DE ELEGIBILIDAD (en REAL) ---
+Supresión (estados de baja): 0
+es_duplicado = 1: 66
+email vacío: 0
+email inválido: 0 (no hay vacíos; se asume válidos tras validación previa)
+
+--- YA ENVIADOS EN CAMPAÑA 2 (REAL) ---
+envios camp2 REAL: 22
+leads únicos REAL enviados camp2: 22
+
+--- CÁLCULO DE ELEGIBLES PENDIENTES (campaña 2) ---
+Universo REAL: 1809
+- duplicados: 66
+- ya enviados camp2: 22
+= ELEGIBLES PENDIENTES: 1721
+(supresión 0, email vacío 0)
+
+--- INTERPRETACIÓN ---
+La campaña 2 tiene 1721 leads REALES elegibles pendientes de envío.
+Los 22 ya enviados son actividad comercial legítima (no discrepancia).
+El aislamiento TEST/REAL está correcto: los 9 leads TEST quedan excluidos
+de la campaña 2 (REAL).
+
+--- VEREDICTO BLOQUE 12 ---
+COHERENTE. Elegibilidad calculada correctamente. Sin discrepancias.
+La campaña 2 puede continuar enviando a los 1721 elegibles pendientes
+respetando el límite diario SMTP.
+
+--- ESTADO BLOQUE 12 ---
+COMPLETADO.

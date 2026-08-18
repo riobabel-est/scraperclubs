@@ -1,0 +1,88 @@
+==================================================
+AUDITORÍA FORENSE POR BLOQUES — BLOQUE 3: ENVIOS
+Fecha: 2026-08-18 03:29 (Europe/Madrid)
+READ-ONLY — Sin modificaciones
+==================================================
+
+Tabla: envios
+
+--- TOTAL ---
+14
+
+--- ES_TEST ---
+test (es_test=1): 12
+real (es_test=0): 2
+null: 0
+
+--- POR CAMPAIGN_ID ---
+campaign_id=null: 8
+campaign_id=3: 6
+campaign_id=2: 0  (NO EXISTE)
+
+--- POR ESTADO ---
+abierto: 3
+enviado: 11
+
+--- POR VARIANTE (variant) ---
+null: 2
+A: 4
+B: 4
+C: 4
+
+--- FECHA ---
+mínima: 2026-08-07 03:13:48
+máxima: 2026-08-17 01:39:36
+
+--- CAMPAIGN_ID=2 ---
+total: 0
+real: 0
+test: 0
+
+--- ÚLTIMOS 50 ENVIOS (14 en total) ---
+id=13 lead=1817 test_abc_final6_b@futprotec.local 2026-08-17 01:39:36 B test enviado null smtp9
+id=14 lead=1811 test03@futprotec.local 2026-08-17 01:39:36 C test enviado null smtp9
+id=12 lead=1809 test01@futprotec.local 2026-08-17 01:39:35 A test enviado null smtp9
+id=10 lead=1815 test_abc_final4_b@futprotec.local 2026-08-17 01:13:40 B test abierto null smtp1
+id=11 lead=1816 test_abc_final4_c@futprotec.local 2026-08-17 01:13:40 C test abierto null smtp1
+id=9  lead=1814 test_abc_final4_a@futprotec.local 2026-08-17 01:13:16 A test abierto null smtp1
+id=8  lead=1817 test_abc_final6_b@futprotec.local 2026-08-16 18:08:24 B test enviado 3 smtp1
+id=7  lead=1812 test04@futprotec.local 2026-08-16 15:18:54 C test enviado 3 smtp1
+id=6  lead=1810 test02@futprotec.local 2026-08-16 01:27:00 A test enviado 3 smtp1
+id=5  lead=1811 test03@futprotec.local 2026-08-15 15:31:54 C test enviado 3 smtp1
+id=4  lead=1813 test05@futprotec.local 2026-08-15 15:31:35 B test enviado 3 smtp1
+id=3  lead=1809 test01@futprotec.local 2026-08-14 22:39:12 A test enviado 3 smtp1
+id=2  lead=156 entretorresf7@hotmail.com 2026-08-07 03:14:00 null REAL enviado null smtp null
+id=1  lead=155 clubadpparador@gmail.com 2026-08-07 03:13:48 null REAL enviado null smtp null
+
+--- HALLAZGO CRÍTICO ---
+El usuario reporta "31 envíos comunicados" y "campaña comercial campaign_id=2".
+La BD LOCAL (data/stats.db) solo tiene 14 envíos, NINGUNO con campaign_id=2.
+Los envíos REAL (es_test=0) son solo 2 (ids 1 y 2, del 2026-08-07, leads 155 y 156).
+La BD local es una copia MÁS ANTIGUA (estado previo a la campaña 2).
+
+--- BACKUPS DE PRODUCCIÓN (fuente de verdad de campaña 2) ---
+El backup más reciente de la BD de producción con campaña 2 es:
+backups_deploy/stats_db_faseC2_pre_20260818_025142.db (18 ago 02:51)
+  - envios total: 42
+  - campaign_id=2: 22
+  - es_test real(0): 24
+  - es_test test(1): 18
+  - max fecha: 2026-08-17 21:33:26
+  - aperturas: 21
+  - rebotes: 0
+
+Otros backups equivalentes (mismos datos):
+  - stats_db_microenvio_pre_20260818_022722.db
+  - stats_db_prep_campana2_pre_20260818_022156.db
+  - stats_db_auditoria_integral_pre_20260818_024612.db
+
+NOTA: Los backups stats_db_LIVE_backup_1786998742.db y stats_db_LIVE_audit_1786998346.db
+(32 envíos, 12 campaign2) NO tienen la columna es_test (versión anterior a la migración).
+
+DECISIÓN METODOLÓGICA: Para los bloques 4-15 se usará como fuente de verdad de la
+BD de producción el backup backups_deploy/stats_db_faseC2_pre_20260818_025142.db
+(42 envíos, 22 campaign2, 24 REAL, 18 TEST), por ser la copia más reciente que
+contiene la campaña 2 y la columna es_test.
+
+--- ESTADO BLOQUE 3 ---
+COMPLETADO.

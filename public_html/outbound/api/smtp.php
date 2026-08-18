@@ -37,11 +37,28 @@ if ($action === 'get_accounts') {
     while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
         // Se devuelve la contraseña completa para permitir su previsualización en el editor.
         // El modal la mantiene oculta por defecto (type=password) y solo se muestra al pulsar el toggle.
+        //
+        // SEMÁNTICA DE "ENVIADOS HOY" (FASE C.3, punto 12):
+        // `cuentas_smtp.enviados_hoy` es un CONTADOR ACUMULADO HISTÓRICO (no se
+        // resetea a diario). Para que la UI muestre el uso REAL del día actual,
+        // se recalcula desde `comunicaciones_log` con la fecha de hoy, que es la
+        // fuente de verdad operativa (mismo criterio que get_cola.php). El valor
+        // acumulado histórico se conserva en el campo `enviados_hoy_acumulado`.
+        $idCuenta = (int)$row['id'];
+        $hoy = (int)$db->querySingle(
+            "SELECT COUNT(*) FROM comunicaciones_log
+             WHERE id_cuenta_smtp = {$idCuenta}
+               AND DATE(fecha) = DATE('now')
+               AND tipo_evento = 'envio_email'"
+        );
+        $row['enviados_hoy_acumulado'] = (int)$row['enviados_hoy'];
+        $row['enviados_hoy'] = $hoy;
         $accounts[] = $row;
     }
     echo json_encode(['ok' => true, 'accounts' => $accounts]);
     exit;
 }
+
 
 // ═══════════════════════════════════════ save_account ═══════════════════════
 if ($action === 'save_account') {

@@ -1,0 +1,52 @@
+==================================================
+AUDITORÍA FORENSE POR BLOQUES — BLOQUE 2: PIPELINES
+Fecha: 2026-08-18 03:28 (Europe/Madrid)
+READ-ONLY — Sin modificaciones
+==================================================
+
+Tabla: pipelines (3 registros)
+
+--- PIPELINE 1 ---
+id: 1
+nombre: Experimento Fase 1 TEST
+identificador: LEGACY_TEST_FASE1
+entorno: test
+estado: DRAFT
+activo: 1
+tipo: outbound
+envíos (via lead_pipelines): 7
+CLASIFICACIÓN: HISTÓRICO TEST
+
+--- PIPELINE 2 ---
+id: 2
+nombre: Piloto Comercial FutProtec 2026-08
+identificador: PILOTO_FUTPROTEC_2026_08
+entorno: pilot
+estado: DRAFT
+activo: 1
+tipo: outbound
+envíos: 0
+CLASIFICACIÓN: COMERCIAL
+
+--- PIPELINE 3 ---
+id: 3
+nombre: SMOKE TEST FutProtec 2026-08
+identificador: SMOKE_TEST_FUTPROTEC_2026_08
+entorno: test
+estado: PILOT
+activo: 1
+tipo: outbound
+envíos: 0
+CLASIFICACIÓN: SMOKE TEST
+
+--- REFERENCIA ENVIOS POR CAMPAIGN ---
+campaign_id=null: 8
+campaign_id=3: 6
+TOTAL envios: 14
+
+NOTA: NO existen envíos con campaign_id=2 en la BD actual.
+Los envíos están en campaign_id=null (8) y campaign_id=3 (6).
+Esto se investigará en BLOQUE 3 y 4.
+
+--- ESTADO BLOQUE 2 ---
+COMPLETADO.

@@ -1,0 +1,38 @@
+==================================================
+AUDITORÍA FORENSE POR BLOQUES — BLOQUE 8: REBOTES Y BAJAS
+Fecha: 2026-08-18 03:32 (Europe/Madrid)
+READ-ONLY — Sin modificaciones
+Fuente: backups_deploy/stats_db_faseC2_pre_20260818_025142.db (BD producción)
+==================================================
+
+Auditoría de rebotes y bajas/suppression.
+
+--- REBOTES ---
+Tabla: rebotes (id, email, motivo, fecha_rebote)
+Total registros: 0
+
+--- BAJAS / SUPPRESSION ---
+Estados en clubes_crm:
+  - "01 Sin Contactar": 1797
+  - "02 Contactado": 21
+No hay estados de supresión/baja (Lista Negra, Opt-Out, Unsubscribed,
+Baja / Opt-Out, Email Inválido).
+No existe tabla separada de bajas/suppression en la BD.
+
+--- INTERPRETACIÓN CORRECTA (REGISTRADOS vs OCURRIDOS) ---
+REBOTES:
+  - 0 REGISTRADOS (la tabla rebotes está vacía).
+  - NO se puede afirmar "0 ocurridos": solo sabemos que no hay rebotes
+    registrados en la BD. Un rebote podría no haberse registrado aún.
+BAJAS:
+  - 0 REGISTRADAS (no hay estados de supresión ni tabla de bajas).
+  - NO se puede afirmar "0 ocurridas": solo sabemos que no hay bajas
+    registradas en la BD.
+
+--- VEREDICTO BLOQUE 8 ---
+COHERENTE con el reporte del usuario ("no se han observado rebotes/bajas").
+La monitorización de rebotes y bajas está correctamente diferenciada:
+0 REGISTRADOS ≠ 0 OCURRIDOS. No hay discrepancias.
+
+--- ESTADO BLOQUE 8 ---
+COMPLETADO.

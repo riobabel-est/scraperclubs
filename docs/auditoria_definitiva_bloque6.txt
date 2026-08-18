@@ -1,0 +1,30 @@
+==================================================
+AUDITORÍA FORENSE POR BLOQUES — BLOQUE 6: A/B/C
+Fecha: 2026-08-18 03:31 (Europe/Madrid)
+READ-ONLY — Sin modificaciones
+Fuente: backups_deploy/stats_db_faseC2_pre_20260818_025142.db (BD producción)
+==================================================
+
+Auditoría de coherencia A/B/C para la campaña 2.
+
+--- MÉTODO ---
+Para cada envío de campaign_id=2, se recalcula la variante esperada con
+asignarVariante(lead_id, campaign_id) (inc/abc.php) y se compara con envios.variant.
+NO se usa lead_pipelines.variante_ab como fuente de verdad (es histórico).
+
+--- LÓGICA DE asignarVariante() (inc/abc.php) ---
+$h = crc32(campaignId . ':' . leadId);  // normalizado a entero sin signo
+return ['A','B','C'][$h % 3];
+
+--- RESULTADO ---
+Total envíos campaign_id=2: 22
+Coincidencias (variant almacenada = asignarVariante()): 22
+Discrepancias: 0
+
+--- VEREDICTO BLOQUE 6 ---
+PASS — La variante almacenada en envios.variant es coherente con
+asignarVariante(lead_id, campaign_id) para la campaña 2. A/B/C determinístico
+e inmutable correctamente aplicado.
+
+--- ESTADO BLOQUE 6 ---
+COMPLETADO.
