@@ -12,6 +12,9 @@ backups/
 backups_deploy/
 *.db-shm
 *.db-wal
+# Backups de BD dentro de data/ (p.ej. stats.db.bak_*) — datos sensibles
+public_html/outbound/data/*.bak*
+public_html/outbound/data/*.db*
 
 # ─── Outputs de scraping ─────────────────────────────────────
 output/

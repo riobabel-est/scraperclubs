@@ -162,8 +162,124 @@ if ($action === 'update_lead') {
     exit;
 }
 
+// ─── ENDPOINT: actualizar_estado_lead (Unibox — panel derecho) ───────────────
+// Actualiza clubes_crm.estado_lead en tiempo real desde el desplegable del visor.
+if ($action === 'actualizar_estado_lead') {
+    header('Content-Type: application/json');
+    $id     = (int)($_POST['lead_id'] ?? 0);
+    $estado = trim((string)($_POST['estado'] ?? ''));
+    if ($id <= 0 || $estado === '') {
+        echo json_encode(['ok' => false, 'error' => 'Parámetros inválidos']);
+        exit;
+    }
+    $estadosPermitidos = ['Interesado', 'Duda Precio', 'Baja', 'Neutral', 'No Interesa', 'Pendiente'];
+    if (!in_array($estado, $estadosPermitidos, true)) {
+        echo json_encode(['ok' => false, 'error' => 'Estado no permitido']);
+        exit;
+    }
+    try {
+        $stmt = $db->prepare("UPDATE clubes_crm SET estado_lead = :estado WHERE id = :id");
+        $stmt->bindValue(':estado', $estado, SQLITE3_TEXT);
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        echo json_encode(['ok' => true]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ─── ENDPOINT: enviar_respuesta_smtp (Unibox — respuesta inmediata) ──────────
+// Envía una respuesta SMTP al lead usando una cuenta activa de cuentas_smtp.
+if ($action === 'enviar_respuesta_smtp') {
+    header('Content-Type: application/json');
+    $leadId  = (int)($_POST['lead_id'] ?? 0);
+    $email   = trim((string)($_POST['email'] ?? ''));
+    $cuerpo  = trim((string)($_POST['cuerpo'] ?? ''));
+    $asunto  = trim((string)($_POST['asunto'] ?? 'Re: FutProtec'));
+    $envioId = (int)($_POST['envio_id'] ?? 0);
+
+    if ($email === '' || $cuerpo === '') {
+        echo json_encode(['ok' => false, 'error' => 'Faltan destinatario o cuerpo del mensaje']);
+        exit;
+    }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['ok' => false, 'error' => 'Email de destino inválido']);
+        exit;
+    }
+
+    try {
+        require_once __DIR__ . '/inc/smtp_transport.php';
+
+        // Seleccionar cuenta SMTP activa con rotación y límite diario.
+        $cuenta = $db->querySingle(
+            "SELECT * FROM cuentas_smtp WHERE activa = 1 AND enviados_hoy < limite_diario ORDER BY RANDOM() LIMIT 1",
+            true
+        );
+        if (!$cuenta) {
+            echo json_encode(['ok' => false, 'error' => 'No hay cuentas SMTP activas disponibles']);
+            exit;
+        }
+
+        $cuentaNormalizada = [
+            'email'         => $cuenta['email'],
+            'host'          => $cuenta['smtp'],
+            'puerto'        => (int)$cuenta['puerto'],
+            'usuario'       => $cuenta['user'],
+            'password'      => $cuenta['pass'],
+            'seguridad'     => ((int)$cuenta['puerto'] === 465) ? 'ssl' : 'tls',
+            'nombre_emisor' => $cuenta['nombre'] ?? $cuenta['email'],
+        ];
+
+        // Cuerpo en HTML simple (párrafos) para el envío.
+        $cuerpoHtml = '<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1e293b;">'
+            . nl2br(htmlspecialchars($cuerpo, ENT_QUOTES, 'UTF-8'))
+            . '</div>';
+
+        $resultado = futprotec_enviarSMTP(
+            $cuentaNormalizada,
+            $email,
+            $asunto,
+            $cuerpoHtml,
+            ['reply_to' => $cuenta['email']]
+        );
+
+        if (!$resultado['ok']) {
+            echo json_encode(['ok' => false, 'error' => $resultado['error'] ?? 'Error al enviar']);
+            exit;
+        }
+
+        // Incrementar contador de la cuenta.
+        $db->exec("UPDATE cuentas_smtp SET enviados_hoy = enviados_hoy + 1, ultimo_uso = CURRENT_TIMESTAMP WHERE id = " . (int)$cuenta['id']);
+
+        // Registrar en envios para trazabilidad (usa lead_id para vincular la respuesta).
+        $trackingId = 'fut_' . dechex(time()) . '_' . bin2hex(random_bytes(6));
+        $stmt = $db->prepare(
+            'INSERT INTO envios (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje, lead_id)
+             VALUES (:club, :email, :fed, :cuenta, :estado, :tid, :asunto, :cuerpo, :lead_id)'
+        );
+        $stmt->bindValue(':club',   $leadId > 0 ? ('Lead #' . $leadId) : $email, SQLITE3_TEXT);
+        $stmt->bindValue(':email',  $email, SQLITE3_TEXT);
+        $stmt->bindValue(':fed',    '', SQLITE3_TEXT);
+        $stmt->bindValue(':cuenta', $cuenta['email'], SQLITE3_TEXT);
+        $stmt->bindValue(':estado', 'enviado', SQLITE3_TEXT);
+        $stmt->bindValue(':tid',    $trackingId, SQLITE3_TEXT);
+        $stmt->bindValue(':asunto', $asunto, SQLITE3_TEXT);
+        $stmt->bindValue(':cuerpo', $cuerpoHtml, SQLITE3_TEXT);
+        $stmt->bindValue(':lead_id', $leadId > 0 ? $leadId : null, SQLITE3_INTEGER);
+        $stmt->execute();
+
+
+        echo json_encode(['ok' => true, 'tracking_id' => $trackingId]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // ─── AUTENTICACIÓN ───────────────────────────────────────────────────────────
 if (empty($_SESSION['auth_outbound'])) {
+
     $db->close();
     showLoginForm($loginError ?? '');
     exit;
@@ -275,6 +391,35 @@ $db->close();
         .kanban-scroll { scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
         .kanban-scroll > * { scroll-snap-align: start; }
         @media (min-width: 768px) { .kanban-scroll { scroll-snap-type: none; } }
+        /* Cuerpo de mensaje en texto plano (respuestas entrantes) */
+        .mensaje-cuerpo-texto {
+            white-space: pre-wrap;
+            font-family: sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #e2e8f0;
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            word-break: break-word;
+        }
+        /* Cuerpo de mensaje en HTML (respuestas entrantes) */
+        .mensaje-cuerpo-html {
+            margin-top: 10px;
+            padding: 15px;
+            border-radius: 8px;
+            background: #1e293b;
+            color: #e2e8f0;
+            font-size: 14px;
+            line-height: 1.5;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+        .mensaje-cuerpo-html img { max-width: 100%; height: auto; }
+        .mensaje-cuerpo-html a { color: #38bdf8; }
+        .mensaje-cuerpo-html table { max-width: 100%; }
+
     </style>
 </head>
 <body class="bg-slate-950 text-slate-200 min-h-screen" x-data="app()" x-init="boot()">
@@ -287,10 +432,16 @@ $db->close();
             <span class="font-bold text-slate-100 text-sm tracking-tight">FutProtec Outbound CRM</span>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
+            <button @click="irARespuestas()" class="relative text-slate-400 hover:text-amber-400 transition p-1.5 rounded-lg hover:bg-slate-800/60" title="Respuestas nuevas">
+                <i data-lucide="bell" class="w-4 h-4"></i>
+                <span x-show="rsNuevas > 0" x-cloak x-text="rsNuevas" class="absolute -top-1 -right-1 bg-orange-500 text-white text-[11px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1.5 border-2 border-slate-900 shadow-[0_0_10px_rgba(249,115,22,0.5)]"></span>
+
+            </button>
             <a href="?logout=1" class="text-slate-500 hover:text-slate-300 text-xs transition ml-2">
                 <i data-lucide="log-out" class="w-4 h-4 inline"></i>
             </a>
         </div>
+
     </div>
 </header>
 
@@ -352,7 +503,7 @@ $db->close();
             :class="tab === 'editor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Editor Plantilla</button>
         <button @click="tab='smtp'"
             class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'smtp' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Config SMTP</button>
+            :class="tab === 'smtp' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Configuración</button>
         <button @click="tab='lanza'"
             class="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'lanza' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-500 hover:text-slate-300'">Lanzadera</button>
@@ -394,7 +545,7 @@ $db->close();
 <div x-show="tab === 'followups'" x-cloak class="max-w-full mx-auto px-4 py-4">
     <?php include __DIR__ . '/tabs/followups.php'; ?>
 </div>
-<div x-show="tab === 'respuestas'" x-cloak class="max-w-full mx-auto px-4 py-4">
+<div x-show="tab === 'respuestas'" x-cloak class="max-w-full mx-auto px-4 pt-4 pb-8">
     <?php include __DIR__ . '/tabs/respuestas.php'; ?>
 </div>
 <div x-show="tab === 'lista_negra'" x-cloak class="max-w-full mx-auto px-4 py-4">
@@ -407,13 +558,30 @@ $db->close();
 include __DIR__ . '/tabs/modals.php';
 ?>
 
+<!-- ═══════════ TOAST DE NOTIFICACIÓN (FASE G) ═══════════ -->
+<div x-show="rsToastVisible" x-cloak x-transition.opacity.duration.300ms
+     class="fixed bottom-5 right-5 z-[100] max-w-sm w-full">
+    <div class="bg-slate-900 border border-amber-500/40 rounded-xl shadow-2xl p-4 flex items-start gap-3">
+        <div class="flex-1">
+            <div class="text-sm font-semibold text-amber-400">Nuevas respuestas</div>
+            <div class="text-sm text-slate-300 mt-1" x-text="rsToast"></div>
+
+        </div>
+        <button @click="irARespuestas()" class="shrink-0 px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition">Ver</button>
+        <button @click="rsToastVisible=false; rsToast=''" class="shrink-0 text-slate-500 hover:text-slate-300 transition p-1" title="Cerrar">
+            <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+    </div>
+</div>
+
 <!-- ALPINE.JS APP -->
 <script>
 window._cfg = {motorActivo:<?= $motorActivo?'true':'false' ?>,modeTest:<?= $modoPruebas?'true':'false' ?>};
 </script>
-<script src="js/app.js?v=10"></script>
+<script src="js/app.js?v=11"></script>
 </body>
 </html>
+
 <?php
 // ═══════════════ LOGIN FORM ═══════════════════════════════════════════════
 function showLoginForm(string $error = ''): void {

@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Transporte SMTP centralizado (unifica las implementaciones previas).
+require_once __DIR__ . '/../inc/smtp_transport.php';
+
 // ⚠️ BLOQUEO DE SEGURIDAD — FASE 2B (aprobado): P2 queda DESACTIVADO.
 //    Este script lee clubes.json (fuente desincronizada) y bypassea supresión,
 //    campaña, trazabilidad e idempotencia. Desactivado de forma reversible.
@@ -280,117 +283,23 @@ function enviarSMTP(array $cuenta, string $destinatario, string $asunto, string 
  */
 function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asunto, string $cuerpoHTML): array
 {
-    $fromEmail = $cuenta['email'];
-    $fromName  = $cuenta['nombre'];
-    $smtpHost  = $cuenta['smtp'];
-    $smtpPort  = (int)$cuenta['puerto'];
-    $smtpUser  = $cuenta['user'];
-    $smtpPass  = $cuenta['pass'];
+    // Normalizar la cuenta para el transporte centralizado.
+    $cuentaNormalizada = [
+        'email'         => $cuenta['email'],
+        'host'          => $cuenta['smtp'],
+        'puerto'        => (int)$cuenta['puerto'],
+        'usuario'       => $cuenta['user'],
+        'password'      => $cuenta['pass'],
+        'seguridad'     => ((int)$cuenta['puerto'] === 465) ? 'ssl' : 'tls',
+        'nombre_emisor' => $cuenta['nombre'] ?? '',
+    ];
 
-    $timeout = 30;
-    $readTimeout = 15;
+    $opciones = [
+        'reply_to' => $cuenta['email'],
+    ];
 
-    try {
-        $ctx = stream_context_create([
-            'ssl' => [
-                'verify_peer'       => false,
-                'verify_peer_name'  => false,
-                'allow_self_signed' => true,
-            ]
-        ]);
-
-        $remote = ($smtpPort === 465)
-            ? "ssl://{$smtpHost}:{$smtpPort}"
-            : "tcp://{$smtpHost}:{$smtpPort}";
-
-        $fp = @stream_socket_client($remote, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT, $ctx);
-
-        if (!$fp) {
-            return ['ok' => false, 'error' => "Conexión fallida: {$errstr} ({$errno})"];
-        }
-
-        // Timeout de LECTURA explícito: evita que fgets() quede bloqueado
-        // indefinidamente si el servidor acepta la conexión pero no responde.
-        stream_set_timeout($fp, $readTimeout);
-
-        // Helper RFC 5321 estricto: 3 dígitos + espacio = fin, 3 dígitos + guion = multilínea
-        $read = function() use ($fp): string {
-            $resp = '';
-            while (($line = fgets($fp, 512)) !== false) {
-                $resp .= $line;
-                // /^\d{3}\s/ → fin de respuesta SMTP
-                if (preg_match('/^\d{3}\s/', $line)) break;
-                // Si no es multilínea SMTP real (código-guión o código-espacio), salir
-                if (!preg_match('/^\d{3}[- ]/', $line)) break;
-                // Es /^\d{3}-/ → multilínea real, continuar leyendo
-            }
-            $meta = stream_get_meta_data($fp);
-            if (!empty($meta['timed_out'])) {
-                throw new \RuntimeException('Timeout de lectura SMTP');
-            }
-            return $resp;
-        };
-
-        // Helper para enviar comando
-        $cmd = function(string $c) use ($fp, $read): string {
-            fwrite($fp, $c . "\r\n");
-            return $read();
-        };
-
-        // Leer banner
-        $read();
-
-        // EHLO
-        $cmd("EHLO getfutprotec.com");
-
-        // STARTTLS si puerto 587
-        if ($smtpPort === 587) {
-            $cmd("STARTTLS");
-            stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
-            stream_set_timeout($fp, $readTimeout);
-            $cmd("EHLO getfutprotec.com");
-        }
-
-        // AUTH LOGIN
-        $cmd("AUTH LOGIN");
-        $cmd(base64_encode($smtpUser));
-        $cmd(base64_encode($smtpPass));
-
-        // MAIL FROM
-        $cmd("MAIL FROM:<{$fromEmail}>");
-
-        // RCPT TO
-        $cmd("RCPT TO:<{$destinatario}>");
-
-        // DATA
-        $cmd("DATA");
-
-        // Construir mensaje
-        $boundary = md5(uniqid((string)random_int(0, 99999), true));
-        $mensaje = "From: {$fromName} <{$fromEmail}>\r\n";
-        $mensaje .= "To: <{$destinatario}>\r\n";
-        $mensaje .= "Subject: =?UTF-8?B?" . base64_encode($asunto) . "?=\r\n";
-        $mensaje .= "MIME-Version: 1.0\r\n";
-        $mensaje .= "Content-Type: text/html; charset=UTF-8\r\n";
-        $mensaje .= "X-Mailer: FutProtec-Outbound/1.0\r\n";
-        $mensaje .= "\r\n";
-        $mensaje .= $cuerpoHTML;
-        $mensaje .= "\r\n.\r\n";
-
-        fwrite($fp, $mensaje);
-        $read();
-
-        // QUIT
-        $cmd("QUIT");
-        fclose($fp);
-
-        return ['ok' => true, 'error' => ''];
-    } catch (\Throwable $e) {
-        if (isset($fp) && is_resource($fp)) {
-            @fclose($fp);
-        }
-        return ['ok' => false, 'error' => $e->getMessage()];
-    }
+    // Delegar en el transporte SMTP centralizado.
+    return futprotec_enviarSMTP($cuentaNormalizada, $destinatario, $asunto, $cuerpoHTML, $opciones);
 }
 
 // ─── BUCLE DE ENVÍO ──────────────────────────────────────────────────────────

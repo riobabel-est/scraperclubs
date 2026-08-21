@@ -39,12 +39,70 @@ var app = function() {
         aqData: { total: 0, ultimos: [] },
         aqLoading: false,
 
-        // Respuestas (FASE 4C)
+        // Respuestas (FASE 4C + FASE FG: bandeja de conversaciones)
         respuestas: [],
         respuestasFiltro: '',
+        respuestasPrioridad: '',
         rsModal: false,
         rsRespuesta: null,
         rsEnvio: null,
+        rsConversacion: null,
+        rsConversacionModal: false,
+        // Notificaciones de nuevas respuestas (FASE G)
+        rsNuevas: 0,
+        rsToast: '',
+        rsToastVisible: false,
+        rsToastTimer: null,
+        // ─── UNIBOX SPLIT-VIEW (FASE UNIBOX UI) ─────────────────────────────
+        // Conversación seleccionada en el panel derecho (visor).
+        rsSeleccion: null,
+        // Búsqueda por nombre de club en el panel izquierdo.
+        rsBusqueda: '',
+        // Filtro de clasificación (Todas / Interesado / Duda Precio / Baja).
+        rsFiltroClas: '',
+        // Texto de la respuesta que se está redactando en el footer.
+        rsRedaccion: '',
+        // Plantilla rápida seleccionada.
+        rsPlantillaRapida: '',
+        // Estado de envío de la respuesta SMTP.
+        rsEnviando: false,
+        rsEnvioMsg: '',
+        rsEnvioMsgOk: false,
+        // Plantillas rápidas de respuesta.
+        rsPlantillasRapidas: [
+            { id: 'muestra', label: 'Enviar Muestra Física', cuerpo: 'Hola {{CONTACTO}}, gracias por tu interés. Te enviamos una muestra física de las espinilleras para que podáis valorarlas en persona. ¿Nos confirmas la dirección de envío del club?' },
+            { id: 'tarifas', label: 'Enviar PDF Tarifas', cuerpo: 'Hola {{CONTACTO}}, adjuntamos el PDF con nuestras tarifas por volumen. Para un pedido de {{VOLUMEN}} pares el precio B2B es muy competitivo. ¿Te parece bien que te lo enviemos?' },
+            { id: 'llamada', label: 'Agendar Llamada', cuerpo: 'Hola {{CONTACTO}}, encantados de hablar con vosotros. ¿Qué día y hora os viene mejor para una llamada de 10 minutos y resolver todas las dudas?' }
+        ],
+        // Estados del lead disponibles para el desplegable del header.
+        rsEstadosLead: [
+            '01 Sin Contactar', '02 Contactado', '03 Respondió',
+            '04 Interesado', '05 Cualificado', '06 Propuesta',
+            '07 Negociación', '08 Ganado', '09 Perdido'
+        ],
+        // Mapa de clasificación → etiqueta de intención (badge).
+        rsIntencionMap: {
+            POSITIVE: { label: 'SOLICITA MUESTRA', color: 'bg-emerald-500/20 text-emerald-400' },
+            INTERESADO: { label: 'INTERESADO', color: 'bg-emerald-500/20 text-emerald-400' },
+            'DUDA PRECIO': { label: 'DUDA PRECIO', color: 'bg-amber-500/20 text-amber-400' },
+            NEUTRAL: { label: 'NEUTRAL', color: 'bg-amber-500/20 text-amber-400' },
+            'NO INTERESA': { label: 'NO INTERESA', color: 'bg-rose-500/20 text-rose-400' },
+            DESUSCRIPCION: { label: 'DESUSCRIPCIÓN', color: 'bg-rose-500/20 text-rose-400' },
+            UNSUBSCRIBE: { label: 'DESUSCRIPCIÓN', color: 'bg-rose-500/20 text-rose-400' },
+            NEGATIVE: { label: 'NO INTERESA', color: 'bg-rose-500/20 text-rose-400' },
+            PENDING: { label: 'NEUTRAL', color: 'bg-amber-500/20 text-amber-400' },
+            OOO: { label: 'NEUTRAL', color: 'bg-amber-500/20 text-amber-400' }
+        },
+        // Plantillas de respuesta rápida disponibles (cargadas desde BD).
+        rsTemplatesRapidas: [],
+
+        // Cuenta SMTP activa para el envío de respuesta.
+        rsCuentaSmtp: null,
+        // Enlace WhatsApp dinámico del lead seleccionado.
+        rsWaUrl: '',
+
+
+
 
         // Lista Negra (MEGA AUDITORÍA)
         blSearch: '',
@@ -221,13 +279,45 @@ var app = function() {
         async boot() {
             window.app = this;
             lucide.createIcons();
+            // ─── Notificador global de background (polling asíncrono) ─────────
+            // Consulta el contador de respuestas sin notificar cada 30s,
+            // independientemente del tab activo (Kanban, Lanzadera, Respuestas).
+            this.checkUnreadNotifications();
+            setInterval(() => this.checkUnreadNotifications(), 30000);
             try { await this.loadGestor(); } catch (e) { console.error('boot: loadGestor falló', e); }
+
             try { await this.loadSmtp(); } catch (e) { console.error('boot: loadSmtp falló', e); }
             try { await this.bootLanzadera(); } catch (e) { console.error('boot: bootLanzadera falló', e); }
             try { await this.loadMockupCapacity(); } catch (e) { console.error('boot: loadMockupCapacity falló', e); }
         },
 
+        // ─── Notificador global de background ────────────────────────────────
+        // Consulta el contador de respuestas sin notificar (endpoint ligero
+        // get_unread_count) y actualiza el badge de la campana. Se ejecuta en
+        // boot() y cada 30s, independientemente del tab activo.
+        async checkUnreadNotifications() {
+            try {
+                // IMPORTANTE: analytics.php NO es un endpoint standalone (es incluido
+                // por dashboard.php que define $db y $action). Por eso el polling debe
+                // apuntar al orquestador dashboard.php?action=get_unread_count, igual
+                // que el resto de endpoints delegados de la app. Llamar directamente a
+                // api/analytics.php devolvía una respuesta vacía (error fatal PHP por
+                // $db/$action indefinidos) → "Unexpected end of JSON input".
+                const r = await fetch('dashboard.php?action=get_unread_count');
+                const j = await r.json();
+                if (j && j.success) {
+                    this.rsNuevas = parseInt(j.unread) || 0;
+                }
+            } catch (e) {
+                // Silencioso: el polling no debe romper la app si falla la red.
+                console.error('checkUnreadNotifications:', e);
+            }
+        },
+
+
+
         // ─── Config ───────────────────────────────────────────────────────────
+
         async toggleKS() {
             this.killSwitch = !this.killSwitch;
             const f = new FormData();
@@ -993,16 +1083,65 @@ var app = function() {
             } catch (e) { console.error('loadMockupCapacity:', e); }
         },
 
-        // ─── Respuestas (FASE 4C) ────────────────────────────────────────
+        // ─── Respuestas (FASE 4C + FASE FG: bandeja de conversaciones) ────
         async loadRespuestas() {
             this.respuestas = [];
             try {
                 const p = new URLSearchParams({ action: 'get_respuestas' });
                 if (this.respuestasFiltro) p.append('clasificacion', this.respuestasFiltro);
+                if (this.respuestasPrioridad) p.append('prioridad', this.respuestasPrioridad);
                 const r = await fetch('?' + p.toString());
                 const j = await r.json();
-                if (j && j.ok) this.respuestas = j.respuestas || [];
+                if (j && j.ok) this.respuestas = j.conversaciones || [];
+                // ─── Limpieza de estado (UNIBOX UI) ─────────────────────────
+                // Si la conversación seleccionada ya no existe en la lista
+                // recargada (p.ej. tras un envío o un cambio de filtro), se
+                // limpia el visor derecho para evitar referencias huérfanas.
+                if (this.rsSeleccion) {
+                    const selClave = this.rsSeleccion.clave || ('lead:' + this.rsSeleccion.lead_id);
+                    const sigue = (this.respuestas || []).some(c => (c.clave || ('lead:' + c.lead_id)) === selClave);
+                    if (!sigue) {
+                        this.rsSeleccion = null;
+                        this.rsRedaccion = '';
+                        this.rsPlantillaRapida = '';
+                        this.rsEnvioMsg = '';
+                        this.rsEnvioMsgOk = false;
+                        this.rsWaUrl = '';
+                    }
+                }
+                // ─── Notificación de nuevas respuestas (FASE G) ─────────────
+                const totalNuevas = (this.respuestas || []).reduce((acc, c) => acc + (parseInt(c.nuevas) || 0), 0);
+                this.rsNuevas = totalNuevas;
+                if (totalNuevas > 0 && !sessionStorage.getItem('rs_toast_mostrado')) {
+                    sessionStorage.setItem('rs_toast_mostrado', '1');
+                    this.mostrarToast('🔔 ' + totalNuevas + ' nueva' + (totalNuevas === 1 ? '' : 's') + ' respuesta' + (totalNuevas === 1 ? '' : 's') + ' sin revisar');
+                }
             } catch (e) { console.error('loadRespuestas:', e); }
+        },
+        // Muestra un toast de notificación (auto-cierre)
+        mostrarToast(msg) {
+            this.rsToast = msg;
+            this.rsToastVisible = true;
+            if (this.rsToastTimer) clearTimeout(this.rsToastTimer);
+            this.rsToastTimer = setTimeout(() => { this.rsToastVisible = false; this.rsToast = ''; }, 6000);
+        },
+        // Navega al tab de respuestas y limpia el aviso de nuevas
+        irARespuestas() {
+            this.tab = 'respuestas';
+            this.rsToastVisible = false;
+            this.rsToast = '';
+            this.loadRespuestas();
+        },
+
+        // Abre el hilo de conversación completo de un lead
+        abrirConversacion(conv) {
+            this.rsConversacion = conv;
+            this.rsConversacionModal = true;
+            setTimeout(() => lucide.createIcons(), 50);
+        },
+        cerrarConversacion() {
+            this.rsConversacionModal = false;
+            this.rsConversacion = null;
         },
         async abrirRespuesta(id) {
             this.rsRespuesta = null; this.rsEnvio = null; this.rsModal = true;
@@ -1022,14 +1161,205 @@ var app = function() {
                 const j = await r.json();
                 if (j && j.ok) {
                     if (this.rsRespuesta && this.rsRespuesta.id == id) this.rsRespuesta.clasificacion = j.clasificacion;
+                    if (this.rsConversacion && this.rsConversacion.mensajes) {
+                        const m = this.rsConversacion.mensajes.find(x => x.id == id);
+                        if (m) m.clasificacion = j.clasificacion;
+                    }
                     this.loadRespuestas();
                 } else {
                     alert('Error: ' + (j.error || 'Desconocido'));
                 }
             } catch (e) { console.error('clasificarRespuesta:', e); }
         },
+        // Helpers de presentación para la bandeja de conversaciones
+        rsClasLabel(clas) {
+            const mapa = { POSITIVE: 'Positiva', NEGATIVE: 'Rebote', UNSUBSCRIBE: 'Baja', OOO: 'Fuera de oficina', NEUTRAL: 'Automática', PENDING: 'Pendiente' };
+            return mapa[clas] || clas || '—';
+        },
+        rsClasColor(clas) {
+            const mapa = { POSITIVE: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', NEGATIVE: 'text-rose-400 bg-rose-500/10 border-rose-500/30', UNSUBSCRIBE: 'text-amber-400 bg-amber-500/10 border-amber-500/30', OOO: 'text-sky-400 bg-sky-500/10 border-sky-500/30', NEUTRAL: 'text-slate-400 bg-slate-500/10 border-slate-500/30', PENDING: 'text-slate-400 bg-slate-500/10 border-slate-500/30' };
+            return mapa[clas] || 'text-slate-400 bg-slate-500/10 border-slate-500/30';
+        },
+        rsPrioLabel(p) {
+            const mapa = { alta: 'Alta', media: 'Media', baja: 'Baja' };
+            return mapa[p] || p || '—';
+        },
+        rsPrioColor(p) {
+            const mapa = { alta: 'text-rose-400 bg-rose-500/10 border-rose-500/30', media: 'text-amber-400 bg-amber-500/10 border-amber-500/30', baja: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
+            return mapa[p] || 'text-slate-400 bg-slate-500/10 border-slate-500/30';
+        },
+        rsPrioDot(p) {
+            const mapa = { alta: 'bg-rose-500', media: 'bg-amber-500', baja: 'bg-emerald-500' };
+            return mapa[p] || 'bg-slate-500';
+        },
+        rsFmtFecha(f) {
+            if (!f) return '—';
+            const d = new Date(f);
+            if (isNaN(d.getTime())) return f;
+            return d.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        },
+        rsUltimoMensaje(conv) {
+            if (!conv || !conv.mensajes || conv.mensajes.length === 0) return '';
+            const m = conv.mensajes[0];
+            return (m.subject_respuesta || m.asunto_envio || '') + ' — ' + (m.remitente || m.email || '');
+        },
+        rsEsEntrante(m) {
+            // Entrante = respuesta del lead (tiene remitente distinto del envío)
+            return !!m.remitente && m.remitente !== m.email;
+        },
+
+        // ─── UNIBOX SPLIT-VIEW (FASE UNIBOX UI) ─────────────────────────────
+        // Devuelve la lista de conversaciones filtradas por búsqueda y clasificación.
+        get rsFiltradas() {
+            const q = (this.rsBusqueda || '').trim().toLowerCase();
+            const cl = this.rsFiltroClas;
+            return (this.respuestas || []).filter(c => {
+                if (q && !String(c.nombre_club || '').toLowerCase().includes(q)) return false;
+                // Clasificación efectiva de la conversación: la del último mensaje
+                // (mismo criterio que rsIntencion), con fallback a nivel de conversación.
+                const ultimo = (c.mensajes && c.mensajes.length > 0) ? c.mensajes[0] : null;
+                const clas = String((ultimo && (ultimo.clasificacion || ultimo.clas)) || c.clasificacion || c.clas || 'PENDING').toUpperCase();
+                if (cl) {
+                    if (cl === 'INTERESADO' && !['POSITIVE', 'INTERESADO'].includes(clas)) return false;
+                    if (cl === 'DUDA' && !['DUDA PRECIO', 'NEUTRAL', 'PENDING', 'OOO'].includes(clas)) return false;
+                    if (cl === 'BAJA' && !['UNSUBSCRIBE', 'DESUSCRIPCION', 'NO INTERESA'].includes(clas)) return false;
+                    // Solo rebotes: muestra únicamente conversaciones cuyo último mensaje es un rebote.
+                    if (cl === 'REBOTE' && !['NEGATIVE', 'REBOTE'].includes(clas)) return false;
+                    // Ocultar rebotes: excluye las conversaciones cuyo último mensaje es un rebote.
+                    if (cl === 'SIN_REBOTE' && ['NEGATIVE', 'REBOTE'].includes(clas)) return false;
+                }
+                return true;
+            });
+        },
+        // Selecciona una conversación en el panel derecho y construye el enlace WhatsApp.
+        rsSeleccionar(conv) {
+            this.rsSeleccion = conv;
+            this.rsRedaccion = '';
+            this.rsPlantillaRapida = '';
+            this.rsEnvioMsg = '';
+            this.rsEnvioMsgOk = false;
+            this.rsWaUrl = this.rsConstruirWaUrl(conv);
+            setTimeout(() => lucide.createIcons(), 50);
+        },
+        // Construye el enlace dinámico de WhatsApp para el lead seleccionado.
+        rsConstruirWaUrl(conv) {
+            if (!conv) return '';
+            const tel = String(conv.telefono || conv.telefono_movil || '').replace(/[^0-9]/g, '');
+            const num = tel.match(/([67]\d{8})/);
+            if (!num) return '';
+            const contacto = encodeURIComponent(conv.contacto_nombre || conv.persona_contacto || 'responsable');
+            const texto = 'Hola%20' + contacto + ',%20vi%20tu%20respuesta%20sobre%20las%20espinilleras...';
+            return 'https://wa.me/34' + num[1] + '?text=' + texto;
+        },
+        // Aplica una plantilla rápida al editor de respuesta.
+        rsAplicarPlantillaRapida() {
+            const tpl = (this.rsPlantillasRapidas || []).find(t => t.id === this.rsPlantillaRapida);
+            if (!tpl || !this.rsSeleccion) return;
+            const conv = this.rsSeleccion;
+            this.rsRedaccion = tpl.cuerpo
+                .replace(/{{CONTACTO}}/g, conv.contacto_nombre || conv.persona_contacto || 'responsable')
+                .replace(/{{VOLUMEN}}/g, conv.volumen_equipos || conv.volumen_estimado || '');
+        },
+        // Actualiza el estado del lead en clubes_crm en tiempo real.
+        async rsActualizarEstadoLead() {
+            if (!this.rsSeleccion || !this.rsSeleccion.lead_id) return;
+            const f = new FormData();
+            f.append('action', 'actualizar_estado_lead');
+            f.append('lead_id', this.rsSeleccion.lead_id);
+            f.append('estado', this.rsSeleccion.estado_lead || '');
+            try {
+                const r = await fetch('', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j && j.ok) {
+                    this.rsEnvioMsg = 'Estado actualizado a "' + (this.rsSeleccion.estado_lead || '') + '".';
+                    this.rsEnvioMsgOk = true;
+                } else {
+                    this.rsEnvioMsg = 'Error: ' + (j.error || 'No se pudo actualizar el estado.');
+                    this.rsEnvioMsgOk = false;
+                }
+            } catch (e) {
+                this.rsEnvioMsg = 'Error de conexión al actualizar el estado.';
+                this.rsEnvioMsgOk = false;
+            }
+        },
+        // Envía la respuesta redactada por SMTP usando la cuenta del lead.
+        async rsEnviarRespuesta() {
+            if (!this.rsSeleccion) return;
+            if (!this.rsRedaccion.trim()) { this.rsEnvioMsg = 'Escribe una respuesta antes de enviar.'; this.rsEnvioMsgOk = false; return; }
+            this.rsEnviando = true;
+            this.rsEnvioMsg = '';
+            const f = new FormData();
+            f.append('action', 'enviar_respuesta_smtp');
+            f.append('lead_id', this.rsSeleccion.lead_id || '');
+            f.append('email', this.rsSeleccion.email || this.rsSeleccion.remitente || '');
+            f.append('cuerpo', this.rsRedaccion);
+            f.append('asunto', 'Re: ' + (this.rsSeleccion.subject || this.rsSeleccion.asunto_envio || ''));
+            f.append('envio_id', this.rsSeleccion.envio_id || '');
+            try {
+                const r = await fetch('', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j && j.ok) {
+                    this.rsEnvioMsg = 'Respuesta enviada correctamente.';
+                    this.rsEnvioMsgOk = true;
+                    this.rsRedaccion = '';
+                    this.rsPlantillaRapida = '';
+                    this.loadRespuestas();
+                } else {
+                    this.rsEnvioMsg = 'Error: ' + (j.error || 'No se pudo enviar la respuesta.');
+                    this.rsEnvioMsgOk = false;
+                }
+            } catch (e) {
+                this.rsEnvioMsg = 'Error de conexión al enviar la respuesta.';
+                this.rsEnvioMsgOk = false;
+            }
+            this.rsEnviando = false;
+        },
+        // Devuelve la etiqueta de intención para un badge según la clasificación.
+        // La clasificación se lee del último mensaje de la conversación (el cuerpo
+        // y la clasificación viven en cada mensaje, no a nivel de conversación).
+        rsIntencion(conv) {
+            if (!conv) return { label: '', color: '' };
+            const ultimo = (conv.mensajes && conv.mensajes.length > 0) ? conv.mensajes[0] : null;
+            const clas = String((ultimo && (ultimo.clasificacion || ultimo.clas)) || conv.clasificacion || conv.clas || 'PENDING').toUpperCase();
+            const m = this.rsIntencionMap[clas] || this.rsIntencionMap.PENDING;
+            return m;
+        },
+        // Devuelve el snippet (primeros 110 caracteres) del cuerpo de la respuesta.
+        // El cuerpo se lee del último mensaje de la conversación (cuerpo o
+        // contenido_html), con fallback al snippet del payload.
+        rsSnippet(conv) {
+            if (!conv) return '';
+            const ultimo = (conv.mensajes && conv.mensajes.length > 0) ? conv.mensajes[0] : null;
+            let cuerpo = '';
+            if (ultimo) {
+                cuerpo = ultimo.cuerpo_texto || ultimo.cuerpo || ultimo.contenido_html || '';
+            }
+            if (!cuerpo) cuerpo = conv.cuerpo_texto || conv.cuerpo || conv.snippet || '';
+            // Si es HTML, extraer solo el texto visible.
+            if (cuerpo && /<[a-z][\s\S]*>/i.test(cuerpo)) {
+                const d = document.createElement('div');
+                d.innerHTML = cuerpo;
+                cuerpo = d.textContent || '';
+            }
+            const limpio = String(cuerpo).replace(/\s+/g, ' ').trim();
+            return limpio.length > 110 ? limpio.slice(0, 110) + '…' : limpio;
+        },
+        // Devuelve el volumen de equipos formateado (Ej: "12 Equipos").
+        rsVolumenLabel(conv) {
+            if (!conv) return '';
+            const v = parseInt(conv.volumen_equipos || conv.volumen_estimado) || 0;
+            if (v <= 0) return '';
+            return v + ' Equipos';
+        },
+        // Devuelve el teléfono limpio del lead (para WhatsApp).
+        rsTelefonoLimpio(conv) {
+            if (!conv) return '';
+            return String(conv.telefono || conv.telefono_movil || '').replace(/[^0-9]/g, '');
+        },
+
 
         // ─── Lista Negra (MEGA AUDITORÍA) ─────────────────────────────────
+
         // Gestión manual de supresión: opt-out real (protegido) y bloqueo manual.
         // NUNCA borra historial: registra quién/cuándo/motivo en observaciones
         // y comunicaciones_log.
@@ -1209,11 +1539,33 @@ var app = function() {
             } catch (e) { this.snapshotMsg = 'Error de conexión'; }
         },
 
-        esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+        esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; },
+
+        // Sanitiza el contenido HTML de una respuesta antes de inyectarlo en el
+        // modal (x-html). Elimina scripts, iframes, event handlers y estilos
+        // peligrosos para evitar XSS. Devuelve un HTML limpio y seguro.
+        rsSanitizarHtml(html) {
+            if (!html) return '';
+            const d = document.createElement('div');
+            d.innerHTML = html;
+            // Eliminar elementos peligrosos
+            d.querySelectorAll('script, iframe, object, embed, link, meta, style, form, input, button, textarea, select').forEach(el => el.remove());
+            // Eliminar atributos de eventos y javascript: URLs
+            d.querySelectorAll('*').forEach(el => {
+                [...el.attributes].forEach(attr => {
+                    const name = attr.name.toLowerCase();
+                    if (name.startsWith('on') || (name === 'href' && /^\s*javascript:/i.test(attr.value)) || (name === 'src' && /^\s*javascript:/i.test(attr.value))) {
+                        el.removeAttribute(attr.name);
+                    }
+                });
+            });
+            return d.innerHTML;
+        }
     };
     window.app = i;
     return i;
 };
+
 
 // ─── analyticsApp — Alpine component for Analytics tab ──────────────────────
 function analyticsApp(){return{funnel:[],kpi:null,abc:[],abcGanadora:null,obj:{ganados:0,pct:0,restantes:20,tasa_cierre:0,contactos_necesarios:'-',contactados:0,facturacion:0,pares:0,margen:0,proyeccion:null},pipelines:[],tiempos:[],fPipeline:'',fVariante:'',fExcluirTest:true,

@@ -13,6 +13,9 @@
 
 declare(strict_types=1);
 
+// Transporte SMTP centralizado (unifica las implementaciones previas).
+require_once __DIR__ . '/../inc/smtp_transport.php';
+
 // ─── Solo CLI ───
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -361,150 +364,38 @@ function enviarSMTP(
     string $from, string $to,
     string $subject, string $body, array $headers
 ): bool {
-    try {
-        $errno = 0;
-        $errstr = '';
+    // Normalizar la cuenta para el transporte centralizado.
+    $cuenta = [
+        'email'     => $from,
+        'host'      => $host,
+        'puerto'    => (int)$port,
+        'usuario'   => $user,
+        'password'  => $pass,
+        'seguridad' => $secure,
+    ];
 
-        $ctx = stream_context_create([
-            'ssl' => [
-                'verify_peer'       => false,
-                'verify_peer_name'  => false,
-                'allow_self_signed' => true,
-            ]
-        ]);
-
-        $remote = ($secure === 'ssl')
-            ? "ssl://{$host}:{$port}"
-            : "tcp://{$host}:{$port}";
-
-        $socket = @stream_socket_client($remote, $errno, $errstr, 30, STREAM_CLIENT_CONNECT, $ctx);
-        if (!$socket) {
-            throw new \RuntimeException("No se pudo conectar a {$host}:{$port} — {$errstr} ({$errno})");
-        }
-
-        // Timeout de LECTURA explícito: evita que fgets() quede bloqueado
-        // indefinidamente si el servidor acepta la conexión pero no responde.
-        stream_set_timeout($socket, 15);
-
-        // Leer saludo del servidor
-        $resp = leerRespuestaSMTP($socket);
-        if (substr($resp, 0, 3) !== '220') {
-            throw new \RuntimeException("Saludo SMTP inesperado: {$resp}");
-        }
-
-        // EHLO
-        fwrite($socket, "EHLO getfutprotec.com\r\n");
-        $resp = leerRespuestaSMTP($socket);
-        if (substr($resp, 0, 3) !== '250') {
-            throw new \RuntimeException("EHLO fallido: {$resp}");
-        }
-
-        // STARTTLS si es TLS
-        if ($secure === 'tls') {
-            fwrite($socket, "STARTTLS\r\n");
-            $resp = leerRespuestaSMTP($socket);
-            if (substr($resp, 0, 3) !== '220') {
-                throw new \RuntimeException("STARTTLS fallido: {$resp}");
-            }
-            stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
-            stream_set_timeout($socket, 15);
-            fwrite($socket, "EHLO getfutprotec.com\r\n");
-            leerRespuestaSMTP($socket);
-        }
-
-        // Autenticación
-        fwrite($socket, "AUTH LOGIN\r\n");
-        $resp = leerRespuestaSMTP($socket);
-        if (substr($resp, 0, 3) !== '334') {
-            throw new \RuntimeException("AUTH LOGIN no soportado: {$resp}");
-        }
-
-        fwrite($socket, base64_encode($user) . "\r\n");
-        $resp = leerRespuestaSMTP($socket);
-        if (substr($resp, 0, 3) !== '334') {
-            throw new \RuntimeException("Usuario rechazado: {$resp}");
-        }
-
-        fwrite($socket, base64_encode($pass) . "\r\n");
-        $resp = leerRespuestaSMTP($socket);
-        if (substr($resp, 0, 3) !== '235') {
-            throw new \RuntimeException("Contraseña rechazada: {$resp}");
-        }
-
-        // MAIL FROM
-        fwrite($socket, "MAIL FROM:<{$from}>\r\n");
-        $resp = leerRespuestaSMTP($socket);
-        if (substr($resp, 0, 3) !== '250') {
-            throw new \RuntimeException("MAIL FROM rechazado: {$resp}");
-        }
-
-        // RCPT TO
-        fwrite($socket, "RCPT TO:<{$to}>\r\n");
-        $resp = leerRespuestaSMTP($socket);
-        if (substr($resp, 0, 3) !== '250') {
-            throw new \RuntimeException("RCPT TO rechazado: {$resp}");
-        }
-
-        // DATA
-        fwrite($socket, "DATA\r\n");
-        $resp = leerRespuestaSMTP($socket);
-        if (substr($resp, 0, 3) !== '354') {
-            throw new \RuntimeException("DATA rechazado: {$resp}");
-        }
-
-        // Construir mensaje
-        $boundary = '--=_FutProtec_' . md5(uniqid((string)time(), true));
-        $message = "From: {$from}\r\n";
-        $message .= "To: {$to}\r\n";
-        $message .= "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
-        $message .= "MIME-Version: 1.0\r\n";
-        $message .= "Content-Type: text/html; charset=UTF-8\r\n";
-        foreach ($headers as $k => $v) {
-            if (!in_array(strtolower($k), ['mime-version', 'content-type', 'from'])) {
-                $message .= "{$k}: {$v}\r\n";
-            }
-        }
-        $message .= "\r\n";
-        $message .= $body;
-        $message .= "\r\n.";
-
-        fwrite($socket, $message . "\r\n");
-        $resp = leerRespuestaSMTP($socket);
-        if (substr($resp, 0, 3) !== '250') {
-            throw new \RuntimeException("Envío de datos fallido: {$resp}");
-        }
-
-        // QUIT
-        fwrite($socket, "QUIT\r\n");
-        leerRespuestaSMTP($socket);
-
-        fclose($socket);
-        return true;
-    } catch (\Throwable $e) {
-        if (isset($socket) && is_resource($socket)) {
-            fclose($socket);
-        }
-        trigger_error($e->getMessage(), E_USER_WARNING);
-        return false;
-    }
-}
-
-/**
- * Lee la respuesta multilínea del servidor SMTP.
- */
-function leerRespuestaSMTP($socket): string
-{
-    $resp = '';
-    while (($line = fgets($socket, 512)) !== false) {
-        $resp .= $line;
-        // Las respuestas SMTP multilínea tienen '-' después del código en líneas intermedias
-        if (isset($line[3]) && $line[3] === ' ') {
+    // Extraer Message-ID de los headers si existe.
+    $messageId = '';
+    foreach ($headers as $k => $v) {
+        if (strtolower($k) === 'message-id') {
+            $messageId = $v;
             break;
         }
     }
-    $meta = stream_get_meta_data($socket);
-    if (!empty($meta['timed_out'])) {
-        throw new \RuntimeException('Timeout de lectura SMTP');
+
+    $opciones = [
+        'reply_to' => $from,
+    ];
+    if ($messageId !== '') {
+        $opciones['message_id'] = $messageId;
     }
-    return trim($resp);
+
+    // Delegar en el transporte SMTP centralizado.
+    $resultado = futprotec_enviarSMTP($cuenta, $to, $subject, $body, $opciones);
+
+    if (!$resultado['ok']) {
+        trigger_error($resultado['error'], E_USER_WARNING);
+        return false;
+    }
+    return true;
 }

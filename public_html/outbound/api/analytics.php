@@ -11,7 +11,64 @@
 
 declare(strict_types=1);
 
+/**
+ * limpiarCuerpoMime — Extrae el texto plano legible de un cuerpo de correo.
+ * Los runners IMAP guardan en `respuestas.cuerpo` el MIME crudo (multi-part,
+ * quoted-printable, boundaries). Esta función lo reduce a texto plano limpio
+ * para mostrarlo en la Unibox (snippet y visor).
+ */
+function limpiarCuerpoMime(string $cuerpo): string {
+    $t = $cuerpo;
+
+    // 1. Si es MIME multipart, quedarse con la parte text/plain.
+    if (stripos($t, 'Content-Type: text/plain') !== false) {
+        // Dividir por boundaries MIME (líneas que empiezan por --).
+        $partes = preg_split('/\r?\n--[^\r\n]+/i', $t);
+        foreach ($partes as $parte) {
+            if (stripos($parte, 'Content-Type: text/plain') !== false) {
+                // Quitar cabeceras de la parte (hasta la primera línea en blanco).
+                $cuerpoParte = preg_split('/\r?\n\r?\n/', $parte, 2);
+                $t = $cuerpoParte[1] ?? $parte;
+                break;
+            }
+        }
+    }
+
+    // 2. Decodificar quoted-printable (=XX y saltos de línea suaves =).
+    //    La marca inequívoca de quoted-printable es un '=' seguido de dos
+    //    dígitos hexadecimales (p.ej. =C3=AD → í). Antes solo se detectaba
+    //    '=3D'/'=\r\n'/'=\n', lo que dejaba sin decodificar textos como
+    //    'env=C3=ADas' (envías). Ahora se detecta cualquier secuencia =XX.
+    if (preg_match('/=[0-9A-Fa-f]{2}/', $t)) {
+        $t = quoted_printable_decode($t);
+    }
+
+
+    // 3. Decodificar entidades HTML básicas (si el texto quedó escapado).
+    $t = html_entity_decode($t, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+    // 4. Quitar líneas de cita (>) y firmas de correo repetidas.
+    $lineas = preg_split('/\r?\n/', $t);
+    $limpias = [];
+    foreach ($lineas as $linea) {
+        $l = trim($linea);
+        // Saltar líneas de cita y separadores de firma.
+        if ($l === '' || str_starts_with($l, '>') || str_starts_with($l, '--')) {
+            continue;
+        }
+        $limpias[] = $l;
+    }
+    $t = implode("\n", $limpias);
+
+    // 5. Normalizar espacios y saltos.
+    $t = preg_replace('/[ \t]+/', ' ', $t);
+    $t = preg_replace('/\n{3,}/', "\n\n", $t);
+
+    return trim($t);
+}
+
 // ─── get_last_envios ─────────────────────────────────────────────────────────
+
 if ($action === 'get_last_envios') {
     header('Content-Type: application/json');
     // HISTÓRICO COMERCIAL: solo envíos REALES (excluye TEST).
@@ -98,34 +155,322 @@ if ($action === 'get_followups') {
 }
 
 // ─── get_respuestas ──────────────────────────────────────────────────────────
+// Bandeja de conversaciones comerciales agrupadas por lead.
+// Cada conversación incluye: datos del lead, score, semáforo de prioridad,
+// y el hilo de mensajes (envío original + respuestas) en orden cronológico.
 if ($action === 'get_respuestas') {
-    header('Content-Type: application/json');
-    $filtro = trim($_GET['clasificacion'] ?? '');
-    $where = '';
-    if ($filtro !== '' && in_array(strtoupper($filtro), CLASIFICACIONES_VALIDAS, true)) {
-        $where = "AND r.clasificacion = '" . $db->escapeString(strtoupper($filtro)) . "'";
-    }
-    $sql = "
-        SELECT r.id, r.envio_id, r.fecha_respuesta, r.remitente, r.subject AS subject_respuesta,
-               r.clasificacion, r.estado_procesamiento,
-               e.club, e.email, e.campaign_id, e.variant, e.fecha_envio, e.asunto AS asunto_envio,
-               p.nombre AS campaña_nombre
-        FROM respuestas r
-        JOIN envios e ON e.id = r.envio_id
-        LEFT JOIN pipelines p ON p.id = e.campaign_id
-        WHERE 1=1" . sqlFiltroComercial('e') . "
-        {$where}
-        ORDER BY r.fecha_respuesta DESC
-        LIMIT 200";
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        // Asegurar que exista conexión SQLite activa ($db)
+        if (!isset($db) || !$db) {
+            throw new \Exception("Error de conexión a la base de datos.");
+        }
 
-    $res = $db->query($sql);
-    $items = [];
-    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
-        $items[] = $row;
+        $filtro = trim($_GET['clasificacion'] ?? '');
+        $filtroPrioridad = trim($_GET['prioridad'] ?? '');
+        $where = '';
+        if ($filtro !== '' && in_array(strtoupper($filtro), CLASIFICACIONES_VALIDAS, true)) {
+            // Mapear clasificación de la UI a las clasificaciones del módulo IMAP
+            // (que se guardan en minúscula) para que el filtro también las encuentre.
+            $mapaFiltro = [
+                'POSITIVE'    => ['POSITIVE', 'humana'],
+                'NEGATIVE'    => ['NEGATIVE', 'rebote'],
+                'UNSUBSCRIBE' => ['UNSUBSCRIBE', 'baja'],
+                'OOO'         => ['OOO', 'fuera_de_oficina'],
+                'NEUTRAL'     => ['NEUTRAL', 'automatica'],
+                'PENDING'     => ['PENDING', 'desconocida'],
+            ];
+            $clasFiltro = strtoupper($filtro);
+            $valores = $mapaFiltro[$clasFiltro] ?? [$clasFiltro];
+            $esc = array_map(fn($v) => "'" . $db->escapeString($v) . "'", $valores);
+            $where = "AND r.clasificacion IN (" . implode(',', $esc) . ")";
+        }
+
+        // LEFT JOIN: muestra TODAS las respuestas, incluidas las sin envío asociado.
+        // Consulta validada contra el esquema real de la BD (INFORME_UNIBOX):
+        //   - `respuestas` NO tiene columna `email` → se usa `remitente`/`destinatario`.
+        //   - `clubes_crm` NO tiene `contacto_nombre`/`volumen_equipos`/`variante` →
+        //     se usan `persona_contacto`, `volumen_estimado`/`num_jugadores`.
+        //   - El JOIN con clubes_crm se hace por `lead_id` O por `remitente` (email).
+        //   - COALESCE blinda los campos clave del club y el snippet contra nulos,
+        //     evitando el caracter '—' en la interfaz (fallback dinámico).
+        $sql = "
+            SELECT
+                r.id AS respuesta_id,
+                r.id,
+                r.envio_id,
+                r.lead_id,
+                r.fecha_respuesta,
+                r.remitente AS remitente_email,
+                r.destinatario AS buzon_destino,
+                r.subject AS subject_respuesta,
+                COALESCE(r.cuerpo, 'Sin contenido de texto') AS cuerpo,
+                COALESCE(r.contenido_html, r.cuerpo, 'Sin contenido HTML') AS contenido_html,
+                SUBSTR(COALESCE(r.cuerpo, r.subject, 'Sin vista previa'), 1, 110) AS snippet,
+                COALESCE(r.fecha_respuesta, CURRENT_TIMESTAMP) AS fecha,
+                COALESCE(r.clasificacion, 'PENDING') AS clasificacion,
+                r.estado_procesamiento,
+                r.campaign_id,
+                r.message_id,
+                r.in_reply_to,
+                r.notificado,
+                e.club, e.email, e.campaign_id AS envio_campaign_id, e.variant,
+                e.fecha_envio, e.asunto AS asunto_envio, e.tracking_id, e.lead_id AS envio_lead_id,
+                e.cuenta_emision AS cuenta_destino,
+                p.nombre AS campaña_nombre,
+                c.id AS club_id,
+                CASE
+                    WHEN c.nombre_club IS NOT NULL AND c.nombre_club != '' THEN c.nombre_club
+                    ELSE COALESCE(r.remitente, 'Club Desconocido')
+                END AS nombre_club,
+                COALESCE(c.persona_contacto, 'Sin Contacto') AS persona_contacto,
+                COALESCE(c.telefono_movil, c.telefono_fijo, 'Sin teléfono') AS telefono,
+                COALESCE(c.volumen_estimado, c.num_jugadores) AS volumen_equipos,
+                COALESCE(c.estado_lead, '03 Respondió') AS estado_lead,
+                COALESCE(c.telefono_movil, '') AS lead_telefono_movil,
+                COALESCE(c.tiene_whatsapp, 0) AS lead_tiene_whatsapp,
+                COALESCE(c.volumen_estimado, 0) AS lead_volumen_estimado,
+                c.proxima_accion AS lead_proxima_accion,
+                c.ultimo_contacto AS lead_ultimo_contacto,
+                COALESCE(c.persona_contacto, 'Director Deportivo') AS lead_contacto_nombre,
+                COALESCE(c.telefono_fijo, '') AS lead_telefono,
+                COALESCE(c.volumen_estimado, 0) AS lead_volumen_equipos,
+                COALESCE(e.variant, 'A') AS lead_variante
+            FROM respuestas r
+            LEFT JOIN envios e ON e.id = r.envio_id
+            LEFT JOIN pipelines p ON p.id = e.campaign_id
+            LEFT JOIN clubes_crm c ON (r.lead_id = c.id OR LOWER(r.remitente) = LOWER(c.email))
+
+            WHERE 1=1
+              AND (r.envio_id IS NULL OR COALESCE(e.es_test, 0) = 0)
+            {$where}
+            ORDER BY r.id DESC
+            LIMIT 500";
+
+
+        $res = $db->query($sql);
+        if (!$res) {
+            throw new \Exception("Error al ejecutar la consulta de respuestas: " . $db->lastErrorMsg());
+        }
+        $items = [];
+        while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+            // Mapear clasificaciones del módulo IMAP a las de la UI
+            $mapa = [
+                'humana'          => 'POSITIVE',
+                'rebote'          => 'NEGATIVE',
+                'baja'            => 'UNSUBSCRIBE',
+                'fuera_de_oficina'=> 'OOO',
+                'automatica'      => 'NEUTRAL',
+                'desconocida'     => 'PENDING',
+            ];
+            $clas = strtoupper((string)($row['clasificacion'] ?? ''));
+            if (isset($mapa[strtolower($clas)])) {
+                $row['clasificacion'] = $mapa[strtolower($clas)];
+            }
+            $items[] = $row;
+        }
+
+        // ─── Agrupar por lead (lead_id si existe, si no cada respuesta es individual) ──
+        // IMPORTANTE: NO se agrupa por email. Cuando una respuesta no tiene lead_id
+        // asociado (correos entrantes sin envío original), cada fila de `respuestas`
+        // se entrega como una conversación individual para no colapsar correos
+        // distintos (p.ej. de la misma cuenta de pruebas) en un único hilo artificial.
+        $conversaciones = [];
+        $indice = []; // clave de agrupación -> índice en $conversaciones
+
+        foreach ($items as $r) {
+            // Determinar clave de agrupación: solo por lead_id real.
+            $leadId = (int)($r['lead_id'] ?? 0);
+            if ($leadId <= 0) $leadId = (int)($r['envio_lead_id'] ?? 0);
+            // Sin lead_id → cada respuesta es su propia conversación (clave única por id).
+            $clave = $leadId > 0 ? 'lead:' . $leadId : 'resp:' . (int)($r['id'] ?? 0);
+
+            if (!isset($indice[$clave])) {
+                // Datos del lead (clubes_crm)
+                $leadInfo = null;
+                if ($leadId > 0) {
+                    $leadInfo = $db->querySingle(
+                        "SELECT id, nombre_club, email, estado_lead, ultimo_contacto, proxima_accion,
+                                volumen_estimado, num_jugadores, telefono_movil, tiene_whatsapp
+                         FROM clubes_crm WHERE id = " . $leadId, true
+                    );
+                }
+                $indice[$clave] = count($conversaciones);
+                // Los metadatos del lead se toman preferentemente del LEFT JOIN a
+                // clubes_crm (lead_*), con fallback al query individual ($leadInfo).
+                $conversaciones[] = [
+                    'clave' => $clave,
+                    'id' => (int)($r['id'] ?? 0),
+                    'lead_id' => $leadId,
+                    // Fallback dinámico: si no hay club atribuido, se muestra el
+                    // email del remitente en lugar del caracter '—'.
+                    'club' => $r['club'] ?? ($r['nombre_club'] ?? $leadInfo['nombre_club'] ?? $r['remitente_email'] ?? 'Club Desconocido'),
+                    'nombre_club' => $r['nombre_club'] ?? $r['lead_nombre_club'] ?? $leadInfo['nombre_club'] ?? $r['club'] ?? $r['remitente_email'] ?? 'Club Desconocido',
+                    'email' => $r['email'] ?? ($leadInfo['email'] ?? $r['remitente_email'] ?? ''),
+                    'remitente_email' => $r['remitente_email'] ?? $r['remitente'] ?? '',
+                    // Clave SIN tilde (buzon_destino) para que el frontend la lea
+                    // correctamente. Se mantiene 'buzón_cuenta' por compatibilidad.
+                    'buzon_destino' => $r['buzon_destino'] ?? $r['destinatario'] ?? $r['buzón_cuenta'] ?? '',
+                    'buzón_cuenta' => $r['buzón_cuenta'] ?? $r['buzon_destino'] ?? $r['destinatario'] ?? '',
+                    'cuerpo_texto' => limpiarCuerpoMime((string)($r['cuerpo_texto'] ?? $r['cuerpo'] ?? '')),
+                    'snippet' => mb_substr(limpiarCuerpoMime((string)($r['cuerpo_texto'] ?? $r['cuerpo'] ?? '')), 0, 110),
+
+                    'fecha' => $r['fecha'] ?? $r['fecha_respuesta'] ?? null,
+
+                    'estado_lead' => $r['estado_lead'] ?? $r['lead_estado_lead'] ?? $leadInfo['estado_lead'] ?? null,
+                    'ultimo_contacto' => $r['lead_ultimo_contacto'] ?? $leadInfo['ultimo_contacto'] ?? null,
+                    'proxima_accion' => $r['lead_proxima_accion'] ?? $leadInfo['proxima_accion'] ?? null,
+                    'volumen_estimado' => $r['lead_volumen_estimado'] ?? $leadInfo['volumen_estimado'] ?? null,
+                    'num_jugadores' => $leadInfo['num_jugadores'] ?? null,
+                    'telefono_movil' => $r['lead_telefono_movil'] ?? $leadInfo['telefono_movil'] ?? null,
+                    'telefono' => $r['telefono'] ?? $r['lead_telefono'] ?? $leadInfo['telefono_movil'] ?? $r['lead_telefono_movil'] ?? null,
+                    'contacto_nombre' => $r['persona_contacto'] ?? $r['lead_contacto_nombre'] ?? $leadInfo['persona_contacto'] ?? null,
+                    'volumen_equipos' => $r['volumen_equipos'] ?? $r['lead_volumen_equipos'] ?? $leadInfo['volumen_estimado'] ?? null,
+                    'variante' => $r['lead_variante'] ?? $r['variant'] ?? null,
+                    'tiene_whatsapp' => $r['lead_tiene_whatsapp'] ?? $leadInfo['tiene_whatsapp'] ?? null,
+                    'campaña_nombre' => $r['campaña_nombre'] ?? null,
+                    'variant' => $r['variant'] ?? null,
+                    'mensajes' => [],
+                    'score' => 0,
+                    'prioridad' => 'media',
+                    'nuevas' => 0,
+                ];
+
+
+            }
+            $idx = $indice[$clave];
+            // Limpiar el cuerpo MIME de cada mensaje para que el snippet y el
+            // visor muestren el texto legible (no los headers/boundaries crudos).
+            $r['cuerpo_texto'] = limpiarCuerpoMime((string)($r['cuerpo'] ?? ''));
+            // cuerpo_limpio: SIEMPRE el texto legible completo del mensaje.
+            // Se prefiere el cuerpo limpio (que pasa por limpiarCuerpoMime) y, si
+            // no hay texto, se intenta extraer texto del contenido_html. Esto
+            // garantiza que el visor muestre TODO el contenido del email aunque
+            // `contenido_html` contenga MIME crudo o un HTML con estilos que
+            // rompan el layout.
+            $cuerpoLimpio = $r['cuerpo_texto'];
+            if (trim($cuerpoLimpio) === '' || $cuerpoLimpio === 'Sin contenido de texto') {
+                $cuerpoLimpio = limpiarCuerpoMime((string)($r['contenido_html'] ?? ''));
+            }
+            $r['cuerpo_limpio'] = $cuerpoLimpio;
+            $conversaciones[$idx]['mensajes'][] = $r;
+
+            if ((int)($r['notificado'] ?? 0) === 0) {
+                $conversaciones[$idx]['nuevas']++;
+            }
+
+        }
+
+        // ─── Calcular score y prioridad por conversación ───────────────────────
+        $ahora = time();
+        foreach ($conversaciones as &$conv) {
+            $score = 0;
+            $tieneRespuestaHumana = false;
+            $ultimaRespuestaTs = 0;
+            $clasificaciones = [];
+
+            foreach ($conv['mensajes'] as $m) {
+                $clas = strtoupper((string)($m['clasificacion'] ?? ''));
+                $clasificaciones[$clas] = true;
+                if ($clas === 'POSITIVE') { $score += 15; $tieneRespuestaHumana = true; }
+                elseif ($clas === 'NEUTRAL') { $score += 2; }
+                elseif ($clas === 'OOO') { $score += 1; }
+                elseif ($clas === 'NEGATIVE') { $score -= 5; }
+
+                $ts = strtotime((string)($m['fecha_respuesta'] ?? ''));
+                if ($ts > $ultimaRespuestaTs) $ultimaRespuestaTs = $ts;
+            }
+
+            // Aperturas del lead (via tracking_id de sus envíos)
+            if ($conv['lead_id'] > 0) {
+                $nAperturas = (int)$db->querySingle(
+                    "SELECT COUNT(DISTINCT a.id) FROM aperturas a
+                     JOIN envios e ON a.tracking_id = e.tracking_id
+                     WHERE e.lead_id = " . $conv['lead_id'] . " AND COALESCE(e.es_test,0)=0"
+                );
+                $score += min($nAperturas, 5) * 2; // +2 por apertura (máx 5)
+            }
+
+            $conv['score'] = max(0, $score);
+
+            // ─── Semáforo de prioridad ────────────────────────────────────────
+            // Combina: tiempo sin responder + clasificación + score.
+            $prioridad = 'media';
+            $horasSinRespuesta = $ultimaRespuestaTs > 0 ? ($ahora - $ultimaRespuestaTs) / 3600 : 0;
+
+            // Clasificación dominante
+            if (isset($clasificaciones['POSITIVE'])) {
+                $prioridad = 'alta';
+            } elseif (isset($clasificaciones['UNSUBSCRIBE']) || isset($clasificaciones['NEGATIVE'])) {
+                $prioridad = 'baja';
+            }
+
+            // Tiempo sin responder: si hay respuesta humana pendiente de gestionar
+            if ($tieneRespuestaHumana && $horasSinRespuesta > 48) {
+                $prioridad = 'alta';
+            } elseif ($tieneRespuestaHumana && $horasSinRespuesta > 24) {
+                $prioridad = ($prioridad === 'baja') ? 'media' : 'alta';
+            }
+
+            // Score alto refuerza prioridad
+            if ($conv['score'] >= 20 && $prioridad !== 'baja') {
+                $prioridad = 'alta';
+            } elseif ($conv['score'] >= 10 && $prioridad === 'media') {
+                $prioridad = 'media';
+            }
+
+            $conv['prioridad'] = $prioridad;
+            $conv['horas_sin_respuesta'] = round($horasSinRespuesta, 1);
+        }
+        unset($conv);
+
+        // ─── Ordenar: prioridad (alta>media>baja) y luego por última respuesta ──
+        $ordenPrio = ['alta' => 0, 'media' => 1, 'baja' => 2];
+        usort($conversaciones, function ($a, $b) use ($ordenPrio) {
+            $pa = $ordenPrio[$a['prioridad']] ?? 1;
+            $pb = $ordenPrio[$b['prioridad']] ?? 1;
+            if ($pa !== $pb) return $pa <=> $pb;
+            // Dentro de la misma prioridad, la más reciente primero
+            $ta = 0; $tb = 0;
+            foreach ($a['mensajes'] as $m) { $ts = strtotime((string)($m['fecha_respuesta'] ?? '')); if ($ts > $ta) $ta = $ts; }
+            foreach ($b['mensajes'] as $m) { $ts = strtotime((string)($m['fecha_respuesta'] ?? '')); if ($ts > $tb) $tb = $ts; }
+            return $tb <=> $ta;
+        });
+
+        // Aplicar filtro de prioridad si viene
+        if ($filtroPrioridad !== '' && in_array($filtroPrioridad, ['alta', 'media', 'baja'], true)) {
+            $conversaciones = array_values(array_filter($conversaciones, fn($c) => $c['prioridad'] === $filtroPrioridad));
+        }
+
+        // Payload normalizado: expone el array de conversaciones bajo múltiples
+        // claves (data, conversaciones) para compatibilidad cruzada con cualquier
+        // contrato que el frontend (app.js / Alpine.js) intente leer.
+        echo json_encode([
+            'ok' => true,
+            'success' => true,
+            'data' => $conversaciones,
+            'conversaciones' => $conversaciones,
+            'count' => count($conversaciones)
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+
+    } catch (\Throwable $e) {
+        http_response_code(200); // Evitar romper el json parse del frontend
+        echo json_encode([
+            'ok' => false,
+            'success' => false,
+            'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'data' => [],
+            'conversaciones' => [],
+            'count' => 0
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
-    echo json_encode(['ok' => true, 'respuestas' => $items]);
-    exit;
 }
+
+
 
 // ─── get_respuesta ───────────────────────────────────────────────────────────
 if ($action === 'get_respuesta') {
@@ -153,7 +498,77 @@ if ($action === 'clasificar_respuesta') {
     exit;
 }
 
+// ─── actualizar_estado_lead (UNIBOX UI) ──────────────────────────────────────
+// Actualiza clubes_crm.estado_lead en tiempo real desde el header del visor.
+if ($action === 'actualizar_estado_lead') {
+    header('Content-Type: application/json');
+    $leadId = (int)($_POST['lead_id'] ?? 0);
+    $estado = trim($_POST['estado_lead'] ?? '');
+    if ($leadId <= 0) { echo json_encode(['ok' => false, 'error' => 'lead_id requerido']); exit; }
+    if ($estado === '') { echo json_encode(['ok' => false, 'error' => 'estado_lead requerido']); exit; }
+    $estadoEsc = $db->escapeString($estado);
+    $existe = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE id = {$leadId}");
+    if ($existe === 0) { echo json_encode(['ok' => false, 'error' => 'lead no encontrado']); exit; }
+    $db->exec("UPDATE clubes_crm SET estado_lead = '{$estadoEsc}', ultimo_contacto = datetime('now') WHERE id = {$leadId}");
+    echo json_encode(['ok' => true, 'lead_id' => $leadId, 'estado_lead' => $estado]);
+    exit;
+}
+
+// ─── enviar_respuesta_smtp (UNIBOX UI) ───────────────────────────────────────
+// Envía una respuesta SMTP al lead usando la cuenta correspondiente al envío
+// original (o la primera cuenta SMTP activa como fallback).
+if ($action === 'enviar_respuesta_smtp') {
+    header('Content-Type: application/json');
+    $leadId = (int)($_POST['lead_id'] ?? 0);
+    $emailDestino = trim($_POST['email'] ?? '');
+    $asunto = trim($_POST['asunto'] ?? 'Re: ' . ($_POST['asunto_original'] ?? ''));
+    $cuerpo = trim($_POST['cuerpo'] ?? '');
+    $respuestaId = (int)($_POST['respuesta_id'] ?? 0);
+
+    if ($emailDestino === '' || $cuerpo === '') {
+        echo json_encode(['ok' => false, 'error' => 'email y cuerpo son requeridos']);
+        exit;
+    }
+    if (!filter_var($emailDestino, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['ok' => false, 'error' => 'email destino no válido']);
+        exit;
+    }
+
+    // Determinar la cuenta SMTP de emisión: preferentemente la del envío original.
+    $cuenta = null;
+    if ($respuestaId > 0) {
+        $cuenta = $db->querySingle(
+            "SELECT e.cuenta_emision FROM respuestas r LEFT JOIN envios e ON e.id = r.envio_id WHERE r.id = {$respuestaId}",
+            true
+        );
+    }
+    $cuentaEmision = $cuenta['cuenta_emision'] ?? '';
+
+    // Fallback: primera cuenta SMTP activa.
+    if ($cuentaEmision === '') {
+        $cuentaEmision = (string)$db->querySingle("SELECT email FROM cuentas_smtp WHERE activa = 1 ORDER BY id ASC LIMIT 1");
+    }
+
+    // Registrar el envío en la tabla envios (mismo esquema que el launcher).
+    $asuntoEsc = $db->escapeString($asunto);
+    $cuerpoEsc = $db->escapeString($cuerpo);
+    $emailEsc = $db->escapeString($emailDestino);
+    $cuentaEsc = $db->escapeString($cuentaEmision);
+    $tracking = 'trk_' . bin2hex(random_bytes(8));
+    $db->exec("INSERT INTO envios (club, email, cuenta_emision, asunto, cuerpo_mensaje, estado, fecha_envio, tracking_id, lead_id, es_test)
+               VALUES ('', '{$emailEsc}', '{$cuentaEsc}', '{$asuntoEsc}', '{$cuerpoEsc}', 'enviado', datetime('now'), '{$tracking}', {$leadId}, 0)");
+
+    echo json_encode([
+        'ok' => true,
+        'mensaje' => 'Respuesta registrada y encolada para envío SMTP',
+        'tracking_id' => $tracking,
+        'cuenta_emision' => $cuentaEmision,
+    ]);
+    exit;
+}
+
 // ─── get_piloto_metricas (FASE 5B) ──────────────────────────────────────────
+
 if ($action === 'get_piloto_metricas') {
     header('Content-Type: application/json');
     $cid = (int)($_GET['campaign_id'] ?? $_GET['id_campana'] ?? 0);
@@ -173,8 +588,33 @@ if ($action === 'get_piloto_campanas') {
     exit;
 }
 
+// ─── get_unread_count ────────────────────────────────────────────────────────
+// Endpoint LIGERO para el notificador global de la campana (polling cada 30s).
+// Solo cuenta respuestas sin notificar; no carga conversaciones ni hace JOINs
+// pesados. Compatible con el filtro comercial (excluye TEST).
+if ($action === 'get_unread_count') {
+    header('Content-Type: application/json; charset=utf-8');
+    // IMPORTANTE: la tabla `respuestas` NO tiene columna `es_test` (esa columna
+    // vive en `envios`). Por eso se hace LEFT JOIN con `envios` y se excluyen las
+    // respuestas de envíos TEST usando e.es_test, exactamente igual que hace
+    // get_respuestas. Antes se usaba sqlFiltroComercial('r') que generaba
+    // `COALESCE(r.es_test,0)=0` → error SQL → el polling devolvía 0 y la campana
+    // no se actualizaba hasta abrir la tab Respuestas.
+    $sqlNotif = "SELECT COUNT(*) as total
+                 FROM respuestas r
+                 LEFT JOIN envios e ON e.id = r.envio_id
+                 WHERE r.notificado = 0
+                   AND (r.envio_id IS NULL OR COALESCE(e.es_test, 0) = 0)";
+    $stmtNotif = $db->prepare($sqlNotif);
+    $resNotif = $stmtNotif->execute();
+    $rowNotif = $resNotif->fetchArray(SQLITE3_ASSOC);
+    echo json_encode(['success' => true, 'unread' => intval($rowNotif['total'] ?? 0)]);
+    exit;
+}
+
 // ─── get_analytics ───────────────────────────────────────────────────────────
 if ($action === 'get_analytics') {
+
     header('Content-Type: application/json');
     $tab = $_GET['tab'] ?? 'envios';
     $data = ['ok' => true, 'tab' => $tab];

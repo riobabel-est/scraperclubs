@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Deploy FTP - DEPLOY SELECTIVO PRE-MICRO-LOTE
-Sube SOLO los archivos que estan desfasados (MISMATCH) entre local y SiteGround.
-1. Crea backup remoto de los archivos que se van a sobrescribir (en /getfutprotec.com/backups_deploy/).
-2. Sube SOLO los archivos desfasados.
-3. Verifica MD5 tras cada subida.
+Deploy FTP - RUNNER WEB CRON IMAP (TAREA 4 Unibox)
+Sube el runner web permanente `cli/imap_respuestas_cron.php` a SiteGround.
+1. Crea backup remoto del archivo a sobrescribir (en /getfutprotec.com/backups_deploy/).
+2. Sube el archivo.
+3. Verifica MD5 tras la subida.
 NO sube stats.db, backups, logs, credenciales, temporales ni binarios.
 """
 import ftplib
@@ -40,13 +40,9 @@ LOCAL_BASE = os.path.join("public_html", "outbound")
 REMOTE_BASE = "/getfutprotec.com/public_html/outbound"
 REMOTE_BACKUP_BASE = "/getfutprotec.com/backups_deploy"
 
-# SOLO los archivos desfasados detectados en la comparacion MD5
-# UNIBOX UI: rediseño Respuestas + corrección de esquema en analytics.php
+# Archivo a subir (runner web permanente para Cron IMAP)
 DEPLOY_FILES = [
-    "api/analytics.php",
-    "tabs/respuestas.php",
-    "js/app.js",
-    "dashboard.php",
+    "cli/imap_respuestas_cron.php",
 ]
 
 def ensure_remote_dir(ftp, path):
@@ -89,9 +85,9 @@ def main():
     ftp.login(USER, PASS)
     print("Login OK")
 
-    # ── 1. BACKUP REMOTO de los archivos a sobrescribir ──
+    # ── 1. BACKUP REMOTO del archivo a sobrescribir ──
     ts = time.strftime("%Y%m%d_%H%M%S")
-    remote_bk = f"{REMOTE_BACKUP_BASE}/outbound_pre_micro_{ts}"
+    remote_bk = f"{REMOTE_BACKUP_BASE}/outbound_imap_cron_{ts}"
     print(f"\n=== 1. BACKUP REMOTO en {remote_bk} ===")
     if not ensure_remote_dir(ftp, remote_bk):
         print("  [ERR] No se pudo crear directorio de backup remoto")
@@ -104,12 +100,11 @@ def main():
         try:
             ftp.size(remote_src)
         except Exception:
-            print(f"  [SKIP] No existe en remoto: {rel}")
+            print(f"  [SKIP] No existe en remoto (nuevo archivo): {rel}")
             continue
         dst_dir = os.path.dirname(remote_dst)
         if not ensure_remote_dir(ftp, dst_dir):
             continue
-        # Descargar a buffer y subir al backup
         buf = io.BytesIO()
         try:
             ftp.retrbinary("RETR " + remote_src, buf.write)
@@ -121,8 +116,8 @@ def main():
             print(f"  [ERR] backup {rel}: {e}")
     print(f"  Respaldados {len(backed_up)}/{len(DEPLOY_FILES)} archivos")
 
-    # ── 2. SUBIR SOLO LOS ARCHIVOS DESFASADOS ──
-    print("\n=== 2. SUBIDA SELECTIVA (solo desfasados) ===")
+    # ── 2. SUBIR EL ARCHIVO ──
+    print("\n=== 2. SUBIDA ===")
     results = []
     for rel in DEPLOY_FILES:
         local_path = os.path.join(LOCAL_BASE, rel)
@@ -153,7 +148,7 @@ def main():
 
     # ── Manifest ──
     os.makedirs("backups_deploy", exist_ok=True)
-    with open(os.path.join("backups_deploy", "selective_deploy_manifest.txt"), "w") as f:
+    with open(os.path.join("backups_deploy", "imap_cron_deploy_manifest.txt"), "w") as f:
         f.write(f"backup_remote={remote_bk}\n")
         f.write(f"timestamp={ts}\n")
         f.write("ARCHIVOS SUBIDOS (local -> remoto):\n")
@@ -162,7 +157,7 @@ def main():
 
     ok_count = sum(1 for r in results if r[1] == "OK")
     print(f"\nSubidos OK: {ok_count}/{len(results)}")
-    print("Deploy selectivo completado.")
+    print("Deploy del runner cron IMAP completado.")
 
 if __name__ == "__main__":
     main()

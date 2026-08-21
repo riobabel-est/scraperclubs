@@ -1,114 +1,239 @@
-<!-- ═══════════════ RESPONSES TAB (FASE 4C) ═══════════════ -->
-<div class="space-y-4">
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-3 flex-wrap">
-    <h5 class="text-base font-semibold text-slate-200">Respuestas</h5>
-    <div class="flex items-center gap-2 ml-auto">
-      <label class="text-xs text-slate-400">Filtro:</label>
-      <select x-model="respuestasFiltro" @change="loadRespuestas()" class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs text-slate-200">
-        <option value="">Todas</option>
-        <option value="PENDING">PENDING</option>
-        <option value="POSITIVE">POSITIVE</option>
-        <option value="NEGATIVE">NEGATIVE</option>
-        <option value="NEUTRAL">NEUTRAL</option>
-        <option value="UNSUBSCRIBE">UNSUBSCRIBE</option>
-        <option value="OOO">OOO</option>
-      </select>
-      <button @click="loadRespuestas()" class="px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-xs font-semibold hover:bg-amber-500/30">Actualizar</button>
+<!-- ═══════════════ RESPONSES TAB — UNIBOX SPLIT-VIEW (FASE UNIBOX UI) ═══════════════
+     Interfaz dividida 35%/65% (estándar Instantly/Smartlead/HubSpot) para triaje e
+     interacción ultrarrápida a dos paneles. Sin ventanas modales: la selección de un
+     lead en la lista izquierda renderiza su hilo completo en el visor derecho. -->
+<!-- ═══════════════ CSS DE SOPORTE (CLASES ARBITRARIAS TAILWIND) ═══════════════
+     El tailwind.min.css precompilado (ago 2026) NO incluye las clases arbitrarias
+     que este tab necesita para el layout de scroll (h-[calc(100vh-120px)],
+     w-[35%], min-h-0, etc.). Se definen aquí como CSS puro para garantizar el
+     scroll independiente de la lista izquierda y del hilo derecho, sin necesidad
+     de recompilar Tailwind (compatible SiteGround, sin Node.js). -->
+<style>
+  /* Altura del tab: ocupa el viewport menos la cabecera/navbar */
+  .h-\[calc\(100vh-120px\)\] { height: calc(100vh - 120px); }
+  /* Ancho del panel izquierdo (35%) y mínimo */
+  .w-\[35\%\] { width: 35%; }
+  .min-w-\[280px\] { min-width: 280px; }
+  /* min-h-0: imprescindible en flexbox para que el overflow-y-auto interno
+     haga scroll en lugar de expandir el panel */
+  .min-h-0 { min-height: 0; }
+  /* Ancho máximo de las burbujas de mensaje (85%) */
+  .max-w-\[85\%\] { max-width: 85%; }
+  /* Ancho mínimo del selector de plantilla */
+  .min-w-\[200px\] { min-width: 200px; }
+</style>
+<div class="flex flex-col gap-4 h-[calc(100vh-120px)] min-h-[480px]">
+
+
+  <!-- Barra superior global de la pestaña -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap shrink-0">
+    <i data-lucide="inbox" class="w-5 h-5 text-amber-400"></i>
+    <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Unibox de Respuestas</h5>
+    <span class="text-xs text-slate-500" x-text="rsFiltradas.length + ' conversaciones'"></span>
+    <div class="flex items-center gap-2 ml-auto flex-wrap">
+      <button @click="loadRespuestas()" class="px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-sm font-semibold hover:bg-amber-500/30 transition">
+        <i data-lucide="refresh-cw" class="w-4 h-4 inline-block mr-1"></i>Actualizar
+      </button>
     </div>
   </div>
 
-  <div class="overflow-x-auto rounded-xl border border-slate-800">
-    <table class="w-full text-xs">
-      <thead>
-        <tr class="bg-slate-900 text-slate-400 text-[10px] uppercase tracking-wider">
-          <th class="px-3 py-2 text-left">Club</th>
-          <th class="px-3 py-2 text-left">Email</th>
-          <th class="px-3 py-2 text-center">Campaña</th>
-          <th class="px-3 py-2 text-center">Variante</th>
-          <th class="px-3 py-2 text-center">Clasificación</th>
-          <th class="px-3 py-2 text-right">Acción</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template x-for="r in respuestas" :key="r.id">
-          <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
-            <td class="px-3 py-2 text-slate-300" x-text="r.club"></td>
-            <td class="px-3 py-2 text-slate-400" x-text="r.email"></td>
-            <td class="px-3 py-2 text-center text-slate-400" x-text="r.campaña_nombre || '—'"></td>
-            <td class="px-3 py-2 text-center">
-              <span class="px-1.5 py-0.5 rounded-full text-[9px] font-semibold"
-                    :class="r.variant==='A' ? 'bg-amber-500/15 text-amber-400' : (r.variant==='B' ? 'bg-blue-500/15 text-blue-400' : 'bg-purple-500/15 text-purple-400')"
-                    x-text="r.variant || '—'"></span>
-            </td>
-            <td class="px-3 py-2 text-center">
-              <span class="px-1.5 py-0.5 rounded-full text-[9px] font-semibold"
-                    :class="{PENDING:'bg-slate-700 text-slate-300',POSITIVE:'bg-emerald-500/15 text-emerald-400',NEGATIVE:'bg-rose-500/15 text-rose-400',NEUTRAL:'bg-slate-700 text-slate-300',UNSUBSCRIBE:'bg-amber-500/15 text-amber-400',OOO:'bg-cyan-500/15 text-cyan-400'}[r.clasificacion]"
-                    x-text="r.clasificacion"></span>
-            </td>
-            <td class="px-3 py-2 text-right">
-              <button @click="abrirRespuesta(r.id)" class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-[10px] text-slate-300 hover:text-slate-100">Ficha</button>
-            </td>
-          </tr>
-        </template>
-        <tr x-show="respuestas.length === 0">
-          <td colspan="6" class="px-3 py-8 text-center text-slate-600">Sin respuestas registradas</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
+  <!-- ═══════════ SPLIT-VIEW: Panel Izquierdo (35%) + Panel Derecho (65%) ═══════════ -->
+  <div class="flex flex-1 gap-3 overflow-hidden">
 
-<!-- ═══════════ MODAL FICHA RESPUESTA ═══════════ -->
-<div x-show="rsModal" @click.self="rsModal=false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" x-cloak x-transition>
-  <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto m-4">
-    <div class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
-      <h5 class="text-sm font-bold text-slate-200">Respuesta</h5>
-      <button @click="rsModal=false" class="text-slate-500 hover:text-slate-300"><i data-lucide="x" class="w-5 h-5"></i></button>
-    </div>
-    <template x-if="rsRespuesta">
-    <div class="p-5 space-y-4">
-      <!-- Contexto del envío original -->
-      <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
-        <h6 class="text-xs font-bold text-slate-300 mb-2">Contexto del envío original</h6>
-        <div class="grid grid-cols-2 gap-2 text-xs">
-          <div><span class="text-slate-500">Club:</span> <span class="text-slate-200" x-text="rsEnvio.club"></span></div>
-          <div><span class="text-slate-500">Email:</span> <span class="text-slate-200" x-text="rsEnvio.email"></span></div>
-          <div><span class="text-slate-500">Campaña:</span> <span class="text-slate-200" x-text="rsEnvio.campaña_nombre || '—'"></span></div>
-          <div><span class="text-slate-500">Variante:</span> <span class="text-slate-200" x-text="rsEnvio.variant"></span></div>
-          <div><span class="text-slate-500">Fecha envío:</span> <span class="text-slate-200" x-text="rsEnvio.fecha_envio"></span></div>
-          <div><span class="text-slate-500">Asunto enviado:</span> <span class="text-slate-200" x-text="rsEnvio.asunto"></span></div>
+    <!-- ─────────── PANEL IZQUIERDO: Lista de Triaje (35%) ─────────── -->
+    <!-- min-h-0: imprescindible en flexbox para que el overflow-y-auto interno
+         (lista de correos) haga scroll en lugar de expandir el panel. -->
+    <div class="w-[35%] min-w-[280px] min-h-0 flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+
+      <!-- Barra de búsqueda + filtro -->
+      <div class="p-3 border-b border-slate-800 space-y-2 shrink-0">
+        <div class="relative">
+          <!-- Lupa inline (SVG): siempre visible, sin depender de lucide/JS -->
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input x-model="rsBusqueda" type="text" placeholder="Buscar por nombre de club..."
+                 class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-orange-500/50 focus:outline-none">
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-slate-400 shrink-0">Clasificación:</label>
+          <select x-model="rsFiltroClas" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-orange-500/50 focus:outline-none">
+            <option value="">Todas</option>
+            <option value="INTERESADO">Interesado</option>
+            <option value="DUDA">Duda Precio</option>
+            <option value="BAJA">Baja</option>
+            <option value="REBOTE">Solo Rebotes</option>
+            <option value="SIN_REBOTE">Ocultar Rebotes</option>
+          </select>
         </div>
       </div>
 
-      <!-- Respuesta recibida -->
-      <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
-        <h6 class="text-xs font-bold text-slate-300 mb-2">Respuesta recibida</h6>
-        <div class="space-y-1 text-xs">
-          <div><span class="text-slate-500">Remitente:</span> <span class="text-slate-200" x-text="rsRespuesta.remitente"></span></div>
-          <div><span class="text-slate-500">Fecha:</span> <span class="text-slate-200" x-text="rsRespuesta.fecha_respuesta"></span></div>
-          <div><span class="text-slate-500">Asunto respuesta:</span> <span class="text-slate-200" x-text="rsRespuesta.subject"></span></div>
-          <div class="pt-1"><span class="text-slate-500">Cuerpo:</span>
-            <div class="bg-white rounded p-2 text-slate-900 mt-1 whitespace-pre-wrap" x-text="rsRespuesta.cuerpo"></div>
+      <!-- Lista de leads (scroll independiente) -->
+      <div class="flex-1 overflow-y-auto divide-y divide-slate-800/60">
+        <template x-for="conv in rsFiltradas" :key="conv.clave || conv.id">
+          <!-- Tarjeta de lead -->
+          <div @click="rsSeleccionar(conv)"
+               class="px-3 py-3.5 cursor-pointer transition border-l-4"
+               :class="rsSeleccion && (rsSeleccion.clave === conv.clave || rsSeleccion.id === conv.id)
+                 ? 'border-orange-500 bg-slate-800/80'
+                 : 'border-transparent hover:bg-slate-800/40'">
+            <!-- Fila 1: nombre (club → contacto → email) + fecha + badge intención -->
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-bold text-slate-50 text-sm truncate"
+                    x-text="(conv.nombre_club && conv.nombre_club !== '—') ? (conv.nombre_club || conv.club) : (conv.contacto_nombre || conv.persona_contacto || conv.remitente_email || conv.email || '—')"></span>
+              <span class="text-xs text-slate-400 shrink-0" x-text="rsFmtFecha(conv.fecha || conv.fecha_respuesta || conv.ultima_fecha)"></span>
+            </div>
+            <!-- Fila 2: De / Para (una sola línea compacta) -->
+            <div class="flex items-center gap-2 mt-1.5 text-xs font-mono">
+              <span class="text-amber-400 truncate" x-text="'De: ' + (conv.remitente_email || conv.email || '—')"></span>
+              <span class="text-slate-600 shrink-0">·</span>
+              <span class="text-blue-400 truncate" x-text="'Para: ' + (conv.buzon_destino || conv.buzón_cuenta || '—')"></span>
+            </div>
+            <!-- Fila 3: snippet -->
+            <div class="text-sm text-slate-400 truncate mt-1.5" x-text="rsSnippet(conv)"></div>
+            <!-- Fila 4: badge de intención + volumen -->
+            <div class="flex items-center gap-2 mt-2">
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
+                    :class="rsIntencion(conv).color"
+                    x-text="'[' + rsIntencion(conv).label + ']'"></span>
+              <span x-show="rsVolumenLabel(conv)" class="bg-slate-800 text-slate-300 border border-slate-700 px-1.5 py-0.5 rounded-full text-xs shrink-0" x-text="rsVolumenLabel(conv)"></span>
+            </div>
+          </div>
+        </template>
+
+        <div x-show="rsFiltradas.length === 0" class="p-8 text-center text-slate-600 text-sm">
+          Sin conversaciones con los filtros seleccionados
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────── PANEL DERECHO: Visor de Conversación y Acción (65%) ─────────── -->
+    <!-- min-h-0: permite que el hilo de mensajes (overflow-y-auto) haga scroll
+         independiente sin expandir el panel ni empujar el footer. -->
+    <div class="flex-1 min-h-0 flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+
+
+      <!-- Estado vacío (sin selección) -->
+      <div x-show="!rsSeleccion" class="flex-1 flex flex-col items-center justify-center text-slate-600 gap-3">
+        <i data-lucide="inbox" class="w-12 h-12 text-slate-700"></i>
+        <p class="text-sm">Selecciona una conversación de la lista para ver el hilo completo</p>
+      </div>
+
+      <template x-if="rsSeleccion">
+      <!-- min-h-0: permite que el hilo de mensajes (flex-1 overflow-y-auto) haga
+           scroll independiente dentro del visor, sin empujar el footer. -->
+      <div class="flex flex-col h-full min-h-0">
+
+
+        <!-- Header de Ficha Rápida (fijo arriba) -->
+        <div class="px-4 py-3 border-b border-slate-800 bg-slate-800/40 shrink-0">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div class="min-w-0">
+              <h5 class="text-base font-bold text-slate-50 truncate"
+                  x-text="(rsSeleccion.nombre_club && rsSeleccion.nombre_club !== '—') ? (rsSeleccion.nombre_club || rsSeleccion.club) : (rsSeleccion.remitente_email || rsSeleccion.email || '—')"></h5>
+              <div class="text-sm text-slate-400 truncate">
+                <span x-text="rsSeleccion.contacto_nombre || rsSeleccion.persona_contacto || '—'"></span>
+                <span x-show="rsSeleccion.telefono || rsSeleccion.telefono_movil" class="text-slate-500"> · </span>
+                <span x-text="rsSeleccion.telefono || rsSeleccion.telefono_movil || ''"></span>
+              </div>
+              <!-- Email de Origen y Email de Destino (FutProtec) -->
+              <div class="text-xs text-amber-400 font-mono truncate mt-1" x-text="'De: ' + (rsSeleccion.remitente_email || rsSeleccion.email || '—')"></div>
+              <div class="text-xs text-blue-400 font-mono truncate" x-text="'Para: ' + (rsSeleccion.buzon_destino || rsSeleccion.buzón_cuenta || '—')"></div>
+            </div>
+
+            <div class="flex items-center gap-2 flex-wrap shrink-0">
+              <span x-show="rsSeleccion.variant" class="px-2 py-1 rounded-full text-xs bg-slate-800 text-slate-300 border border-slate-700" x-text="'Variante ' + rsSeleccion.variant"></span>
+              <!-- Desplegable de estado del lead (actualización en tiempo real) -->
+              <select x-model="rsSeleccion.estado_lead" @change="rsActualizarEstadoLead()"
+                      class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200 focus:border-orange-500/50 focus:outline-none">
+                <template x-for="e in rsEstadosLead" :key="e">
+                  <option :value="e" x-text="e"></option>
+                </template>
+              </select>
+            </div>
+          </div>
+          <!-- Mensaje de estado (feedback de actualización) -->
+          <div x-show="rsEnvioMsg" class="mt-2 text-sm" :class="rsEnvioMsgOk ? 'text-emerald-400' : 'text-rose-400'" x-text="rsEnvioMsg"></div>
+        </div>
+
+        <!-- Cuerpo Central: Hilo de Mensajes (scroll independiente) -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950/40">
+          <template x-for="m in rsSeleccion.mensajes" :key="m.id">
+            <div class="flex" :class="rsEsEntrante(m) ? 'justify-start' : 'justify-end'">
+              <div class="max-w-[85%] rounded-xl p-3 border"
+                   :class="rsEsEntrante(m) ? 'bg-slate-900 text-slate-100 border-slate-700' : 'bg-slate-800 text-slate-200 border-slate-700'">
+                <div class="flex items-center gap-2 mb-1 flex-wrap">
+                  <span class="text-xs font-bold uppercase tracking-wider"
+                        :class="rsEsEntrante(m) ? 'text-slate-400' : 'text-orange-400'"
+                        x-text="rsEsEntrante(m) ? (m.remitente || 'Club') : 'FutProtec'"></span>
+                  <span class="text-xs text-slate-500" x-text="rsFmtFecha(m.fecha_respuesta || m.fecha_envio)"></span>
+                  <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold border" :class="rsClasColor(m.clasificacion)" x-text="rsClasLabel(m.clasificacion)"></span>
+                </div>
+                <div class="text-sm text-slate-300 font-medium" x-text="m.subject_respuesta || m.asunto_envio || ''"></div>
+                <!-- Cuerpo del mensaje: prioriza el texto limpio (cuerpo_limpio/cuerpo_texto)
+                     para garantizar que se vea TODO el contenido legible del email.
+                     Solo si no hay texto limpio se muestra el HTML sanitizado. -->
+                <template x-if="(m.cuerpo_limpio && m.cuerpo_limpio.trim() && m.cuerpo_limpio !== 'Sin contenido de texto') || (m.cuerpo_texto && m.cuerpo_texto.trim() && m.cuerpo_texto !== 'Sin contenido de texto')">
+                  <div class="mensaje-cuerpo-texto mt-1 whitespace-pre-wrap text-sm text-slate-200" x-text="m.cuerpo_limpio || m.cuerpo_texto || ''"></div>
+                </template>
+                <template x-if="!((m.cuerpo_limpio && m.cuerpo_limpio.trim() && m.cuerpo_limpio !== 'Sin contenido de texto') || (m.cuerpo_texto && m.cuerpo_texto.trim() && m.cuerpo_texto !== 'Sin contenido de texto'))">
+                  <div class="mensaje-cuerpo-html mt-1" x-html="rsSanitizarHtml(m.contenido_html)"></div>
+                </template>
+
+                <!-- Clasificación rápida del mensaje -->
+                <div class="mt-2 flex items-center gap-1 flex-wrap">
+                  <template x-for="c in ['PENDING','POSITIVE','NEGATIVE','NEUTRAL','UNSUBSCRIBE','OOO']" :key="c">
+                    <button @click="clasificarRespuesta(m.id, c)"
+                      class="px-2 py-0.5 rounded text-xs font-semibold transition border"
+                      :class="m.clasificacion === c
+                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                        : 'bg-slate-900 text-slate-500 border-slate-700 hover:bg-slate-700 hover:text-slate-300'"
+                      x-text="c"></button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+          <p x-show="!rsSeleccion.mensajes || rsSeleccion.mensajes.length === 0" class="text-center text-slate-600 text-sm py-4">Sin mensajes en este hilo</p>
+        </div>
+
+        <!-- Footer: Caja de Respuesta Inmediata -->
+        <div class="px-4 py-3 border-t border-slate-800 bg-slate-800/40 shrink-0">
+          <!-- Selector de plantillas rápidas -->
+          <div class="flex items-center gap-2 mb-2 flex-wrap">
+            <label class="text-sm text-slate-400">Plantilla:</label>
+            <select x-model="rsPlantillaRapida" @change="rsAplicarPlantillaRapida()"
+                    class="flex-1 min-w-[200px] bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-orange-500/50 focus:outline-none">
+              <option value="">— Seleccionar plantilla rápida —</option>
+              <template x-for="t in rsPlantillasRapidas" :key="t.id">
+                <option :value="t.id" x-text="t.label"></option>
+              </template>
+            </select>
+          </div>
+          <!-- Editor de respuesta -->
+          <textarea x-model="rsRedaccion" rows="3" placeholder="Escribe tu respuesta aquí..."
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-orange-500/50 focus:outline-none resize-none"></textarea>
+          <!-- Botones de acción -->
+          <div class="flex items-center gap-2 mt-2 flex-wrap">
+            <button @click="rsEnviarRespuesta()" :disabled="rsEnviando"
+                    class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed">
+              <i data-lucide="send" class="w-4 h-4 inline-block mr-1"></i>
+              <span x-text="rsEnviando ? 'Enviando...' : 'Enviar Respuesta SMTP'"></span>
+            </button>
+            <a :href="rsWaUrl" target="_blank" rel="noopener"
+               class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition"
+               :class="rsWaUrl ? '' : 'pointer-events-none opacity-40'">
+              <i data-lucide="message-circle" class="w-4 h-4 inline-block mr-1"></i>
+              Abrir WhatsApp Directo
+            </a>
           </div>
         </div>
-      </div>
 
-      <!-- Clasificación -->
-      <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
-        <h6 class="text-xs font-bold text-slate-300 mb-2">Clasificación</h6>
-        <div class="flex flex-wrap gap-2">
-          <template x-for="c in ['PENDING','POSITIVE','NEGATIVE','NEUTRAL','UNSUBSCRIBE','OOO']" :key="c">
-            <button @click="clasificarRespuesta(rsRespuesta.id, c)"
-              class="px-3 py-1.5 rounded-lg text-xs font-semibold transition border"
-              :class="rsRespuesta.clasificacion === c
-                ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'"
-              x-text="c"></button>
-          </template>
-        </div>
-        <p class="text-[10px] text-slate-500 mt-2">UNSUBSCRIBE activa la supresión del lead (Lista Negra). El envío histórico no se modifica.</p>
       </div>
+      </template>
     </div>
-    </template>
+
   </div>
 </div>
