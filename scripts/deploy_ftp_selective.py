@@ -42,12 +42,15 @@ REMOTE_BACKUP_BASE = "/getfutprotec.com/backups_deploy"
 
 # SOLO los archivos desfasados detectados en la comparacion MD5
 # UNIBOX UI: rediseño Respuestas + corrección de esquema en analytics.php
+# + runner web IMAP (api/imap_sync.php) para el botón "Actualizar" (sync seguro)
 DEPLOY_FILES = [
     "api/analytics.php",
+    "api/imap_sync.php",
     "tabs/respuestas.php",
     "js/app.js",
     "dashboard.php",
 ]
+
 
 def ensure_remote_dir(ftp, path):
     parts = path.strip("/").split("/")

@@ -100,6 +100,10 @@ var app = function() {
         rsCuentaSmtp: null,
         // Enlace WhatsApp dinámico del lead seleccionado.
         rsWaUrl: '',
+        // Estado de la sincronización IMAP/POP3 (botón "Actualizar").
+        rsSyncing: false,
+        rsSyncMsg: '',
+
 
 
 
@@ -1118,8 +1122,34 @@ var app = function() {
                 }
             } catch (e) { console.error('loadRespuestas:', e); }
         },
+        // Dispara la sincronización IMAP/POP3 de respuestas (botón "Actualizar")
+        // y recarga la bandeja. El sync se ejecuta en el servidor (endpoint
+        // sync_respuestas, autenticado por sesión) sin exponer el token del cron.
+        async syncRespuestas() {
+            this.rsSyncing = true;
+            this.rsSyncMsg = '';
+            try {
+                const r = await fetch('?action=sync_respuestas');
+                const j = await r.json();
+                if (j && j.ok) {
+                    this.rsSyncMsg = (j.resumen && j.resumen.length)
+                        ? j.resumen.join(' · ')
+                        : 'Sincronización completada';
+                } else {
+                    this.rsSyncMsg = 'Error al sincronizar: ' + (j && j.error ? j.error : 'desconocido');
+                }
+            } catch (e) {
+                console.error('syncRespuestas:', e);
+                this.rsSyncMsg = 'Error de red al sincronizar';
+            } finally {
+                this.rsSyncing = false;
+                // Recargar la bandeja tras el sync para mostrar los nuevos correos.
+                await this.loadRespuestas();
+            }
+        },
         // Muestra un toast de notificación (auto-cierre)
         mostrarToast(msg) {
+
             this.rsToast = msg;
             this.rsToastVisible = true;
             if (this.rsToastTimer) clearTimeout(this.rsToastTimer);

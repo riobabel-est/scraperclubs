@@ -154,10 +154,55 @@ if ($action === 'get_followups') {
     exit;
 }
 
+// ─── sync_respuestas ─────────────────────────────────────────────────────────
+// Dispara la sincronización IMAP/POP3 de respuestas de forma segura desde el
+// dashboard (usuario ya autenticado por sesión). Invoca internamente el runner
+// web api/imap_sync.php con el token del servidor, SIN exponerlo al frontend.
+// El runner hace exit(0) al terminar, por lo que se invoca vía HTTP interno
+// (file_get_contents) en lugar de require directo.
+if ($action === 'sync_respuestas') {
+    header('Content-Type: application/json');
+    try {
+        // Mismo origen del token que api/imap_sync.php (getenv con fallback).
+        $secret = getenv('IMAP_CRON_SECRET') ?: 'IMAP_RESPUESTAS_CRON_20260820';
+
+        // Construir URL absoluta del runner (misma raíz que este dashboard).
+        $base = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
+              . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')
+              . rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/api/imap_sync.php';
+
+        $url = $base . '?token=' . rawurlencode($secret) . '&apply=1';
+
+        $ctx = stream_context_create(['http' => ['timeout' => 120, 'ignore_errors' => true]]);
+        $salida = @file_get_contents($url, false, $ctx);
+
+        // Extraer resumen del runner (líneas clave) para feedback al usuario.
+        $resumen = [];
+        if (is_string($salida)) {
+            foreach (preg_split('/\r?\n/', $salida) as $linea) {
+                if (preg_match('/Insertados:|Duplicados:|Errores:|Mensajes procesados:|Secuencias detenidas:/', $linea)) {
+                    $resumen[] = trim($linea);
+                }
+            }
+        }
+
+        echo json_encode([
+            'ok' => true,
+            'sync' => true,
+            'resumen' => $resumen,
+            'raw' => is_string($salida) ? substr($salida, 0, 2000) : 'sin respuesta',
+        ]);
+    } catch (\Throwable $e) {
+        echo json_encode(['ok' => false, 'error' => 'sync_respuestas: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
 // ─── get_respuestas ──────────────────────────────────────────────────────────
 // Bandeja de conversaciones comerciales agrupadas por lead.
 // Cada conversación incluye: datos del lead, score, semáforo de prioridad,
 // y el hilo de mensajes (envío original + respuestas) en orden cronológico.
+
 if ($action === 'get_respuestas') {
     header('Content-Type: application/json; charset=utf-8');
     try {

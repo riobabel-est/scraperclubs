@@ -31,9 +31,12 @@
     <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Unibox de Respuestas</h5>
     <span class="text-xs text-slate-500" x-text="rsFiltradas.length + ' conversaciones'"></span>
     <div class="flex items-center gap-2 ml-auto flex-wrap">
-      <button @click="loadRespuestas()" class="px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-sm font-semibold hover:bg-amber-500/30 transition">
-        <i data-lucide="refresh-cw" class="w-4 h-4 inline-block mr-1"></i>Actualizar
+      <button @click="syncRespuestas()" :disabled="rsSyncing" class="px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-sm font-semibold hover:bg-amber-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed">
+        <i data-lucide="refresh-cw" class="w-4 h-4 inline-block mr-1" :class="rsSyncing ? 'animate-spin' : ''"></i>
+        <span x-text="rsSyncing ? 'Sincronizando...' : 'Actualizar'"></span>
       </button>
+      <div x-show="rsSyncMsg" x-text="rsSyncMsg" class="text-xs text-slate-400 mt-1"></div>
+
     </div>
   </div>
 
