@@ -285,6 +285,66 @@ if (empty($_SESSION['auth_outbound'])) {
     exit;
 }
 
+// ─── ENDPOINT: sync_respuestas (botón "Actualizar" del tab Respuestas) ───────
+// Dispara la sincronización IMAP/POP3 de forma segura. El frontend llama a
+// ?action=sync_respuestas (autenticado por sesión) y aquí se invoca el runner
+// api/imap_sync.php por HTTP interno con el token compartido, sin exponerlo
+// al navegador. Devuelve un resumen JSON para que app.js lo muestre.
+if ($action === 'sync_respuestas') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    // Mismo token que api/imap_sync.php (getenv con fallback idéntico).
+    $secret = getenv('IMAP_CRON_SECRET') ?: 'IMAP_RESPUESTAS_CRON_20260820';
+
+    $runnerUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
+        . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')
+        . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\')
+        . '/api/imap_sync.php?token=' . rawurlencode($secret) . '&apply=1';
+
+    $ctx = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'timeout' => 120,
+            'ignore_errors' => true,
+        ],
+    ]);
+
+    $salida = @file_get_contents($runnerUrl, false, $ctx);
+    $httpCode = 0;
+    if (isset($http_response_header[0]) && preg_match('#\s(\d{3})\s#', $http_response_header[0], $m)) {
+        $httpCode = (int)$m[1];
+    }
+
+    if ($salida === false || $httpCode >= 400) {
+        echo json_encode(['ok' => false, 'error' => 'No se pudo ejecutar la sincronización (HTTP ' . $httpCode . ').']);
+        exit;
+    }
+
+    // Extraer resumen de las líneas de log del runner para mostrarlo en la UI.
+    $resumen = [];
+    foreach (explode("\n", $salida) as $linea) {
+        $linea = trim($linea);
+        if ($linea === '' || strpos($linea, '[') !== 0) {
+            continue;
+        }
+        if (preg_match('/Insertados:\s*(\d+)/', $linea, $m)) {
+            $resumen[] = 'Insertados: ' . $m[1];
+        }
+        if (preg_match('/Duplicados:\s*(\d+)/', $linea, $m)) {
+            $resumen[] = 'Duplicados: ' . $m[1];
+        }
+        if (preg_match('/Errores:\s*(\d+)/', $linea, $m)) {
+            $resumen[] = 'Errores: ' . $m[1];
+        }
+        if (preg_match('/Mensajes procesados:\s*(\d+)/', $linea, $m)) {
+            $resumen[] = 'Mensajes: ' . $m[1];
+        }
+    }
+
+    echo json_encode(['ok' => true, 'resumen' => $resumen]);
+    exit;
+}
+
 
 // ═══════════════ CARGAR DATOS PARA EL DASHBOARD ══════════════════════════════
 $config = [];
