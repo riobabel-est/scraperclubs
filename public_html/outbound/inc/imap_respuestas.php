@@ -1024,15 +1024,12 @@ function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string
             return 'duplicado';
         }
     }
-    // 2. UID IMAP (si se proporciona)
-    if (!empty($uidImap)) {
-        $stmt = $db->prepare("SELECT id FROM respuestas WHERE uid_imap = :uid LIMIT 1");
-        $stmt->bindValue(':uid', $uidImap, SQLITE3_TEXT);
-        if ($stmt->execute()->fetchArray()) {
-            return 'duplicado';
-        }
-    }
-    // 3. cuenta + UID
+    // 2. cuenta + UID (idempotencia correcta por cuenta y UID IMAP)
+    // NOTA: El UID IMAP solo es único dentro de cada buzón/cuenta. Consultarlo
+    // sin filtrar por cuenta (como se hacía antes) provocaba FALSOS duplicados:
+    // mensajes de cuentas distintas con el mismo UID (1, 2, 3...) colisionaban
+    // con filas de otras cuentas y se descartaban sin registrarse. Por eso se
+    // combina SIEMPRE con la cuenta (cuenta_uid = cuentaEmail:uidImap).
     if (!empty($uidImap) && !empty($cuentaEmail)) {
         $stmt = $db->prepare("SELECT id FROM respuestas WHERE cuenta_uid = :cu LIMIT 1");
         $stmt->bindValue(':cu', $cuentaEmail . ':' . $uidImap, SQLITE3_TEXT);
@@ -1040,6 +1037,7 @@ function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string
             return 'duplicado';
         }
     }
+
     // 4. hash auxiliar (message_id + from + subject)
     $hashAux = '';
     if (!empty($msg['message_id'])) {
