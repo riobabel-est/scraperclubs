@@ -107,6 +107,23 @@ def main():
         ftp.retrbinary("RETR " + REMOTE_DB, f.write)
     print(f"  Descargada: {os.path.getsize(local_bk)} bytes, md5={file_md5(local_bk)}")
 
+    # ── 2b. Descargar archivos WAL/SHM si existen (modo WAL) ──
+    # Si la BD remota opera en modo WAL (Write-Ahead Logging), los datos más
+    # recientes pueden residir en stats.db-wal / stats.db-shm. Para obtener una
+    # copia de lectura CONSISTENTE y completa, se descargan junto a la BD.
+    # IMPORTANTE: flujo unidireccional estricto (Prod ➔ Local). NUNCA se resube.
+    for sufijo in ("-wal", "-shm"):
+        remoto_aux = REMOTE_DB + sufijo
+        local_aux = local_bk + sufijo
+        try:
+            ftp.size(remoto_aux)
+            with open(local_aux, "wb") as f:
+                ftp.retrbinary("RETR " + remoto_aux, f.write)
+            print(f"  Descargado auxiliar {sufijo}: {os.path.getsize(local_aux)} bytes")
+        except Exception:
+            print(f"  No existe {sufijo} en remoto (BD sin WAL pendiente) — omitido")
+
+
     # ── 3. Backup remoto en /getfutprotec.com/backups_deploy/ ──
     remote_bk_dir = f"{REMOTE_BACKUP_BASE}/stats_db_pre_sync_{ts}"
     print(f"\n=== CREANDO BACKUP REMOTO en {remote_bk_dir} ===")

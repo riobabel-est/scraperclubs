@@ -81,7 +81,8 @@ try {
     // (opt-out real o bloqueo manual) NUNCA entran en la cola. Espejo SQL de
     // esElegibleParaEnvio() (inc/eligibilidad.php) para que "pendientes" =
     // candidatos realmente elegibles, no solo los que pasan el filtro de estado.
-    $estadosSupresion = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido'];
+    $estadosSupresion = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido', '06 Perdido', '06 Baja/Archivado', '07 Baja', 'Baja'];
+
     $where = "c.email IS NOT NULL AND c.email != ''
               AND c.es_duplicado = 0
               AND c.estado_lead NOT IN ('" . implode("','", array_map(function ($e) use ($db) {
@@ -293,15 +294,14 @@ function obtenerCategoriasPlantillas(SQLite3 $db): array
 function mapearEstadoLead(string $codigo): string
 {
     $mapa = [
-        '01 Sin Contactar'          => '01 Sin Contactar',
-        '02 Contactado'             => '02 Contactado',
-        '03 Respondio'              => '03 Respondio',
-        '04 Interesado'             => '04 Interesado',
-        '05 Cualificado'            => '05 Cualificado',
-        '06 Propuesta'              => '06 Propuesta',
-        '07 Negociacion'            => '07 Negociacion',
-        '08 Ganado'                 => '08 Ganado',
-        '09 Perdido'                => '09 Perdido',
+        '01 Sin Contactar'   => '01 Sin Contactar',
+        '02 Contactado'      => '02 Contactado',
+        '03 En Conversación' => '03 En Conversación',
+        '04 Propuesta'       => '04 Propuesta',
+        '05 Ganado'          => '05 Ganado',
+        '06 Perdido'         => '06 Perdido',
+        '07 Baja'            => '07 Baja',
     ];
     return $mapa[$codigo] ?? $codigo;
 }
+

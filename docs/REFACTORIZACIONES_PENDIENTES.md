@@ -1,4 +1,3 @@
-# REFACTORIZACIONES PENDIENTES — MÓDULO OUTBOUND CRM
 
 **Fecha de análisis:** 2026-08-19
 **Estado:** Documento de retomada (no implica cambios en producción)
@@ -47,7 +46,7 @@ casi literalmente en los 3 archivos.
 Un fix de seguridad o timeout en una implementación **no se propaga** a las demás.
 Esto puede dejar el motor de envío vulnerable o inconsistente.
 
-### 2.3 ✅ ESTADO: COMPLETADO EN LOCAL (2026-08-19)
+### 2.3 ✅ ESTADO: COMPLETADO Y DESPLEGADO (2026-08-22)
 
 **Implementado:**
 
@@ -108,6 +107,16 @@ Mezcla 3 sub-bloques (F4.1 no respondedores, F4.2 sin próxima acción, F4.3 KPI
 Algoritmo de detección de duplicados monolítico.
 
 **Refactor:** Extraer la lógica de comparación y agrupación a funciones auxiliares.
+
+#### ✅ ESTADO: COMPLETADO EN LOCAL (2026-08-23)
+
+Extraídas 4 funciones puras (`resetFlagsDuplicados`, `detectarDuplicadosEmail`,
+`detectarDuplicadosNombre`, `marcarDuplicados`) y el handler `scan_duplicates` quedó
+como orquestador delgado. Mejoras de rendimiento sin cambiar comportamiento:
+pre-cálculo de normalización por club y set de claves O(1) para deduplicación.
+`php -l` OK. Contrato JSON preservado. Ver `checkpoint_refactor_leads_scan_duplicates.md`.
+
+**Pendiente:** deploy a producción (requiere aprobación del usuario) + smoke test.
 
 ### 3.3 `inc/imap_respuestas.php`
 
@@ -255,7 +264,10 @@ Lógica de negocio mezclada con consultas SQL.
 - **Tabla `respuestas`:** Confirmada en BD remota (14 columnas base, vacía). Las 11 columnas nuevas se añadirán al ejecutar el CLI IMAP.
 - **Pendiente de producción:** Ejecutar `php cli/imap_respuestas.php` en remoto (requiere aprobación del usuario).
 - **Motor de envío:** Pausado (sin envíos automáticos no autorizados).
-- **Refactor SMTP unificado (sección 2):** ✅ **COMPLETADO EN LOCAL** (2026-08-19). Creado `inc/smtp_transport.php`; reescritos `mime.php`, `cron.php` y `enviar_smtp_random.php` para delegar. `php -l` OK en los 5 archivos. **Pendiente:** deploy a producción + test de microenvío + checkpoint (requiere aprobación del usuario).
+- **Refactor SMTP unificado (sección 2):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-22). Creado `inc/smtp_transport.php`; reescritos `mime.php`, `cron.php` y `enviar_smtp_random.php` para delegar. `php -l` OK en los 5 archivos. **Validado en producción** con los 159 envíos reales de campaña 2 (el microenvío vía HTTP quedó bloqueado por el WAF de SiteGround, pero no es necesario — ver `checkpoint_microenvio_smtp_403_waf.md`). **Estado: RESUELTO.**
+- **Refactor analytics.php (sección 3.1):** ✅ **COMPLETADO EN LOCAL** (2026-08-22). Extraídas 11 funciones puras de `get_analytics`, `get_respuestas` y `get_followups`. `php -l` OK. Ver `checkpoint_refactor_analytics_funciones_puras.md`. **Pendiente:** deploy a producción (requiere aprobación del usuario).
+- **Refactor dashboard.php (sección 4.1):** ✅ **COMPLETADO EN LOCAL** (2026-08-22). Ver `checkpoint_refactor_dashboard_funciones_puras.md`. **Pendiente:** deploy a producción.
+- **SIGUIENTE PENDIENTE PRIORITARIO (sección 3.2):** Refactor de `api/leads.php` — extraer la lógica de `scan_duplicates` (~105 líneas) a funciones auxiliares. Prioridad alta, estimación **1-2 horas**.
 
 ---
 

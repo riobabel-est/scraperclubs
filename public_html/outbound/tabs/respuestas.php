@@ -96,8 +96,15 @@
             </div>
             <!-- Fila 3: snippet -->
             <div class="text-sm text-slate-400 truncate mt-1.5" x-text="rsSnippet(conv)"></div>
-            <!-- Fila 4: badge de intención + volumen -->
+            <!-- Fila 4: semáforo de prioridad + badge de intención + volumen -->
             <div class="flex items-center gap-2 mt-2">
+              <!-- Semáforo de prioridad (calculado en api/analytics.php → calcularScorePrioridad) -->
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold border"
+                    :class="rsPrioColor(conv.prioridad)"
+                    x-show="conv.prioridad">
+                <span class="w-1.5 h-1.5 rounded-full" :class="rsPrioDot(conv.prioridad)"></span>
+                <span x-text="rsPrioLabel(conv.prioridad)"></span>
+              </span>
               <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
                     :class="rsIntencion(conv).color"
                     x-text="'[' + rsIntencion(conv).label + ']'"></span>

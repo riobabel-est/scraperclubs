@@ -1,8 +1,13 @@
 var app = function() {
+    console.log('[DEBUG] app() INVOCADO. Iniciando construcción del objeto Alpine...');
+    try {
+    var _cfg = (typeof window._cfg === 'object' && window._cfg !== null) ? window._cfg : {};
     var i = {
+
         tab: 'kanban',
-        killSwitch: window._cfg.motorActivo,
-        modeTest: window._cfg.modeTest,
+        killSwitch: _cfg.motorActivo,
+        modeTest: _cfg.modeTest,
+
 
         // Modales
         lm: false, mm: false, sm: false, al: false,
@@ -76,10 +81,10 @@ var app = function() {
         ],
         // Estados del lead disponibles para el desplegable del header.
         rsEstadosLead: [
-            '01 Sin Contactar', '02 Contactado', '03 Respondió',
-            '04 Interesado', '05 Cualificado', '06 Propuesta',
-            '07 Negociación', '08 Ganado', '09 Perdido'
+            '01 Sin Contactar', '02 Contactado', '03 En Conversación',
+            '04 Propuesta', '05 Ganado', '06 Perdido', '07 Baja'
         ],
+
         // Mapa de clasificación → etiqueta de intención (badge).
         rsIntencionMap: {
             POSITIVE: { label: 'SOLICITA MUESTRA', color: 'bg-emerald-500/20 text-emerald-400' },
@@ -125,8 +130,31 @@ var app = function() {
         // Kanban colapsable
         collapsed: {},
 
+        // ─── FILTROS RÁPIDOS KANBAN (FASE 3 — absorción de Follow-ups) ─────
+        // Datos expuestos por dashboard.php en window._kanbanLeads / _chipCounters.
+        // Valores por defecto seguros: si window._kanbanLeads / _chipCounters no
+        // existen (o llegan corruptos), NUNCA deben colapsar la inicialización de
+        // Alpine. Una variable ausente aquí rompería el scope global y provocaría
+        // errores tipo "rsSyncing is not defined" en directivas de otros tabs.
+        kanbanLeads: (typeof window._kanbanLeads === 'object' && window._kanbanLeads !== null) ? window._kanbanLeads : [],
+        chipCounters: (typeof window._chipCounters === 'object' && window._chipCounters !== null) ? window._chipCounters : { calientes: 0, leidos: 0, pendiente_wa: 0, federaciones: {} },
+
+        // Filtro activo: '' (todos) | 'calientes' | 'pendiente_wa' | 'federacion:<nombre>'
+
+        filtroActivo: '',
+        // Búsqueda en tiempo real por nombre de club (con debounce).
+        busqueda: '',
+        // Selector de federación (desplegable).
+        filtroFederacion: '',
+        // Lista de federaciones derivada de los contadores (para el desplegable).
+        federacionesFiltro: [],
+        // Timer del debounce de búsqueda.
+        _busquedaTimer: null,
+
+
         // Gestor
-        gs: '', ge: '', gf: '', gt: '', gp: 1, gpp: 50, gsc: 'nombre_club', gso: 'ASC',
+        gs: '', ge: '', gf: '', gd: '', gt: '', gp: 1, gpp: 50, gsc: 'nombre_club', gso: 'ASC',
+
 
         // Editor
          ec: '', et: '', en: false,
@@ -134,14 +162,13 @@ var app = function() {
          estadosLead: [
              '01 Sin Contactar',
              '02 Contactado',
-             '03 Respondió',
-             '04 Interesado',
-             '05 Cualificado',
-             '06 Propuesta',
-             '07 Negociación',
-             '08 Ganado',
-             '09 Perdido'
+             '03 En Conversación',
+             '04 Propuesta',
+             '05 Ganado',
+             '06 Perdido',
+             '07 Baja'
          ],
+
          categorias: [], templates: [],
          edNombre: '', edAsunto: '', edAsuntoB: '', edAsuntoC: '', edTestAb: 0,
          edCuerpo: '', edCuerpoB: '', edCuerpoC: '', edTipo: 'html', edFocus: 'edCuerpo',
@@ -175,14 +202,13 @@ var app = function() {
         lzEstadosLead: [
             '01 Sin Contactar',
             '02 Contactado',
-            '03 Respondió',
-            '04 Interesado',
-            '05 Cualificado',
-            '06 Propuesta',
-            '07 Negociación',
-            '08 Ganado',
-            '09 Perdido'
+            '03 En Conversación',
+            '04 Propuesta',
+            '05 Ganado',
+            '06 Perdido',
+            '07 Baja'
         ],
+
         lzTemplatesEmail: [],
         lzTemplatesWa: [],
         lzCampanas: [],
@@ -283,11 +309,19 @@ var app = function() {
         async boot() {
             window.app = this;
             lucide.createIcons();
+            // Inicializa el desplegable de federaciones de los chips del Kanban.
+            this.initFederacionesFiltro();
+
             // ─── Notificador global de background (polling asíncrono) ─────────
             // Consulta el contador de respuestas sin notificar cada 30s,
             // independientemente del tab activo (Kanban, Lanzadera, Respuestas).
             this.checkUnreadNotifications();
             setInterval(() => this.checkUnreadNotifications(), 30000);
+            // ─── Carga diferida del Kanban (FASE 3) ─────────────────────────
+            // Tras el primer render de Alpine, inicializa los IntersectionObserver
+            // de los footers "Cargar más" de cada columna para auto-cargar al
+            // llegar al final del scroll.
+            setTimeout(() => this.initObservadoresColumnas(), 300);
             try { await this.loadGestor(); } catch (e) { console.error('boot: loadGestor falló', e); }
 
             try { await this.loadSmtp(); } catch (e) { console.error('boot: loadSmtp falló', e); }
@@ -362,6 +396,116 @@ var app = function() {
                 if (j.ok) location.reload();
             } catch(e) { console.error('dropLead:', e); }
         },
+
+        // ─── FILTROS RÁPIDOS KANBAN (FASE 3) ────────────────────────────────
+        // Devuelve el conjunto de IDs de leads que cumplen el filtro activo
+        // (chip) + la búsqueda en tiempo real. Se usa en x-show de cada tarjeta.
+        get leadsFiltrados() {
+            const q = (this.busqueda || '').trim().toLowerCase();
+            const fa = this.filtroActivo;
+            const ff = this.filtroFederacion;
+            return (this.kanbanLeads || []).filter(l => {
+                // Filtro por chip activo
+                if (fa === 'calientes' && !(l.num_opens >= 2)) return false;
+                if (fa === 'leidos' && !(l.num_opens >= 1)) return false;
+                if (fa === 'pendiente_wa' && !(l.tiene_whatsapp === 1 && (l.estado_lead === '01 Sin Contactar' || l.estado_lead === '02 Contactado'))) return false;
+                if (fa === 'federacion' && ff && l.federacion !== ff) return false;
+                // Búsqueda en tiempo real por nombre de club
+                if (q && !String(l.nombre_club || '').toLowerCase().includes(q)) return false;
+                return true;
+            }).map(l => l.id);
+        },
+        // Conjunto de IDs visibles (Set) para consulta O(1) en x-show.
+        get leadsFiltradosSet() {
+            return new Set(this.leadsFiltrados);
+        },
+        // Indica si una tarjeta debe mostrarse según el filtro activo.
+        leadVisible(id) {
+            return this.leadsFiltradosSet.has(id);
+        },
+        // Activa/desactiva un chip de filtro (toggle).
+        toggleFiltro(filtro) {
+            if (this.filtroActivo === filtro) {
+                this.filtroActivo = '';
+            } else {
+                this.filtroActivo = filtro;
+            }
+        },
+        // Establece el filtro de federación desde el desplegable.
+        setFiltroFederacion(fed) {
+            this.filtroFederacion = fed;
+            if (fed) {
+                this.filtroActivo = 'federacion';
+            } else if (this.filtroActivo === 'federacion') {
+                this.filtroActivo = '';
+            }
+        },
+        // Limpia todos los filtros y la búsqueda.
+        limpiarFiltros() {
+            this.filtroActivo = '';
+            this.filtroFederacion = '';
+            this.busqueda = '';
+        },
+        // Debounce de la búsqueda en tiempo real (150-200ms).
+        onBusquedaInput() {
+            if (this._busquedaTimer) clearTimeout(this._busquedaTimer);
+            this._busquedaTimer = setTimeout(() => {
+                // La búsqueda ya es reactiva vía x-model; este timer solo evita
+                // recalcular el Set en cada keystroke si hubiera lógica pesada.
+                this._busquedaTimer = null;
+            }, 180);
+        },
+        // Puebla el desplegable de federaciones desde los contadores del servidor.
+        initFederacionesFiltro() {
+            const feds = (this.chipCounters && this.chipCounters.federaciones) || {};
+            this.federacionesFiltro = Object.keys(feds).sort();
+        },
+
+        // ─── CARGA DIFERIDA / INFINITE SCROLL POR COLUMNA (FASE 3) ──────────
+        // Límite de tarjetas visibles por columna (renderizado diferido).
+        // Se inicializa a 20 para no colapsar el DOM con +1.600 tarjetas.
+        limitesColumnas: {},
+        // Incremento de carga al pulsar "Cargar más" / IntersectionObserver.
+        pasoCarga: 30,
+        // Devuelve el límite actual de una columna (default 20).
+        limiteColumna(estado) {
+            return this.limitesColumnas[estado] || 20;
+        },
+        // Devuelve el total REAL de leads de una columna (sin filtro).
+        // Se calcula desde kanbanLeads (array plano expuesto por el servidor).
+        totalColumna(estado) {
+            return (this.kanbanLeads || []).filter(l => l.estado_lead === estado).length;
+        },
+        // Incrementa el límite de una columna en +pasoCarga (30).
+        cargarMas(estado) {
+            this.limitesColumnas[estado] = (this.limitesColumnas[estado] || 20) + this.pasoCarga;
+        },
+        // Reinicia los límites de todas las columnas a 20 (al cambiar de filtro).
+        resetLimitesColumnas() {
+            this.limitesColumnas = {};
+        },
+        // Observa el footer "Cargar más" de una columna para auto-cargar al
+        // llegar al final del scroll (IntersectionObserver). Se llama desde
+        // boot() tras el primer render.
+        observarCargaColumna(estado) {
+            const el = document.querySelector('[data-cargar-mas="' + estado + '"]');
+            if (!el || typeof IntersectionObserver === 'undefined') return;
+            if (this._obsColumna) this._obsColumna.disconnect();
+            this._obsColumna = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        this.cargarMas(estado);
+                    }
+                });
+            }, { root: null, rootMargin: '200px' });
+            this._obsColumna.observe(el);
+        },
+        // Inicializa los observadores de todas las columnas tras el render.
+        initObservadoresColumnas() {
+            const estados = this.estadosLead || [];
+            estados.forEach((est) => this.observarCargaColumna(est));
+        },
+
 
         // ─── Lead Modal ───────────────────────────────────────────────────────
         async openLead(id) {
@@ -524,8 +668,32 @@ var app = function() {
             if (j.ok) { this.mm = false; location.reload(); } else { alert('Error: ' + (j.error || 'Desconocido')); }
         },
 
+        // ─── Delete Lead (eliminar duplicado directamente) ────────────────────
+        async deleteLead(id) {
+            if (!id) return;
+            if (!confirm('¿Eliminar definitivamente el registro #' + id + '?\n\nEsta acción no se puede deshacer.')) return;
+            const fd = new FormData(); fd.append('action', 'delete_lead'); fd.append('id', id);
+            const r = await fetch('api/leads.php', { method: 'POST', body: fd });
+            const j = await r.json();
+            if (j.ok) { this.mm = false; location.reload(); }
+            else { alert('Error: ' + (j.error || 'Desconocido')); }
+        },
+
+        // ─── Omitir Duplicado (desmarcar para que vuelva a la lanzadera) ─────
+        async omitirDuplicado(id) {
+            if (!id) return;
+            if (!confirm('¿Omitir este registro como duplicado?\n\nSe desmarcará y volverá a ser elegible en la lanzadera (se enviará igualmente aunque comparta nombre con otro club).')) return;
+            const fd = new FormData(); fd.append('action', 'omitir_duplicado'); fd.append('id', id);
+            const r = await fetch('api/leads.php', { method: 'POST', body: fd });
+            const j = await r.json();
+            if (j.ok) { this.mm = false; location.reload(); }
+            else { alert('Error: ' + (j.error || 'Desconocido')); }
+        },
+
         // ─── Scan Dups ────────────────────────────────────────────────────────
+
         async scanDups() {
+
             const r = await fetch('api/leads.php?action=scan_duplicates');
             const j = await r.json();
             if (j.ok) { alert('Escaneo: ' + j.dups + ' duplicados en ' + j.total + ' clubes.'); location.reload(); }
@@ -537,7 +705,8 @@ var app = function() {
             const p = new URLSearchParams({
                 action: 'get_leads_table', page: this.gp, per_page: this.gpp,
                 sort: this.gsc, order: this.gso,
-                search: this.gs, estado: this.ge, federacion: this.gf
+                search: this.gs, estado: this.ge, federacion: this.gf, duplicado: this.gd
+
             });
             const r = await fetch('api/leads.php?' + p.toString());
             const j = await r.json();
@@ -1173,6 +1342,26 @@ var app = function() {
             this.rsConversacionModal = false;
             this.rsConversacion = null;
         },
+        // Abre la conversación de un lead desde el Kanban (icono Mail).
+        // Busca la conversación por lead_id en la bandeja de respuestas y
+        // navega al tab de Respuestas seleccionando la conversación en el
+        // split-view (rsSeleccionar). Si aún no hay respuestas cargadas,
+        // las carga primero.
+        async abrirConversacionLead(leadId) {
+            if (!leadId) return;
+            if (!this.respuestas || this.respuestas.length === 0) {
+                await this.loadRespuestas();
+            }
+            const conv = (this.respuestas || []).find(c => String(c.lead_id) === String(leadId));
+            if (conv) {
+                // Navega al tab de Respuestas y selecciona la conversación en
+                // el panel derecho (split-view), reutilizando la UI existente.
+                this.tab = 'respuestas';
+                this.rsSeleccionar(conv);
+            } else {
+                alert('No hay conversación registrada para este lead.');
+            }
+        },
         async abrirRespuesta(id) {
             this.rsRespuesta = null; this.rsEnvio = null; this.rsModal = true;
             try {
@@ -1594,10 +1783,87 @@ var app = function() {
     };
     window.app = i;
     return i;
+    } catch (e) {
+        // Captura cualquier error silencioso que interrumpa la construcción del
+        // objeto de Alpine ANTES de devolverlo. Sin este fallback, app() devolvería
+        // undefined y Alpine perdería el scope global → "rsSyncing is not defined".
+        // IMPORTANTE: el fallback incluye las propiedades reactivas MÍNIMAS que los
+        // tabs referencian directamente desde el scope raíz (Respuestas, Lista Negra,
+        // Lanzadera, Kanban). Si solo incluyera rsSyncing/rsSyncMsg, un fallo de init
+        // en otro tab generaría nuevos "Expression Error" en cascada en los demás.
+        console.error("[Alpine app() Init Error]:", e);
+        var fallback = {
+            // Respuestas (UNIBOX)
+            rsSyncing: false,
+            rsSyncMsg: '',
+            rsNuevas: 0,
+            rsSeleccion: null,
+            rsToast: '',
+            rsToastVisible: false,
+            // Lista Negra
+            blSearch: '',
+            blResults: [],
+            blSearchMsg: '',
+            blSearchMsgOk: false,
+            blList: [],
+            blLoading: false,
+            blMsg: '',
+            blMsgOk: false,
+            // Lanzadera
+            lzMotorEstado: 'PAUSADO',
+            lzCola: [],
+            lzLoading: false,
+            lzError: '',
+            // Kanban
+            collapsed: {},
+            kanbanLeads: [],
+            chipCounters: { calientes: 0, leidos: 0, pendiente_wa: 0, federaciones: {} },
+        // Tab activo
+        tab: 'kanban',
+        // ── Métodos críticos (stubs no-op) ──────────────────────────────────
+        // Si app() lanza una excepción, el fallback devuelto debe incluir TAMBIÉN
+        // los métodos que los botones de los tabs invocan (loadRespuestas,
+        // blCargar, irARespuestas, etc.). Sin ellos, aunque las propiedades
+        // reactivas existan, los @click de los tabs fallarían con "X is not a
+        // function". Estos stubs evitan el colapso total del dashboard.
+        boot: function () {},
+        irARespuestas: function () {},
+        loadRespuestas: function () {},
+        blCargar: function () {},
+        loadCategorias: function () {},
+        abrirAnalytics: function () {},
+        syncRespuestas: function () {},
+        // Métodos de Respuestas (UNIBOX)
+        rsSeleccionar: function () {},
+        rsEnviarRespuesta: function () {},
+        rsCerrarVisor: function () {},
+        // Métodos de Lista Negra
+        blBuscar: function () {},
+        blAgregar: function () {},
+        blEliminar: function () {},
+        // Métodos de Lanzadera
+        lzCargarCola: function () {},
+        lzIniciar: function () {},
+        lzPausar: function () {},
+        // Métodos de Kanban
+        toggleColapsar: function () {},
+        setFiltro: function () {},
+        // Métodos de Gestor de Datos
+        gCargar: function () {},
+        gBuscar: function () {},
+        // Métodos de Editor Plantilla
+        edCargar: function () {},
+        edGuardar: function () {}
+        };
+        window.app = fallback;
+        return fallback;
+    }
+
 };
 
 
 // ─── analyticsApp — Alpine component for Analytics tab ──────────────────────
+
 function analyticsApp(){return{funnel:[],kpi:null,abc:[],abcGanadora:null,obj:{ganados:0,pct:0,restantes:20,tasa_cierre:0,contactos_necesarios:'-',contactados:0,facturacion:0,pares:0,margen:0,proyeccion:null},pipelines:[],tiempos:[],fPipeline:'',fVariante:'',fExcluirTest:true,
 get funnelMax(){return Math.max.apply(null,this.funnel.map(function(f){return f.cnt}).concat([1]))},
 get kpiCards(){if(!this.kpi)return[];return[{label:'Ganados/100 contactos',value:this.kpi.ganados_100,sub:'clubes',color:'text-emerald-400',border:'border-emerald-500/30'},{label:'Facturacion/100 contactos',value:this.kpi.fact_100+'\u20AC',sub:'estimado',color:'text-blue-400',border:'border-blue-500/30'},{label:'Pares/100 contactos',value:this.kpi.pares_100,sub:'unidades',color:'text-amber-400',border:'border-amber-500/30'},{label:'Margen Club/100 contactos',value:this.kpi.margen_100+'\u20AC',sub:'potencial',color:'text-purple-400',border:'border-purple-500/30'}]},
@@ -1605,3 +1871,21 @@ get conversiones(){if(!this.funnel||this.funnel.length<2)return[];var r=[];for(v
 get cuelloPrincipal(){var c=this.conversiones;if(!c||c.length===0)return null;var min=c[0];for(var i=1;i<c.length;i++){if(c[i].pct<min.pct)min=c[i]}return min},
 get abcFilas(){if(!this.abc||this.abc.length===0)return[];var rows=[];var labels=['Leads','Entregados','Aperturas','Tasa Apertura','Respuestas','Tasa Respuesta','Resp. Positiva','Cualificados','Mockups','Presupuestos','Negociaciones','Ganados','Perdidos','Conversion','Facturacion','Pares','Fact/100','Pares/100'];var keys=['leads','entregados','aperturas','tasa_apertura','respondio','tasa_resp','interesado','cualificado','mockups','presupuestos','negociacion','ganado','perdido','conversion','facturacion','pares','fact_100','pares_100'];var sufs=['','','','%','','%','','','','','','','','%','','','',''];for(var ri=0;ri<labels.length;ri++){var row={label:labels[ri],a:'0',b:'0',c:'0',bestIndex:-1};var vals=[];for(var vi=0;vi<this.abc.length;vi++){var v=this.abc[vi][keys[ri]];var sv=v;if(typeof v==='number'){sv=v.toLocaleString()+(sufs[ri]||'')}else{sv=v||'0'}if(vi===0)row.a=sv;if(vi===1)row.b=sv;if(vi===2)row.c=sv;if(typeof v==='number')vals.push({v:v,i:vi})}if(vals.length>0){var best=vals[0];for(var bi=1;bi<vals.length;bi++){if(vals[bi].v>best.v)best=vals[bi]}row.bestIndex=best.i}rows.push(row)}return rows},
 async load(){var p=new URLSearchParams({action:'get_analytics',tab:'dashboard'});if(this.fPipeline)p.append('pipeline',this.fPipeline);if(this.fVariante)p.append('variante',this.fVariante);if(!this.fExcluirTest)p.append('excluir_test','0');try{var r=await fetch('?'+p.toString());var j=await r.json();if(j.ok){this.funnel=j.funnel||[];this.kpi=j.kpi||null;this.abc=j.abc||[];this.abcGanadora=j.abc_ganadora||null;if(j.objetivo){this.obj=j.objetivo;this.obj.proyeccion=j.objetivo.tasa_cierre>0&&j.objetivo.ganados>0?Math.round(j.objetivo.ganados/j.objetivo.tasa_cierre*100/100):null}if(j.pipelines)this.pipelines=j.pipelines;if(j.tiempos)this.tiempos=j.tiempos}}catch(e){console.error('Analytics:',e)}}}}
+
+// ─── Componentes Alpine (FIX SCOPE rsSyncing) ────────────────────────────────
+// Todos los componentes se usan con paréntesis en el HTML (x-data="app()",
+// x-data="analyticsApp()", x-data="pilotoAnalyticsApp()", etc.), por lo que
+// Alpine evalúa las funciones globales directamente y NO es necesario (ni
+// recomendable) registrarlas con Alpine.data(). Registrar 'app' como componente
+// Alpine interfería con la evaluación de x-data="app" (sin paréntesis) y
+// provocaba "Alpine Expression Error: rsSyncing is not defined" en el tab
+// Respuestas por un problema de timing en la instanciación del componente.
+// Con x-data="app()" la función global se evalúa de forma síncrona y el objeto
+// devuelto (que incluye rsSyncing) queda disponible como scope raíz.
+console.log('[APP VERSION] 2026-08-21-UNIBOX-SCOPE-FIX');
+console.log('[DEBUG] app.js ejecutado. window.Alpine definido?', typeof window.Alpine !== 'undefined');
+console.log('[DEBUG] window._cfg definido?', typeof window._cfg !== 'undefined');
+console.log('[DEBUG] typeof app:', typeof app);
+console.log('[DEBUG] Componentes usados con x-data="fn()" (sin registro Alpine.data).');
+
+

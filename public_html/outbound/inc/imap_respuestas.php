@@ -876,9 +876,11 @@ PROMPT;
 function imap_atribuir(SQLite3 $db, array $msg): ?array
 {
     // 1. Buscar por In-Reply-To (message_id del envío original)
+    //    Normalizamos quitando los corchetes < > porque envios.message_id
+    //    se guarda con corchetes y el in_reply_to del mensaje llega sin ellos.
     if (!empty($msg['in_reply_to'])) {
-        $mid = trim($msg['in_reply_to']);
-        $stmt = $db->prepare("SELECT * FROM envios WHERE message_id = :mid LIMIT 1");
+        $mid = trim($msg['in_reply_to'], '<> ');
+        $stmt = $db->prepare("SELECT * FROM envios WHERE REPLACE(message_id, '<', '') = REPLACE(REPLACE(:mid, '<', ''), '>', '') LIMIT 1");
         $stmt->bindValue(':mid', $mid, SQLITE3_TEXT);
         $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
         if ($row) {
@@ -890,11 +892,11 @@ function imap_atribuir(SQLite3 $db, array $msg): ?array
     if (!empty($msg['references'])) {
         $refs = preg_split('/\s+/', trim($msg['references']));
         foreach ($refs as $ref) {
-            $ref = trim($ref, '<>');
+            $ref = trim($ref, '<> ');
             if ($ref === '') {
                 continue;
             }
-            $stmt = $db->prepare("SELECT * FROM envios WHERE message_id = :mid LIMIT 1");
+            $stmt = $db->prepare("SELECT * FROM envios WHERE REPLACE(message_id, '<', '') = REPLACE(REPLACE(:mid, '<', ''), '>', '') LIMIT 1");
             $stmt->bindValue(':mid', $ref, SQLITE3_TEXT);
             $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
             if ($row) {
@@ -903,10 +905,13 @@ function imap_atribuir(SQLite3 $db, array $msg): ?array
         }
     }
 
-    // 3. Buscar por email remitente (último envío a ese email)
+    // 3. Buscar por email remitente (último envío a ese email).
+    //    Aceptamos cualquier estado de envío entregado (enviado, abierto,
+    //    entregado, etc.) porque un envío que ya fue abierto deja de estar
+    //    en estado 'enviado' y la respuesta debe poder atribuirse igualmente.
     if (!empty($msg['from_email'])) {
         $stmt = $db->prepare(
-            "SELECT * FROM envios WHERE LOWER(email) = LOWER(:email) AND estado = 'enviado' ORDER BY fecha_envio DESC LIMIT 1"
+            "SELECT * FROM envios WHERE LOWER(email) = LOWER(:email) AND estado NOT IN ('fallido', 'error', 'rechazado', 'rebote', 'bounce') ORDER BY fecha_envio DESC LIMIT 1"
         );
         $stmt->bindValue(':email', $msg['from_email'], SQLITE3_TEXT);
         $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
@@ -954,11 +959,34 @@ function imap_asegurar_esquema(SQLite3 $db): void
  * Respeta la protección de opt-out real (no reactiva bajas).
  * Devuelve true si movió el Kanban, false en caso contrario.
  */
+/**
+ * Determina si una clasificación corresponde a una respuesta humana que debe
+ * mover el Kanban a "03 En Conversación" y generar notificación.
+ *
+ * Se considera respuesta humana tanto la heurística 'humana' como las
+ * intenciones comerciales devueltas por la IA (interesado, duda_precio,
+ * neutral, no_interesa). Las clasificaciones no humanas (rebote, baja,
+ * fuera_de_oficina, automatica, desconocida, otro) NO mueven el Kanban.
+ *
+ * @param string $clasificacion Clasificación guardada en respuestas.clasificacion
+ */
+function imap_es_respuesta_humana(string $clasificacion): bool
+{
+    return in_array($clasificacion, [
+        'humana',
+        'interesado',
+        'duda_precio',
+        'neutral',
+        'no_interesa',
+    ], true);
+}
+
 function imap_mover_kanban(SQLite3 $db, ?array $envio, string $clasificacion): bool
 {
-    if ($clasificacion !== 'humana') {
-        return false; // Solo respuestas humanas mueven el Kanban
+    if (!imap_es_respuesta_humana($clasificacion)) {
+        return false;
     }
+
     $leadId = $envio['lead_id'] ?? null;
     if ($leadId === null) {
         return false;
@@ -976,22 +1004,24 @@ function imap_mover_kanban(SQLite3 $db, ?array $envio, string $clasificacion): b
         return false;
     }
 
-    // Solo mover si aún no está en una etapa posterior a '03 Respondió'
+    // Solo mover si aún no está en una etapa posterior a '03 En Conversación'
+    // (pipeline canónico unificado: 01 Sin Contactar → 02 Contactado → 03 En Conversación → 04 Propuesta → 05 Ganado → 06 Perdido → 07 Baja)
     $orden = [
-        '01 Sin Contactar' => 1,
-        '02 Contactado'    => 2,
-        '03 Respondió'     => 3,
-        '04 Interesado'    => 4,
-        '05 Cualificado'   => 5,
-        '06 Propuesta'     => 6,
+        '01 Sin Contactar'    => 1,
+        '02 Contactado'       => 2,
+        '03 En Conversación'  => 3,
+        '04 Propuesta'        => 4,
+        '05 Ganado'           => 5,
+        '06 Perdido'          => 6,
+        '07 Baja'             => 7,
     ];
     $ordenActual = $orden[$estadoActual] ?? 0;
     if ($ordenActual >= 3) {
         return false; // Ya está en 03 o posterior
     }
 
-    // Mover a '03 Respondió'
-    $db->exec("UPDATE clubes_crm SET estado_lead = '03 Respondió', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
+    // Mover a '03 En Conversación' (respuesta humana = lead en conversación)
+    $db->exec("UPDATE clubes_crm SET estado_lead = '03 En Conversación', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
 
     // Registrar cambio de estado en comunicaciones_log (trazabilidad)
     $stmtLog = $db->prepare(
@@ -1000,55 +1030,38 @@ function imap_mover_kanban(SQLite3 $db, ?array $envio, string $clasificacion): b
     );
     $stmtLog->bindValue(':lid', $leadId, SQLITE3_INTEGER);
     $stmtLog->bindValue(':cid', $leadId, SQLITE3_INTEGER);
-    $stmtLog->bindValue(':det', "Estado cambiado de '{$estadoActual}' a '03 Respondió' (respuesta humana IMAP)", SQLITE3_TEXT);
+    $stmtLog->bindValue(':det', "Estado cambiado de '{$estadoActual}' a '03 En Conversación' (respuesta humana IMAP)", SQLITE3_TEXT);
     $stmtLog->execute();
 
     return true;
 }
 
 /**
- * Registra una respuesta en la tabla `respuestas` con idempotencia.
- * Devuelve 'insertado', 'duplicado' o 'error'.
+ * Comprueba si ya existe una respuesta en la tabla `respuestas` que coincida
+ * con el valor de una columna concreta (idempotencia). Devuelve true si existe.
+ *
+ * @param SQLite3 $db
+ * @param string  $columna Columna a comprobar (message_id, cuenta_uid, hash_auxiliar)
+ * @param string  $valor   Valor a buscar
  */
-function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string $clasificacion, string $carpeta, ?string $uidImap = null, ?string $cuentaEmail = null): string
+function imap_existe_respuesta(SQLite3 $db, string $columna, string $valor): bool
 {
-    // Asegurar esquema (idempotente)
-    imap_asegurar_esquema($db);
-
-    // ─── Idempotencia completa ───
-    // 1. Message-ID
-    if (!empty($msg['message_id'])) {
-        $stmt = $db->prepare("SELECT id FROM respuestas WHERE message_id = :mid LIMIT 1");
-        $stmt->bindValue(':mid', $msg['message_id'], SQLITE3_TEXT);
-        if ($stmt->execute()->fetchArray()) {
-            return 'duplicado';
-        }
+    if ($valor === '') {
+        return false;
     }
-    // 2. cuenta + UID (idempotencia correcta por cuenta y UID IMAP)
-    // NOTA: El UID IMAP solo es único dentro de cada buzón/cuenta. Consultarlo
-    // sin filtrar por cuenta (como se hacía antes) provocaba FALSOS duplicados:
-    // mensajes de cuentas distintas con el mismo UID (1, 2, 3...) colisionaban
-    // con filas de otras cuentas y se descartaban sin registrarse. Por eso se
-    // combina SIEMPRE con la cuenta (cuenta_uid = cuentaEmail:uidImap).
-    if (!empty($uidImap) && !empty($cuentaEmail)) {
-        $stmt = $db->prepare("SELECT id FROM respuestas WHERE cuenta_uid = :cu LIMIT 1");
-        $stmt->bindValue(':cu', $cuentaEmail . ':' . $uidImap, SQLITE3_TEXT);
-        if ($stmt->execute()->fetchArray()) {
-            return 'duplicado';
-        }
-    }
+    $stmt = $db->prepare("SELECT id FROM respuestas WHERE {$columna} = :v LIMIT 1");
+    $stmt->bindValue(':v', $valor, SQLITE3_TEXT);
+    return (bool)$stmt->execute()->fetchArray();
+}
 
-    // 4. hash auxiliar (message_id + from + subject)
-    $hashAux = '';
-    if (!empty($msg['message_id'])) {
-        $hashAux = hash('sha256', $msg['message_id'] . '|' . ($msg['from_email'] ?? '') . '|' . ($msg['subject'] ?? ''));
-        $stmt = $db->prepare("SELECT id FROM respuestas WHERE hash_auxiliar = :h LIMIT 1");
-        $stmt->bindValue(':h', $hashAux, SQLITE3_TEXT);
-        if ($stmt->execute()->fetchArray()) {
-            return 'duplicado';
-        }
-    }
-
+/**
+ * Inserta una respuesta en la tabla `respuestas`.
+ * Devuelve el id de la fila insertada, o null si falló el INSERT.
+ *
+ * @return int|null
+ */
+function imap_insertar_respuesta(SQLite3 $db, array $msg, ?array $envio, string $clasificacion, string $carpeta, ?string $uidImap = null, ?string $cuentaEmail = null, string $hashAux = ''): ?int
+{
     $envioId = $envio['id'] ?? null;
     $leadId = $envio['lead_id'] ?? null;
     $campaignId = $envio['campaign_id'] ?? null;
@@ -1093,12 +1106,17 @@ function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string
     try {
         $stmt->execute();
     } catch (\Throwable $e) {
-        return 'error';
+        return null;
     }
 
-    $respuestaId = $db->lastInsertRowID();
+    return (int)$db->lastInsertRowID();
+}
 
-    // Registrar en comunicaciones_log
+/**
+ * Registra en `comunicaciones_log` el evento de respuesta recibida.
+ */
+function imap_registrar_log_respuesta(SQLite3 $db, ?int $leadId, ?int $smtpId, int $respuestaId, string $clasificacion, string $carpeta): void
+{
     $stmtLog = $db->prepare(
         "INSERT INTO comunicaciones_log
          (lead_id, club_id, tipo_evento, id_cuenta_smtp, tipo, resultado, detalles, fecha)
@@ -1109,20 +1127,78 @@ function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string
     $stmtLog->bindValue(':sid', $smtpId, $smtpId === null ? SQLITE3_NULL : SQLITE3_INTEGER);
     $stmtLog->bindValue(':det', "Respuesta recibida (respuesta_id={$respuestaId}, clasificacion={$clasificacion}, carpeta={$carpeta})", SQLITE3_TEXT);
     $stmtLog->execute();
+}
+
+/**
+ * FASE G — Registra la notificación de nueva respuesta humana (🔔 NUEVA RESPUESTA)
+ * y marca la respuesta como notificada. Aplica a cualquier respuesta humana,
+ * incluida la intención comercial devuelta por la IA (interesado, duda_precio,
+ * neutral, no_interesa) además de la heurística 'humana'.
+ */
+function imap_notificar_respuesta(SQLite3 $db, ?int $leadId, int $respuestaId, string $clasificacion): void
+{
+    if (!imap_es_respuesta_humana($clasificacion)) {
+        return;
+    }
+
+    $stmtNotif = $db->prepare(
+        "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+         VALUES (:lid, :cid, 'notificacion_respuesta', :det, CURRENT_TIMESTAMP)"
+    );
+    $stmtNotif->bindValue(':lid', $leadId, $leadId === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+    $stmtNotif->bindValue(':cid', $leadId, $leadId === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+    $stmtNotif->bindValue(':det', "🔔 NUEVA RESPUESTA (respuesta_id={$respuestaId}, clasificacion={$clasificacion})", SQLITE3_TEXT);
+    $stmtNotif->execute();
+    $db->exec("UPDATE respuestas SET notificado = 1 WHERE id = {$respuestaId}");
+}
+
+/**
+ * Registra una respuesta en la tabla `respuestas` con idempotencia.
+ * Devuelve 'insertado', 'duplicado' o 'error'.
+ */
+function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string $clasificacion, string $carpeta, ?string $uidImap = null, ?string $cuentaEmail = null): string
+{
+    // Asegurar esquema (idempotente)
+    imap_asegurar_esquema($db);
+
+    // ─── Idempotencia completa ───
+    // 1. Message-ID
+    if (!empty($msg['message_id']) && imap_existe_respuesta($db, 'message_id', $msg['message_id'])) {
+        return 'duplicado';
+    }
+    // 2. cuenta + UID (idempotencia correcta por cuenta y UID IMAP)
+    // NOTA: El UID IMAP solo es único dentro de cada buzón/cuenta. Consultarlo
+    // sin filtrar por cuenta (como se hacía antes) provocaba FALSOS duplicados:
+    // mensajes de cuentas distintas con el mismo UID (1, 2, 3...) colisionaban
+    // con filas de otras cuentas y se descartaban sin registrarse. Por eso se
+    // combina SIEMPRE con la cuenta (cuenta_uid = cuentaEmail:uidImap).
+    if (!empty($uidImap) && !empty($cuentaEmail) && imap_existe_respuesta($db, 'cuenta_uid', $cuentaEmail . ':' . $uidImap)) {
+        return 'duplicado';
+    }
+
+    // 4. hash auxiliar (message_id + from + subject)
+    $hashAux = '';
+    if (!empty($msg['message_id'])) {
+        $hashAux = hash('sha256', $msg['message_id'] . '|' . ($msg['from_email'] ?? '') . '|' . ($msg['subject'] ?? ''));
+        if (imap_existe_respuesta($db, 'hash_auxiliar', $hashAux)) {
+            return 'duplicado';
+        }
+    }
+
+    $leadId = $envio['lead_id'] ?? null;
+    $smtpId = $envio['smtp_id'] ?? null;
+
+    // INSERT en respuestas
+    $respuestaId = imap_insertar_respuesta($db, $msg, $envio, $clasificacion, $carpeta, $uidImap, $cuentaEmail, $hashAux);
+    if ($respuestaId === null) {
+        return 'error';
+    }
+
+    // Registrar en comunicaciones_log
+    imap_registrar_log_respuesta($db, $leadId, $smtpId, $respuestaId, $clasificacion, $carpeta);
 
     // ─── FASE G: Notificación ───
-    // Registrar evento de notificación pendiente (el frontend lo mostrará como 🔔 NUEVA RESPUESTA)
-    if ($clasificacion === 'humana') {
-        $stmtNotif = $db->prepare(
-            "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
-             VALUES (:lid, :cid, 'notificacion_respuesta', :det, CURRENT_TIMESTAMP)"
-        );
-        $stmtNotif->bindValue(':lid', $leadId, $leadId === null ? SQLITE3_NULL : SQLITE3_INTEGER);
-        $stmtNotif->bindValue(':cid', $leadId, $leadId === null ? SQLITE3_NULL : SQLITE3_INTEGER);
-        $stmtNotif->bindValue(':det', "🔔 NUEVA RESPUESTA (respuesta_id={$respuestaId}, clasificacion={$clasificacion})", SQLITE3_TEXT);
-        $stmtNotif->execute();
-        $db->exec("UPDATE respuestas SET notificado = 1 WHERE id = {$respuestaId}");
-    }
+    imap_notificar_respuesta($db, $leadId, $respuestaId, $clasificacion);
 
     // ─── Kanban: respuesta humana → 03 Respondió ───
     $movido = imap_mover_kanban($db, $envio, $clasificacion);
@@ -1131,6 +1207,91 @@ function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string
     }
 
     return 'insertado';
+}
+
+/**
+ * Procesa un único mensaje de un buzón (extraído de imap_procesar_buzon).
+ *
+ * Encapsula el flujo completo de un mensaje: FETCH ENVELOPE, intento de cuerpo
+ * con degradado elegante, fallback de metadatos, clasificación, atribución y
+ * registro. Devuelve los contadores incrementados para que el orquestador los
+ * acumule en las estadísticas globales.
+ *
+ * NOTA: $imap se pasa por referencia porque, ante un timeout en BODY.PEEK[TEXT],
+ * el socket puede quedar corrupto y se reconecta (se asigna un nuevo ClienteIMAP).
+ *
+ * @return array{insertados:int,duplicados:int,errores:int,sin_atribucion:int}
+ */
+function imap_procesar_mensaje(SQLite3 $db, array $cuenta, string $carpeta, string $seq, ClienteIMAP &$imap): array
+{
+    $inc = ['insertados' => 0, 'duplicados' => 0, 'errores' => 0, 'sin_atribucion' => 0];
+
+    try {
+        // ─── FASE 1: Fuente PRIMARIA = FETCH <seq> (UID ENVELOPE FLAGS) ───
+        // Un único comando que devuelve UID + ENVELOPE + FLAGS. Es ligero
+        // y el servidor IMAP de SiteGround lo responde sin colgarse (a
+        // diferencia de BODY.PEEK[HEADER]/BODY.PEEK[TEXT] en mensajes
+        // problemáticos). Aporta Message-ID, In-Reply-To, From, Subject,
+        // Date y UID para atribución e idempotencia.
+        $respEnvelope = $imap->fetchEnvelopeCompleto($seq);
+        $uid = $imap->extraerUID($respEnvelope);
+        $msg = imap_parsear_envelope($respEnvelope);
+
+        // ─── FASE 2: Intento de cuerpo con degradado elegante ───
+        // Se intenta leer BODY.PEEK[TEXT] para guardar el cuerpo en
+        // respuestas.cuerpo. Si SiteGround no responde dentro del timeout
+        // estricto (5s) o lanza error, se captura la excepción y se
+        // mantienen los datos de ENVELOPE (no se pierde la respuesta).
+        try {
+            $cuerpoRaw = $imap->fetchCuerpo($seq);
+            if (trim($cuerpoRaw) !== '') {
+                $msg['cuerpo'] = trim($cuerpoRaw);
+            }
+        } catch (\Throwable $e) {
+            // Timeout/error en BODY.PEEK[TEXT]: el socket puede quedar
+            // corrupto. Reconectar y reseleccionar la carpeta para
+            // continuar con el siguiente mensaje de forma limpia.
+            try { $imap->cerrar(); } catch (\Throwable $ign) {}
+            $imap = new ClienteIMAP($GLOBALS['IMAP_HOST'], $GLOBALS['IMAP_PORT']);
+            $imap->conectar($cuenta['usuario'], $cuenta['password']);
+            $imap->seleccionar($carpeta);
+        }
+
+        // ─── Fallback de metadatos: si ENVELOPE no aportó nada ───
+        // (p. ej. mensaje sin ENVELOPE parseable), se intenta
+        // BODY.PEEK[HEADER.FIELDS ...] como refuerzo.
+        if (empty($msg['message_id']) && empty($msg['from_email'])) {
+            try {
+                $rawHeader = $imap->fetchHeaderFields($seq);
+                if (trim($rawHeader) !== '') {
+                    $msg = array_merge($msg, imap_parsear_header_fields($rawHeader));
+                }
+            } catch (\Throwable $e) {
+                // ignorar: seguimos con lo que haya en ENVELOPE
+            }
+        }
+
+        $clasificacion = imap_clasificar($msg, $db);
+        $envio = imap_atribuir($db, $msg);
+
+        if ($envio === null) {
+            $inc['sin_atribucion']++;
+        }
+
+        $resultado = imap_registrar_respuesta($db, $msg, $envio, $clasificacion, $carpeta, $uid, $cuenta['email']);
+
+        if ($resultado === 'insertado') {
+            $inc['insertados']++;
+        } elseif ($resultado === 'duplicado') {
+            $inc['duplicados']++;
+        } else {
+            $inc['errores']++;
+        }
+    } catch (\Throwable $e) {
+        $inc['errores']++;
+    }
+
+    return $inc;
 }
 
 /**
@@ -1152,72 +1313,11 @@ function imap_procesar_buzon(SQLite3 $db, array $cuenta, ClienteIMAP $imap): arr
             $seqs = $imap->buscarTodos();
             foreach ($seqs as $seq) {
                 $stats['mensajes']++;
-                try {
-                    // ─── FASE 1: Fuente PRIMARIA = FETCH <seq> (UID ENVELOPE FLAGS) ───
-                    // Un único comando que devuelve UID + ENVELOPE + FLAGS. Es ligero
-                    // y el servidor IMAP de SiteGround lo responde sin colgarse (a
-                    // diferencia de BODY.PEEK[HEADER]/BODY.PEEK[TEXT] en mensajes
-                    // problemáticos). Aporta Message-ID, In-Reply-To, From, Subject,
-                    // Date y UID para atribución e idempotencia.
-                    $respEnvelope = $imap->fetchEnvelopeCompleto($seq);
-                    $uid = $imap->extraerUID($respEnvelope);
-                    $msg = imap_parsear_envelope($respEnvelope);
-
-                    // ─── FASE 2: Intento de cuerpo con degradado elegante ───
-                    // Se intenta leer BODY.PEEK[TEXT] para guardar el cuerpo en
-                    // respuestas.cuerpo. Si SiteGround no responde dentro del timeout
-                    // estricto (5s) o lanza error, se captura la excepción y se
-                    // mantienen los datos de ENVELOPE (no se pierde la respuesta).
-                    $cuerpoLeido = false;
-                    try {
-                        $cuerpoRaw = $imap->fetchCuerpo($seq);
-                        if (trim($cuerpoRaw) !== '') {
-                            $msg['cuerpo'] = trim($cuerpoRaw);
-                            $cuerpoLeido = true;
-                        }
-                    } catch (\Throwable $e) {
-                        // Timeout/error en BODY.PEEK[TEXT]: el socket puede quedar
-                        // corrupto. Reconectar y reseleccionar la carpeta para
-                        // continuar con el siguiente mensaje de forma limpia.
-                        try { $imap->cerrar(); } catch (\Throwable $ign) {}
-                        $imap = new ClienteIMAP($GLOBALS['IMAP_HOST'], $GLOBALS['IMAP_PORT']);
-                        $imap->conectar($cuenta['usuario'], $cuenta['password']);
-                        $imap->seleccionar($carpeta);
-                    }
-
-                    // ─── Fallback de metadatos: si ENVELOPE no aportó nada ───
-                    // (p. ej. mensaje sin ENVELOPE parseable), se intenta
-                    // BODY.PEEK[HEADER.FIELDS ...] como refuerzo.
-                    if (empty($msg['message_id']) && empty($msg['from_email'])) {
-                        try {
-                            $rawHeader = $imap->fetchHeaderFields($seq);
-                            if (trim($rawHeader) !== '') {
-                                $msg = array_merge($msg, imap_parsear_header_fields($rawHeader));
-                            }
-                        } catch (\Throwable $e) {
-                            // ignorar: seguimos con lo que haya en ENVELOPE
-                        }
-                    }
-
-                    $clasificacion = imap_clasificar($msg, $db);
-                    $envio = imap_atribuir($db, $msg);
-
-                    if ($envio === null) {
-                        $stats['sin_atribucion']++;
-                    }
-
-                    $resultado = imap_registrar_respuesta($db, $msg, $envio, $clasificacion, $carpeta, $uid, $cuenta['email']);
-
-                    if ($resultado === 'insertado') {
-                        $stats['insertados']++;
-                    } elseif ($resultado === 'duplicado') {
-                        $stats['duplicados']++;
-                    } else {
-                        $stats['errores']++;
-                    }
-                } catch (\Throwable $e) {
-                    $stats['errores']++;
-                }
+                $inc = imap_procesar_mensaje($db, $cuenta, $carpeta, $seq, $imap);
+                $stats['insertados'] += $inc['insertados'];
+                $stats['duplicados'] += $inc['duplicados'];
+                $stats['errores'] += $inc['errores'];
+                $stats['sin_atribucion'] += $inc['sin_atribucion'];
             }
 
 
@@ -1299,3 +1399,148 @@ function imap_procesar_todas_cuentas(SQLite3 $db): array
 
     return $resultado;
 }
+
+/**
+ * Procesa un único mensaje de un buzón en MODO LIGERO (solo remitentes).
+ *
+ * A diferencia de imap_procesar_mensaje(), NO descarga el cuerpo del email
+ * (BODY.PEEK[TEXT]). Solo lee el ENVELOPE (UID, From, Subject, Message-ID,
+ * Date) que es suficiente para:
+ *   - Atribuir la respuesta a un lead/envío/campaña.
+ *   - Clasificar la respuesta (humana vs automática).
+ *   - Registrar la respuesta en la tabla `respuestas` (sin cuerpo).
+ *   - Mover el lead al Kanban "03 En Conversación" si es una respuesta humana.
+ *
+ * Es la versión usada por el dashboard al cargar, para que el Kanban muestre
+ * de forma limpia qué remitentes han respondido sin necesidad de descargar
+ * el contenido de los emails (más rápido y ligero).
+ *
+ * @return array{insertados:int,duplicados:int,errores:int,sin_atribucion:int}
+ */
+function imap_procesar_mensaje_ligero(SQLite3 $db, array $cuenta, string $carpeta, string $seq, ClienteIMAP &$imap): array
+{
+    $inc = ['insertados' => 0, 'duplicados' => 0, 'errores' => 0, 'sin_atribucion' => 0];
+
+    try {
+        // ─── Fuente PRIMARIA = FETCH <seq> (UID ENVELOPE FLAGS) ───
+        // Un único comando ligero que devuelve UID + ENVELOPE + FLAGS.
+        // NO se descarga el cuerpo (BODY.PEEK[TEXT]) para no penalizar la
+        // carga del dashboard. Aporta Message-ID, In-Reply-To, From, Subject,
+        // Date y UID para atribución e idempotencia.
+        $respEnvelope = $imap->fetchEnvelopeCompleto($seq);
+        $uid = $imap->extraerUID($respEnvelope);
+        $msg = imap_parsear_envelope($respEnvelope);
+
+        // Fallback de metadatos si ENVELOPE no aportó nada
+        if (empty($msg['message_id']) && empty($msg['from_email'])) {
+            try {
+                $rawHeader = $imap->fetchHeaderFields($seq);
+                if (trim($rawHeader) !== '') {
+                    $msg = array_merge($msg, imap_parsear_header_fields($rawHeader));
+                }
+            } catch (\Throwable $e) {
+                // ignorar: seguimos con lo que haya en ENVELOPE
+            }
+        }
+
+        $clasificacion = imap_clasificar($msg, $db);
+        $envio = imap_atribuir($db, $msg);
+
+        if ($envio === null) {
+            $inc['sin_atribucion']++;
+        }
+
+        $resultado = imap_registrar_respuesta($db, $msg, $envio, $clasificacion, $carpeta, $uid, $cuenta['email']);
+
+        if ($resultado === 'insertado') {
+            $inc['insertados']++;
+        } elseif ($resultado === 'duplicado') {
+            $inc['duplicados']++;
+        } else {
+            $inc['errores']++;
+        }
+    } catch (\Throwable $e) {
+        $inc['errores']++;
+    }
+
+    return $inc;
+}
+
+/**
+ * Procesa un buzón completo de una cuenta en MODO LIGERO (solo remitentes).
+ * Devuelve estadísticas.
+ */
+function imap_procesar_buzon_ligero(SQLite3 $db, array $cuenta, ClienteIMAP $imap): array
+{
+    $stats = ['carpetas' => 0, 'mensajes' => 0, 'insertados' => 0, 'duplicados' => 0, 'errores' => 0, 'sin_atribucion' => 0];
+
+    // Límite de mensajes por buzón en modo ligero. Como SEARCH ALL devuelve
+    // los números de secuencia en orden ascendente (los más recientes al
+    // final), tomamos los últimos N para no penalizar la carga del dashboard
+    // en producción cuando hay muchos mensajes en los buzones. Los antiguos
+    // ya están registrados (idempotencia) y las respuestas nuevas son las
+    // que importan para el Kanban.
+    $LIMITE_LIGERO = 100;
+
+    foreach ($GLOBALS['CARPETAS_AUDITAR'] as $carpeta) {
+        try {
+            $total = $imap->seleccionar($carpeta);
+            $stats['carpetas']++;
+            if ($total === 0) {
+                continue;
+            }
+
+            $seqs = $imap->buscarTodos();
+            // Solo los últimos $LIMITE_LIGERO mensajes (los más recientes)
+            if (count($seqs) > $LIMITE_LIGERO) {
+                $seqs = array_slice($seqs, -$LIMITE_LIGERO);
+            }
+            foreach ($seqs as $seq) {
+                $stats['mensajes']++;
+                $inc = imap_procesar_mensaje_ligero($db, $cuenta, $carpeta, $seq, $imap);
+                $stats['insertados'] += $inc['insertados'];
+                $stats['duplicados'] += $inc['duplicados'];
+                $stats['errores'] += $inc['errores'];
+                $stats['sin_atribucion'] += $inc['sin_atribucion'];
+            }
+        } catch (\Throwable $e) {
+            // Carpeta no accesible, continuar
+        }
+    }
+
+    return $stats;
+}
+
+/**
+ * Orquestador LIGERO: recorre todas las cuentas SMTP activas y procesa sus
+ * buzones SOLO leyendo remitentes (sin descargar cuerpos). Usado por el
+ * dashboard al cargar para que el Kanban muestre de forma limpia qué
+ * remitentes han respondido.
+ */
+function imap_procesar_todas_cuentas_ligero(SQLite3 $db): array
+{
+    $resultado = ['cuentas' => 0, 'total_insertados' => 0, 'total_duplicados' => 0, 'total_errores' => 0, 'detalle' => []];
+
+    $cuentas = $db->query("SELECT * FROM cuentas_smtp WHERE activa = 1 ORDER BY id");
+    while ($cuenta = $cuentas->fetchArray(SQLITE3_ASSOC)) {
+        $resultado['cuentas']++;
+        $imap = new ClienteIMAP($GLOBALS['IMAP_HOST'], $GLOBALS['IMAP_PORT']);
+        try {
+            $imap->conectar($cuenta['usuario'], $cuenta['password']);
+            $stats = imap_procesar_buzon_ligero($db, $cuenta, $imap);
+            $resultado['total_insertados'] += $stats['insertados'];
+            $resultado['total_duplicados'] += $stats['duplicados'];
+            $resultado['total_errores'] += $stats['errores'];
+            $resultado['detalle'][$cuenta['email']] = $stats;
+        } catch (\Throwable $e) {
+            $resultado['total_errores']++;
+            $resultado['detalle'][$cuenta['email']] = ['error' => $e->getMessage()];
+        } finally {
+            $imap->cerrar();
+        }
+    }
+
+    return $resultado;
+}
+
+

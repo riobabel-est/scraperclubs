@@ -39,7 +39,7 @@ if ($action === 'mockup_solicitar') {
         $leadId = (int)($_POST['lead_id'] ?? 0);
         if ($leadId <= 0) { echo json_encode(['ok'=>false,'error'=>'lead_id requerido']); exit; }
         $db->exec("INSERT INTO mockups (lead_id, pipeline_id, estado, solicitado_en) VALUES ({$leadId}, NULL, 'solicitado', CURRENT_TIMESTAMP)");
-        $db->exec("UPDATE clubes_crm SET estado_lead = '06 Propuesta', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
+        $db->exec("UPDATE clubes_crm SET estado_lead = '04 Propuesta', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
         $db->exec("INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha) VALUES ({$leadId}, {$leadId}, 'mockup_solicitado', 'Mockup solicitado', CURRENT_TIMESTAMP)");
         echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID()]);
     } catch (\Exception $e) { echo json_encode(['ok'=>false,'error'=>$e->getMessage()]); }

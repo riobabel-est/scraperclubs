@@ -15,20 +15,19 @@ if ($action === 'snapshot_crear') {
     try {
         $stageOrder = "CASE estado_lead
             WHEN '01 Sin Contactar' THEN 1 WHEN '02 Contactado' THEN 2
-            WHEN '03 Respondió' THEN 4 WHEN '04 Interesado' THEN 5
-            WHEN '05 Cualificado' THEN 6 WHEN '06 Propuesta' THEN 7
-            WHEN '07 Negociación' THEN 8 WHEN '08 Ganado' THEN 9
-            WHEN '09 Perdido' THEN 10 ELSE 0 END";
+            WHEN '03 En Conversación' THEN 3 WHEN '04 Propuesta' THEN 4
+            WHEN '05 Ganado' THEN 5 WHEN '06 Perdido' THEN 6
+            WHEN '07 Baja' THEN 7 ELSE 0 END";
         $total = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm");
         $sinContactar = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 1");
         $contactado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 2");
-        $respondio = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 4");
-        $interesado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 5");
-        $cualificado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE volumen_estimado >= 50 AND {$stageOrder} >= 6");
-        $propuesta = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 7");
-        $negociacion = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 8");
-        $ganado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 9");
-        $perdido = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 10");
+        $respondio = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 3");
+        $interesado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 4");
+        $cualificado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE volumen_estimado >= 50 AND {$stageOrder} >= 4");
+        $propuesta = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 4");
+        $negociacion = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 4");
+        $ganado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 5");
+        $perdido = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE {$stageOrder} = 6");
         // Rebotes y bajas comerciales: excluyen TEST (envios.es_test=0 y leads TEST).
         // rebotes se une por email (esquema LIVE: id, email, motivo, fecha_rebote).
         $rebotado = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes r JOIN envios e ON LOWER(r.email)=LOWER(e.email) WHERE COALESCE(e.es_test,0)=0");

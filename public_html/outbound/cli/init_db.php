@@ -122,7 +122,67 @@ try {
         echo "   Migracion CRM: columna 'duplicado_id' anadida\n";
     }
 
+    // Migracion: anadir campos de datos fisicos (solo se rellenan al comprar)
+    $camposFisicos = [
+        'direccion'          => "ALTER TABLE clubes_crm ADD COLUMN direccion TEXT DEFAULT ''",
+        'cp'                 => "ALTER TABLE clubes_crm ADD COLUMN cp TEXT DEFAULT ''",
+        'ciudad'             => "ALTER TABLE clubes_crm ADD COLUMN ciudad TEXT DEFAULT ''",
+        'provincia'          => "ALTER TABLE clubes_crm ADD COLUMN provincia TEXT DEFAULT ''",
+        'cif'                => "ALTER TABLE clubes_crm ADD COLUMN cif TEXT DEFAULT ''",
+        'contacto_facturacion' => "ALTER TABLE clubes_crm ADD COLUMN contacto_facturacion TEXT DEFAULT ''",
+    ];
+    foreach ($camposFisicos as $campo => $sql) {
+        if (!in_array($campo, $colsCrm, true)) {
+            $db->exec($sql);
+            echo "   Migracion CRM: columna '{$campo}' anadida\n";
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 2b. TABLAS ESCALABLES: CONTACTOS Y TELEFONOS DEL CLUB
+    // Modelo empresa-contacto: un club (clubes_crm) puede tener N contactos
+    // (contactos_club) y N telefonos (telefonos_club). Cada telefono guarda su
+    // propio estado WhatsApp y el nombre de la persona a la que pertenece.
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Contactos del club (personas: presidente, delegado, encargado material...)
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS contactos_club (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            club_id INTEGER NOT NULL,
+            nombre TEXT DEFAULT '',
+            cargo TEXT DEFAULT '',
+            email_contacto TEXT DEFAULT '',
+            telefono TEXT DEFAULT '',
+            es_principal INTEGER DEFAULT 0,
+            activo INTEGER DEFAULT 1,
+            creado_el DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (club_id) REFERENCES clubes_crm(id)
+        )
+    ");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_contactos_club ON contactos_club(club_id)");
+
+    // Telefonos del club (una fila por numero, escalable)
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS telefonos_club (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            club_id INTEGER NOT NULL,
+            numero TEXT NOT NULL,
+            tipo VARCHAR(10) DEFAULT 'movil',
+            tiene_whatsapp INTEGER DEFAULT 0,
+            whatsapp_verificado INTEGER DEFAULT 0,
+            es_principal INTEGER DEFAULT 0,
+            nombre_contacto TEXT DEFAULT '',
+            notas TEXT DEFAULT '',
+            creado_el DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (club_id) REFERENCES clubes_crm(id)
+        )
+    ");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_telefonos_club ON telefonos_club(club_id)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_telefonos_numero ON telefonos_club(numero)");
+
     // Tabla de cuentas SMTP para rotacion dinamica
+
     $db->exec("
         CREATE TABLE IF NOT EXISTS cuentas_smtp (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -472,7 +532,11 @@ EOT2;
     $db->exec("CREATE INDEX IF NOT EXISTS idx_envios_estado ON envios(estado)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_envios_cuenta ON envios(cuenta_emision)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_envios_tracking ON envios(tracking_id)");
+    // Índice compuesto para acelerar el JOIN aperturas↔envios y el filtro de aislamiento
+    // TEST/REAL (es_test=0) usado en la agregación de aperturas del Kanban.
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_envios_tracking_test ON envios(tracking_id, es_test)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_aperturas_tracking ON aperturas(tracking_id)");
+
     $db->exec("CREATE INDEX IF NOT EXISTS idx_rebotes_email ON rebotes(email)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_crm_estado ON clubes_crm(estado_lead)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_crm_federacion ON clubes_crm(federacion)");
@@ -573,11 +637,61 @@ EOT2;
         echo "   clubes_crm ya tiene {$countCRM} registros. Usa --migrate-contacts para forzar re-migracion.\n";
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // 4c. MIGRACION DE TELEFONOS EXISTENTES A telefonos_club
+    // Puebla la tabla escalable telefonos_club a partir de los campos
+    // legacy telefono_movil / telefono_fijo de clubes_crm (una fila por
+    // numero). Es idempotente: solo inserta si el numero no existe ya para
+    // ese club. Se ejecuta SIEMPRE (no solo con --migrate-contacts).
+    // ─────────────────────────────────────────────────────────────────────
+    $telefonosMigrados = 0;
+    $resClubesTel = $db->query("SELECT id, telefono_movil, telefono_fijo, tiene_whatsapp FROM clubes_crm");
+    $stmtTel = $db->prepare(
+        "INSERT OR IGNORE INTO telefonos_club (club_id, numero, tipo, tiene_whatsapp, whatsapp_verificado, es_principal)
+         VALUES (:club_id, :numero, :tipo, :wa, 0, :principal)"
+    );
+    while ($clubTel = $resClubesTel->fetchArray(SQLITE3_ASSOC)) {
+        $clubId = (int)$clubTel['id'];
+        $waClub = (int)$clubTel['tiene_whatsapp'];
+
+        // Móviles: cada numero en su propia fila
+        $moviles = array_filter(array_map('trim', explode(',', (string)$clubTel['telefono_movil'])));
+        foreach ($moviles as $i => $num) {
+            if ($num === '') continue;
+            $stmtTel->bindValue(':club_id', $clubId, SQLITE3_INTEGER);
+            $stmtTel->bindValue(':numero', $num, SQLITE3_TEXT);
+            $stmtTel->bindValue(':tipo', 'movil', SQLITE3_TEXT);
+            $stmtTel->bindValue(':wa', $waClub, SQLITE3_INTEGER);
+            $stmtTel->bindValue(':principal', $i === 0 ? 1 : 0, SQLITE3_INTEGER);
+            $stmtTel->execute();
+            $telefonosMigrados++;
+            $stmtTel->reset();
+        }
+
+        // Fijos: cada numero en su propia fila
+        $fijos = array_filter(array_map('trim', explode(',', (string)$clubTel['telefono_fijo'])));
+        foreach ($fijos as $i => $num) {
+            if ($num === '') continue;
+            $stmtTel->bindValue(':club_id', $clubId, SQLITE3_INTEGER);
+            $stmtTel->bindValue(':numero', $num, SQLITE3_TEXT);
+            $stmtTel->bindValue(':tipo', 'fijo', SQLITE3_TEXT);
+            $stmtTel->bindValue(':wa', 0, SQLITE3_INTEGER);
+            $stmtTel->bindValue(':principal', 0, SQLITE3_INTEGER);
+            $stmtTel->execute();
+            $telefonosMigrados++;
+            $stmtTel->reset();
+        }
+    }
+    if ($telefonosMigrados > 0) {
+        echo "   Telefonos migrados a telefonos_club: {$telefonosMigrados}\n";
+    }
+
     echo "\n══════════════════════════════════════════════\n";
     echo "  VERIFICACION DE TABLAS\n";
     echo "══════════════════════════════════════════════\n";
 
-    $tables = ['envios', 'aperturas', 'rebotes', 'clubes_crm', 'config', 'plantillas'];
+    $tables = ['envios', 'aperturas', 'rebotes', 'clubes_crm', 'config', 'plantillas', 'contactos_club', 'telefonos_club'];
+
     foreach ($tables as $table) {
         $cnt = (int)$db->querySingle("SELECT COUNT(*) FROM {$table}");
         echo "   {$table}: {$cnt} registros\n";

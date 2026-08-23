@@ -81,6 +81,224 @@ function normalizar_nombre_club(string $nombre): string
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// FUNCIONES PURAS DE DETECCIÓN DE DUPLICADOS
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Resetea los flags de duplicado de toda la tabla clubes_crm.
+ */
+function resetFlagsDuplicados(SQLite3 $db): void
+{
+    $db->exec("UPDATE clubes_crm SET es_duplicado = 0, duplicado_id = NULL");
+}
+
+/**
+ * Detecta pares de duplicados por email idéntico (ignorando vacíos).
+ * Devuelve un array de pares ['keep_id', 'dup_id', 'tipo' => 'email_exacto'].
+ *
+ * @param array<int,array<string,mixed>> $clubes
+ * @return array<int,array<string,mixed>>
+ */
+function detectarDuplicadosEmail(array $clubes): array
+{
+    $pares = [];
+    $emailMap = [];
+    foreach ($clubes as $c) {
+        $email = strtolower(trim($c['email']));
+        if ($email === '') continue;
+        $emailMap[$email][] = $c;
+    }
+
+    foreach ($emailMap as $grupo) {
+        $n = count($grupo);
+        if ($n > 1) {
+            for ($i = 1; $i < $n; $i++) {
+                $pares[] = [
+                    'keep_id' => $grupo[0]['id'],
+                    'dup_id'  => $grupo[$i]['id'],
+                    'tipo'    => 'email_exacto',
+                ];
+            }
+        }
+    }
+
+    return $pares;
+}
+
+/**
+ * Palabras genéricas que no sirven para confirmar que dos clubes son el mismo.
+ * Compartir solo estas palabras (p.ej. "ATLETICO", "CLUB", "FUTBOL") no basta
+ * para considerar dos registros como duplicados.
+ */
+function palabrasGenericasClub(): array
+{
+    return [
+        'ATLETICO', 'ATLETIC', 'CLUB', 'DEPORTIVO', 'DEPORTIVA', 'FUTBOL',
+        'FUTBOL', 'UNION', 'UNION', 'AGRUPACION', 'ASOCIACION', 'ESCUELA',
+        'SOCIEDAD', 'SPORTING', 'SPORT', 'REAL', 'CD', 'AD', 'CF', 'SD', 'UD',
+        'FUTBOL', 'FUTBOL', 'FUTBOL', 'FUTBOL', 'FUTBOL', 'FUTBOL',
+    ];
+}
+
+/**
+ * Elimina los acentos/tildes de una cadena en mayúsculas para comparar de forma
+ * insensible a acentos (p.ej. "ATLÉTICO" -> "ATLETICO").
+ */
+function quitarAcentos(string $s): string
+{
+    $con = ['Á','É','Í','Ó','Ú','Ü','À','È','Ì','Ò','Ù','Ñ'];
+    $sin = ['A','E','I','O','U','U','A','E','I','O','U','N'];
+    return str_replace($con, $sin, $s);
+}
+
+/**
+ * Devuelve el conjunto de palabras significativas (no genéricas) de un nombre
+ * normalizado. Se usan para confirmar que dos clubes comparten identidad.
+ * Las palabras se comparan sin acentos para que "ATLÉTICO" se filtre como
+ * genérica igual que "ATLETICO".
+ *
+ * @return array<string,bool>
+ */
+function palabrasSignificativasClub(string $nombreNormalizado): array
+{
+    $genericas = array_flip(palabrasGenericasClub());
+    $palabras = preg_split('/\s+/', trim($nombreNormalizado));
+    $sig = [];
+    foreach ($palabras as $p) {
+        $p = quitarAcentos(mb_strtoupper(trim($p), 'UTF-8'));
+        if ($p === '') continue;
+        if (mb_strlen($p, 'UTF-8') < 4) continue;      // palabras muy cortas no cuentan
+        if (isset($genericas[$p])) continue;            // genéricas no cuentan
+        $sig[$p] = true;
+    }
+    return $sig;
+}
+
+
+/**
+ * Devuelve la última palabra significativa del nombre normalizado (el
+ * discriminador real del club, p.ej. "CARDEÑA", "PINILLA"). Recorre las palabras
+ * de atrás hacia adelante e ignora acrónimos residuales de 1-2 letras que quedan
+ * tras normalizar sufijos como "C.F." -> "C F" o "S.A.D." -> "S A D".
+ */
+function ultimaPalabraNombre(string $nombreNormalizado): string
+{
+    $palabras = preg_split('/\s+/', trim($nombreNormalizado));
+    for ($i = count($palabras) - 1; $i >= 0; $i--) {
+        $p = quitarAcentos(mb_strtoupper(trim($palabras[$i]), 'UTF-8'));
+        if ($p === '') continue;
+        if (mb_strlen($p, 'UTF-8') < 3) continue; // ignora acrónimos residuales (C, F, S, A, D)
+        return $p;
+    }
+    return '';
+}
+
+
+/**
+ * Detecta pares de duplicados por nombre similar (>80%) dentro de la misma
+ * federación. Usa un set de claves "keep|dup" para evitar pares repetidos en O(1).
+ *
+ * VALIDACIÓN ESTRICTA: para evitar falsos positivos (p.ej. "ATLETICO CARDEÑA"
+ * vs "ATLETICO CORDOBES", "ATLETICO PINCIA" vs "ATLETICO PINILLA", o
+ * "ALGECIRAS C.F." vs "C.D. ALGECIRAS F.S."), además del umbral de similitud se
+ * exige que la ÚLTIMA palabra del nombre normalizado coincida exactamente.
+ * La última palabra es el discriminador real del club (nombre propio o acrónimo
+ * de modalidad), no la ciudad ni el prefijo genérico.
+ *
+ * @param array<int,array<string,mixed>> $clubes
+ * @return array<int,array<string,mixed>>
+ */
+function detectarDuplicadosNombre(array $clubes): array
+{
+    $pares = [];
+    $vistos = []; // set de claves "keep|dup" para deduplicación O(1)
+
+    // Agrupar por federación
+    $federacionMap = [];
+    foreach ($clubes as $c) {
+        $fed = trim($c['federacion']);
+        if ($fed === '') $fed = '_sin_federacion_';
+        $federacionMap[$fed][] = $c;
+    }
+
+    foreach ($federacionMap as $grupo) {
+        $n = count($grupo);
+
+        // Precalcular normalización, longitud, última palabra y email una sola vez por club
+        $norm = [];
+        $len = [];
+        $ultima = [];
+        $email = [];
+        for ($i = 0; $i < $n; $i++) {
+            $norm[$i] = normalizar_nombre_club($grupo[$i]['nombre_club']);
+            $len[$i] = mb_strlen($norm[$i], 'UTF-8');
+            $ultima[$i] = ultimaPalabraNombre($norm[$i]);
+            $email[$i] = strtolower(trim($grupo[$i]['email'] ?? ''));
+        }
+
+        for ($i = 0; $i < $n; $i++) {
+            if ($len[$i] < 5) continue;
+            for ($j = $i + 1; $j < $n; $j++) {
+                if ($len[$j] < 5) continue;
+
+                // Solo comparar si longitudes similares (ratio < 2x)
+                $lenRatio = max($len[$i], $len[$j]) / max(1, min($len[$i], $len[$j]));
+                if ($lenRatio > 2.0) continue;
+
+                // REGLA EMAIL DISCRIMINANTE: si ambos tienen email y son DISTINTOS,
+                // son clubes distintos (cada club usa su propio email de contacto).
+                // Solo se descarta la detección si ambos emails existen y difieren.
+                if ($email[$i] !== '' && $email[$j] !== '' && $email[$i] !== $email[$j]) continue;
+
+                // VALIDACIÓN ESTRICTA: la última palabra (discriminador) debe coincidir
+                if ($ultima[$i] === '' || $ultima[$j] === '') continue;
+                if ($ultima[$i] !== $ultima[$j]) continue;
+
+
+                similar_text($norm[$i], $norm[$j], $pct);
+                if ($pct > 90) {
+                    $clave = $grupo[$i]['id'] . '|' . $grupo[$j]['id'];
+                    if (isset($vistos[$clave])) continue;
+                    $vistos[$clave] = true;
+                    $pares[] = [
+                        'keep_id' => $grupo[$i]['id'],
+                        'dup_id'  => $grupo[$j]['id'],
+                        'tipo'    => 'nombre_similar',
+                        'pct'     => round($pct, 1),
+                    ];
+                }
+
+            }
+        }
+    }
+
+    return $pares;
+}
+
+
+
+/**
+ * Marca en BD los pares de duplicados detectados.
+ * Devuelve el array de pares marcados.
+ *
+ * @param array<int,array<string,mixed>> $pares
+ * @return array<int,array<string,mixed>>
+ */
+function marcarDuplicados(SQLite3 $db, array $pares): array
+{
+    $marcados = [];
+    $stmtMark = $db->prepare("UPDATE clubes_crm SET es_duplicado = 1, duplicado_id = :dup WHERE id = :id");
+    foreach ($pares as $p) {
+        $stmtMark->bindValue(':dup', $p['keep_id'], SQLITE3_INTEGER);
+        $stmtMark->bindValue(':id', $p['dup_id'], SQLITE3_INTEGER);
+        try { $stmtMark->execute(); } catch (\Exception) {}
+        $stmtMark->reset();
+        $marcados[] = $p;
+    }
+    return $marcados;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // ENDPOINT: scan_duplicates — Escanea TODA la BD y guarda resultados
 // ═════════════════════════════════════════════════════════════════════════════
 if ($action === 'scan_duplicates') {
@@ -89,7 +307,7 @@ if ($action === 'scan_duplicates') {
 
     try {
         // Resetear flags de duplicado
-        $db->exec("UPDATE clubes_crm SET es_duplicado = 0, duplicado_id = NULL");
+        resetFlagsDuplicados($db);
 
         $clubes = [];
         $res = $db->query("SELECT id, nombre_club, email, federacion FROM clubes_crm ORDER BY id ASC");
@@ -98,85 +316,15 @@ if ($action === 'scan_duplicates') {
         }
 
         $total = count($clubes);
-        $paresEncontrados = [];
-        $duplicadosMarcados = [];
 
-        // Match 1: emails identicos (ignorando vacios)
-        $emailMap = [];
-        foreach ($clubes as $c) {
-            $email = strtolower(trim($c['email']));
-            if ($email === '') continue;
-            $emailMap[$email][] = $c;
-        }
+        // Detección por email idéntico + por nombre similar
+        $paresEncontrados = array_merge(
+            detectarDuplicadosEmail($clubes),
+            detectarDuplicadosNombre($clubes)
+        );
 
-        foreach ($emailMap as $email => $grupo) {
-            if (count($grupo) > 1) {
-                for ($i = 1; $i < count($grupo); $i++) {
-                    $paresEncontrados[] = [
-                        'keep_id' => $grupo[0]['id'],
-                        'dup_id'  => $grupo[$i]['id'],
-                        'tipo'    => 'email_exacto',
-                    ];
-                }
-            }
-        }
-
-        // Match 2: nombres similares (>80%) dentro de la misma federacion
-        $federacionMap = [];
-        foreach ($clubes as $c) {
-            $fed = trim($c['federacion']);
-            if ($fed === '') $fed = '_sin_federacion_';
-            $federacionMap[$fed][] = $c;
-        }
-
-        foreach ($federacionMap as $fed => $grupo) {
-            $n = count($grupo);
-            for ($i = 0; $i < $n; $i++) {
-                $normA = normalizar_nombre_club($grupo[$i]['nombre_club']);
-                $lenA = mb_strlen($normA, 'UTF-8');
-                if ($lenA < 5) continue;
-
-                for ($j = $i + 1; $j < $n; $j++) {
-                    $normB = normalizar_nombre_club($grupo[$j]['nombre_club']);
-                    $lenB = mb_strlen($normB, 'UTF-8');
-                    if ($lenB < 5) continue;
-
-                    // Solo comparar si longitudes similares (ratio < 2x)
-                    $lenRatio = max($lenA, $lenB) / max(1, min($lenA, $lenB));
-                    if ($lenRatio > 2.0) continue;
-
-                    similar_text($normA, $normB, $pct);
-                    if ($pct > 80) {
-                        $yaRegistrado = false;
-                        foreach ($paresEncontrados as $p) {
-                            if (($p['keep_id'] == $grupo[$i]['id'] && $p['dup_id'] == $grupo[$j]['id']) ||
-                                ($p['keep_id'] == $grupo[$j]['id'] && $p['dup_id'] == $grupo[$i]['id'])) {
-                                $yaRegistrado = true;
-                                break;
-                            }
-                        }
-                        if (!$yaRegistrado) {
-                            $paresEncontrados[] = [
-                                'keep_id' => $grupo[$i]['id'],
-                                'dup_id'  => $grupo[$j]['id'],
-                                'tipo'    => 'nombre_similar',
-                                'pct'     => round($pct, 1),
-                            ];
-                        }
-                    }
-                }
-            }
-        }
-
-        // Guardar en BD
-        $stmtMark = $db->prepare("UPDATE clubes_crm SET es_duplicado = 1, duplicado_id = :dup WHERE id = :id");
-        foreach ($paresEncontrados as $p) {
-            $stmtMark->bindValue(':dup', $p['keep_id'], SQLITE3_INTEGER);
-            $stmtMark->bindValue(':id', $p['dup_id'], SQLITE3_INTEGER);
-            try { $stmtMark->execute(); } catch (\Exception) {}
-            $stmtMark->reset();
-            $duplicadosMarcados[] = $p;
-        }
+        // Persistir en BD
+        $duplicadosMarcados = marcarDuplicados($db, $paresEncontrados);
 
         echo json_encode([
             'ok'       => true,
@@ -266,10 +414,75 @@ if ($action === 'merge_leads') {
     exit;
 }
 
+// ENDPOINT: delete_lead — Elimina un lead de la BD (con limpieza de referencias)
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'delete_lead') {
+    header('Content-Type: application/json');
+
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+
+        if ($id <= 0) {
+            echo json_encode(['ok' => false, 'error' => 'ID inválido']);
+            exit;
+        }
+
+        $lead = $db->querySingle("SELECT * FROM clubes_crm WHERE id = {$id}", true);
+        if (!$lead) {
+            echo json_encode(['ok' => false, 'error' => 'Registro no encontrado']);
+            exit;
+        }
+
+        // Limpiar referencias: si otro club apuntaba a este como duplicado
+        $db->exec("UPDATE clubes_crm SET duplicado_id = NULL, es_duplicado = 0 WHERE duplicado_id = {$id}");
+
+        // Eliminar el lead
+        $db->exec("DELETE FROM clubes_crm WHERE id = {$id}");
+
+        echo json_encode(['ok' => true, 'deleted' => true, 'id' => $id]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: omitir_duplicado — Desmarca un lead como duplicado para que
+// vuelva a ser elegible en la lanzadera (se envía igualmente aunque comparta
+// nombre con otro registro pero tenga email distinto).
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'omitir_duplicado') {
+    header('Content-Type: application/json');
+
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+
+        if ($id <= 0) {
+            echo json_encode(['ok' => false, 'error' => 'ID inválido']);
+            exit;
+        }
+
+        $lead = $db->querySingle("SELECT * FROM clubes_crm WHERE id = {$id}", true);
+        if (!$lead) {
+            echo json_encode(['ok' => false, 'error' => 'Registro no encontrado']);
+            exit;
+        }
+
+        // Desmarcar como duplicado: vuelve a ser elegible en la lanzadera
+        $db->exec("UPDATE clubes_crm SET es_duplicado = 0, duplicado_id = NULL WHERE id = {$id}");
+
+        echo json_encode(['ok' => true, 'omitido' => true, 'id' => $id]);
+    } catch (\Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // ENDPOINT: get_leads_table — Datos paginados para la tabla gestor
 // ═════════════════════════════════════════════════════════════════════════════
 if ($action === 'get_leads_table') {
+
     header('Content-Type: application/json');
 
     $page   = max(1, (int)($_GET['page'] ?? 1));
@@ -279,6 +492,8 @@ $perPage = min(250, max(10, (int)($_GET['per_page'] ?? 50)));
     $search  = trim($_GET['search'] ?? '');
     $filterEstado = trim($_GET['estado'] ?? '');
     $filterFed    = trim($_GET['federacion'] ?? '');
+    $filterDup    = trim($_GET['duplicado'] ?? '');
+
 
     $allowedSorts = ['nombre_club', 'email', 'estado_lead', 'federacion', 'creado_el', 'telefono_movil'];
     if (!in_array($sort, $allowedSorts, true)) $sort = 'nombre_club';
@@ -302,8 +517,12 @@ $perPage = min(250, max(10, (int)($_GET['per_page'] ?? 50)));
         $where[] = "federacion = :fed";
         $params[':fed'] = $filterFed;
     }
+    if ($filterDup === '1') {
+        $where[] = "es_duplicado = 1";
+    }
 
     $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
 
     // Count
     $sqlCount = "SELECT COUNT(*) as cnt FROM clubes_crm {$whereSQL}";

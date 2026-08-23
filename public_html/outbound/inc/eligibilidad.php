@@ -152,7 +152,15 @@ function esElegibleParaEnvio(SQLite3 $db, int $leadId, int $campaignId = 0): arr
     }
 
     // Estados de supresión / baja que bloquean el envío comercial.
-    $estadosSupresion = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido'];
+    // Modelo de 7 columnas (V5.1):
+    //   '06 Perdido' → mala venta manual (No interesa / Rechazó propuesta / Otro)
+    //   '07 Baja'    → baja automática de campaña (opt-out/unsubscribe automático)
+    // Se mantienen además los estados legacy de supresión para no romper datos históricos.
+    $estadosSupresion = [
+        'Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido',
+        '06 Perdido', '06 Baja/Archivado', 'Baja/Archivado', '07 Baja', 'Baja'
+    ];
+
 
     $lead = $db->querySingle(
         "SELECT id, email, estado_lead, es_duplicado, nombre_club
