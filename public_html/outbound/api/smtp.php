@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 $DB_PATH = __DIR__ . '/../data/stats.db';
 
+// Helper de cifrado AES-256-GCM (clave maestra en inc/secret.php).
+require_once __DIR__ . '/../inc/crypto.php';
+
 // ─── AUTENTICACIÓN ───────────────────────────────────────────────────────────
 session_start();
 $isCli = (php_sapi_name() === 'cli');
@@ -35,8 +38,14 @@ if ($action === 'get_accounts') {
     $accounts = [];
     $res = $db->query("SELECT * FROM cuentas_smtp ORDER BY email ASC");
     while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
-        // Se devuelve la contraseña completa para permitir su previsualización en el editor.
-        // El modal la mantiene oculta por defecto (type=password) y solo se muestra al pulsar el toggle.
+        // La contraseña se almacena cifrada (AES-256-GCM) en BD. Este endpoint
+        // solo es accesible para usuarios autenticados (ver autenticación al
+        // inicio del archivo), por lo que se devuelve DESCIFRADA para que el
+        // editor de cuentas pueda mostrarla y editarla. El campo se muestra
+        // oculto por defecto (type=password) con toggle para revelarla.
+        if (!empty($row['password'])) {
+            $row['password'] = futprotec_descifrarPassword($row['password']);
+        }
         //
         // SEMÁNTICA DE "ENVIADOS HOY" (FASE C.3, punto 12):
         // `cuentas_smtp.enviados_hoy` es un CONTADOR ACUMULADO HISTÓRICO (no se
@@ -82,8 +91,10 @@ if ($action === 'save_account') {
 
         if ($id > 0) {
             if ($password !== '' && !str_contains($password, '***')) {
+                // Cifrar la contraseña antes de guardarla en BD.
+                $passwordCifrada = futprotec_cifrarPassword($password);
                 $stmt = $db->prepare("UPDATE cuentas_smtp SET email=:email, host=:host, puerto=:p, usuario=:u, password=:pw, seguridad=:s, limite_diario=:l, nombre_emisor=:nemi, cargo_emisor=:cemi WHERE id=:id");
-                $stmt->bindValue(':pw', $password, SQLITE3_TEXT);
+                $stmt->bindValue(':pw', $passwordCifrada, SQLITE3_TEXT);
             } else {
                 $stmt = $db->prepare("UPDATE cuentas_smtp SET email=:email, host=:host, puerto=:p, usuario=:u, seguridad=:s, limite_diario=:l, nombre_emisor=:nemi, cargo_emisor=:cemi WHERE id=:id");
             }
@@ -93,8 +104,10 @@ if ($action === 'save_account') {
                 echo json_encode(['ok' => false, 'error' => 'Password requerido para nueva cuenta']);
                 exit;
             }
+            // Cifrar la contraseña antes de guardarla en BD.
+            $passwordCifrada = futprotec_cifrarPassword($password);
             $stmt = $db->prepare("INSERT INTO cuentas_smtp (email, host, puerto, usuario, password, seguridad, limite_diario, nombre_emisor, cargo_emisor) VALUES (:email, :host, :p, :u, :pw, :s, :l, :nemi, :cemi)");
-            $stmt->bindValue(':pw', $password, SQLITE3_TEXT);
+            $stmt->bindValue(':pw', $passwordCifrada, SQLITE3_TEXT);
         }
         $stmt->bindValue(':email', $email, SQLITE3_TEXT);
         $stmt->bindValue(':host', $host, SQLITE3_TEXT);
@@ -173,7 +186,8 @@ if ($action === 'test_smtp') {
         $host    = $cuenta['host'];
         $puerto  = (int)$cuenta['puerto'];
         $user    = $cuenta['usuario'];
-        $pass    = $cuenta['password'];
+        // La contraseña está cifrada en BD (FP1:...). Descifrar antes de autenticar.
+        $pass    = futprotec_descifrarPassword($cuenta['password'] ?? '');
         $timeout = 15;
         $readTimeout = 15;
 

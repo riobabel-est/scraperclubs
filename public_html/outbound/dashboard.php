@@ -665,6 +665,69 @@ $db->close();
         .mensaje-cuerpo-html a { color: #38bdf8; }
         .mensaje-cuerpo-html table { max-width: 100%; }
 
+        /* ═══════════════════════════════════════════════════════════════════
+           SISTEMA DE DISEÑO GLOBAL (UI TOKENS)
+           Fuente única de verdad de componentes. CUALQUIER vista, tabla,
+           formulario o modal DEBE usar estas clases. No usar estilos inline
+           ni clases ad-hoc que rompan la jerarquía.
+           ═══════════════════════════════════════════════════════════════════ */
+
+        /* ── Tarjetas / Contenedores ─────────────────────────────────────── */
+        .ui-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 0.75rem; padding: 1.25rem; }
+        .ui-card-sub { background: rgba(30,41,59,0.3); border: 1px solid rgba(51,65,85,0.5); border-radius: 0.75rem; padding: 1rem; }
+        .ui-card-inner { background: rgba(30,41,59,0.5); border: 1px solid #334155; border-radius: 0.5rem; padding: 0.75rem; }
+
+        /* ── Cabeceras de sección ────────────────────────────────────────── */
+        .ui-section-title { font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #e2e8f0; }
+        .ui-section-sub { font-size: 0.75rem; color: #94a3b8; }
+        .ui-title-icon { width: 1.25rem; height: 1.25rem; flex-shrink: 0; }
+
+        /* ── Labels ──────────────────────────────────────────────────────── */
+        .ui-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+
+        /* ── Inputs / Selects / Textareas ────────────────────────────────── */
+        .ui-input { width: 100%; background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; color: #e2e8f0; outline: none; }
+        .ui-input:focus { border-color: rgba(245,158,11,0.5); }
+        .ui-input-sm { width: 100%; background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.375rem 0.75rem; font-size: 0.75rem; color: #e2e8f0; outline: none; }
+        .ui-input-sm:focus { border-color: rgba(245,158,11,0.5); }
+        .ui-input-readonly { background: rgba(30,41,59,0.5); color: #94a3b8; cursor: not-allowed; }
+
+        /* ── Botones ─────────────────────────────────────────────────────── */
+        .ui-btn { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; transition: all 0.15s ease; border: 1px solid transparent; }
+        .ui-btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+        .ui-btn-primary { background: rgba(59,130,246,0.2); color: #60a5fa; border-color: rgba(59,130,246,0.3); }
+        .ui-btn-primary:hover { background: rgba(59,130,246,0.3); }
+        .ui-btn-danger { background: rgba(244,63,94,0.2); color: #fb7185; border-color: rgba(244,63,94,0.3); }
+        .ui-btn-danger:hover { background: rgba(244,63,94,0.3); }
+        .ui-btn-success { background: rgba(16,185,129,0.2); color: #34d399; border-color: rgba(16,185,129,0.3); }
+        .ui-btn-success:hover { background: rgba(16,185,129,0.3); }
+        .ui-btn-warning { background: rgba(245,158,11,0.2); color: #fbbf24; border-color: rgba(245,158,11,0.3); }
+        .ui-btn-warning:hover { background: rgba(245,158,11,0.3); }
+        .ui-btn-ghost { background: #1e293b; border-color: #334155; color: #94a3b8; }
+        .ui-btn-ghost:hover { background: #334155; color: #e2e8f0; }
+
+        /* ── Tablas ──────────────────────────────────────────────────────── */
+        .ui-table { width: 100%; font-size: 0.875rem; }
+        .ui-thead { background: rgba(30,41,59,0.5); color: #cbd5e1; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .ui-th { padding: 0.5rem 0.75rem; text-align: left; font-weight: 600; }
+        .ui-td { padding: 0.5rem 0.75rem; }
+        .ui-tr { border-bottom: 1px solid rgba(30,41,59,0.5); transition: background 0.15s ease; }
+        .ui-tr:hover { background: rgba(30,41,59,0.3); }
+
+        /* ── Modales / Diálogos ──────────────────────────────────────────── */
+        .ui-modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); }
+        .ui-modal { background: #0f172a; border: 1px solid #334155; border-radius: 1rem; width: 100%; margin: 1rem; }
+        .ui-modal-header { padding: 0.75rem 1.25rem; border-bottom: 1px solid #1e293b; display: flex; align-items: center; justify-content: space-between; }
+        .ui-modal-title { font-size: 0.875rem; font-weight: 700; color: #e2e8f0; }
+        .ui-modal-body { padding: 1.25rem; }
+        .ui-modal-close { color: #94a3b8; transition: color 0.15s ease; }
+        .ui-modal-close:hover { color: #e2e8f0; }
+
+        /* ── Badges / Chips / Dots de estado ─────────────────────────────── */
+        .ui-badge { padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+        .ui-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; display: inline-block; }
+        .ui-dot-sm { width: 0.375rem; height: 0.375rem; border-radius: 9999px; display: inline-block; }
+
     </style>
 </head>
 <body class="bg-slate-950 text-slate-200 min-h-screen" x-data="app()" x-init="boot()">
@@ -808,7 +871,7 @@ include __DIR__ . '/tabs/modals.php';
 
         </div>
         <button @click="irARespuestas()" class="shrink-0 px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition">Ver</button>
-        <button @click="rsToastVisible=false; rsToast=''" class="shrink-0 text-slate-500 hover:text-slate-300 transition p-1" title="Cerrar">
+        <button @click="rsToastVisible=false; rsToast=''" class="shrink-0 text-slate-400 hover:text-slate-300 transition p-1" title="Cerrar">
             <i data-lucide="x" class="w-4 h-4"></i>
         </button>
     </div>

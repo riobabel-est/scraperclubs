@@ -1,14 +1,17 @@
-<div class="space-y-8">
+<div class="grid lg:grid-cols-2 gap-4 items-start">
+
+    <!-- ═══════════ COLUMNA IZQUIERDA ═══════════ -->
+    <div class="space-y-4">
 
     <!-- ═══════════ INTELIGENCIA ARTIFICIAL (MULTI-PROVEEDOR) ═══════════ -->
-    <div class="rounded-xl border border-violet-500/30 bg-slate-900/60 p-4" x-data="configIA()" x-init="cargar()">
-        <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-2">
-                <i data-lucide="brain-circuit" class="w-4 h-4 text-violet-400"></i>
-                <h5 class="text-sm font-semibold text-violet-300">INTELIGENCIA ARTIFICIAL</h5>
-            </div>
-            <span class="text-[10px] uppercase tracking-wider text-slate-500">Clasificación de respuestas</span>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="configIA()" x-init="cargar()">
+
+        <div class="flex items-center gap-3 mb-4">
+            <i data-lucide="brain-circuit" class="w-5 h-5 text-violet-400"></i>
+            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Inteligencia Artificial</h5>
+            <span class="text-xs text-slate-400 ml-auto">Clasificación de respuestas</span>
         </div>
+
 
         <!-- Selector de proveedor -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -22,7 +25,7 @@
                     <option value="mistral">Mistral AI</option>
                     <option value="groq">Groq (Llama)</option>
                 </select>
-                <p class="text-[11px] text-slate-500 mt-1.5">Selecciona el proveedor activo para clasificar respuestas.</p>
+                <p class="text-[11px] text-slate-400 mt-1.5">Selecciona el proveedor activo para clasificar respuestas.</p>
             </div>
 
             <!-- API Key -->
@@ -35,7 +38,7 @@
                         <i data-lucide="eye" class="w-4 h-4"></i>
                     </button>
                 </div>
-                <p class="text-[11px] text-slate-500 mt-1.5">Se guarda en la BD de configuración. Nunca se expone en logs ni commits.</p>
+                <p class="text-[11px] text-slate-400 mt-1.5">Se guarda en la BD de configuración. Nunca se expone en logs ni commits.</p>
             </div>
 
             <!-- Modelo -->
@@ -46,7 +49,7 @@
                         <option :value="m.value" x-text="m.label"></option>
                     </template>
                 </select>
-                <p class="text-[11px] text-slate-500 mt-1.5" x-text="notaModelo"></p>
+                <p class="text-[11px] text-slate-400 mt-1.5" x-text="notaModelo"></p>
             </div>
         </div>
 
@@ -62,67 +65,74 @@
     </div>
 
     <!-- ═══════════ CUENTAS SMTP ═══════════ -->
-    <div>
-        <div class="flex items-center justify-between mb-3">
-            <h5 class="text-sm font-semibold text-slate-300">CUENTAS SMTP</h5>
-            <button @click="openSmtp(0)" class="px-3 py-1.5 bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-semibold hover:bg-blue-500/25 transition flex items-center gap-1">
-                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Anadir Cuenta
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+            <i data-lucide="server" class="w-5 h-5 text-cyan-400"></i>
+            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Cuentas SMTP</h5>
+            <button @click="openSmtp(0)" class="ml-auto px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30">
+                <i data-lucide="plus" class="w-4 h-4"></i> Añadir Cuenta
             </button>
         </div>
-        <div class="overflow-x-auto rounded-xl border border-slate-800">
-            <table class="w-full text-xs">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
                 <thead>
-                    <tr class="bg-slate-900 text-slate-400 text-[10px] uppercase tracking-wider">
-                        <th class="px-3 py-2 text-left">Emisor</th>
-                        <th class="px-3 py-2 text-left hidden sm:table-cell">Host</th>
-                        <th class="px-3 py-2 text-center">Envios / Limite</th>
-                        <th class="px-3 py-2 text-center">Estado</th>
-                        <th class="px-3 py-2 text-right">Acciones</th>
+                    <tr class="bg-slate-800/50 text-slate-300 text-xs uppercase tracking-wider">
+                        <th class="px-3 py-2 text-left font-semibold">Cuenta</th>
+                        <th class="px-3 py-2 text-left hidden sm:table-cell font-semibold">Host</th>
+                        <th class="px-3 py-2 text-center w-36 font-semibold">Uso Hoy</th>
+                        <th class="px-3 py-2 text-center w-14 font-semibold">SMTP</th>
+                        <th class="px-3 py-2 text-center w-14 font-semibold">IMAP</th>
+                        <th class="px-3 py-2 text-right font-semibold">Acciones</th>
                     </tr>
                 </thead>
                 <tbody id="smtpBody">
-                    <tr><td colspan="5" class="px-3 py-8 text-center text-slate-600">Cargando...</td></tr>
+                    <tr><td colspan="6" class="px-3 py-8 text-center text-slate-400">Cargando...</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
 
+    </div><!-- /columna izquierda -->
+
+    <!-- ═══════════ COLUMNA DERECHA ═══════════ -->
+    <div class="space-y-4">
+
+
     <!-- ═══════════ GESTIÓN DE PRUEBAS (AISLAMIENTO TEST/REAL) ═══════════ -->
-    <div class="rounded-xl border border-amber-500/30 bg-slate-900/60 p-4" x-data="gestionPruebas()" x-init="cargarTodo()">
-        <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-2">
-                <i data-lucide="flask-conical" class="w-4 h-4 text-amber-400"></i>
-                <h5 class="text-sm font-semibold text-amber-300">GESTIÓN DE PRUEBAS</h5>
-            </div>
-            <span class="text-[10px] uppercase tracking-wider text-slate-500">Aislado del histórico comercial</span>
+
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="gestionPruebas()" x-init="cargarTodo()">
+        <div class="flex items-center gap-3 mb-4">
+            <i data-lucide="flask-conical" class="w-5 h-5 text-amber-400"></i>
+            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Gestión de Pruebas</h5>
+            <span class="text-xs text-slate-400 ml-auto">Aislado del histórico comercial</span>
         </div>
 
         <!-- Destinatarios de prueba -->
         <div class="mb-6">
-            <div class="flex items-center justify-between mb-2">
-                <h6 class="text-xs font-semibold text-slate-300">Destinatarios de prueba</h6>
-                <button @click="nuevoDestinatario()" class="px-2.5 py-1 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold hover:bg-amber-500/25 transition flex items-center gap-1">
-                    <i data-lucide="plus" class="w-3 h-3"></i> Añadir destinatario
+            <div class="flex items-center justify-between mb-3">
+                <h6 class="text-sm font-semibold text-slate-300">Destinatarios de prueba</h6>
+                <button @click="nuevoDestinatario()" class="px-3 py-1.5 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold hover:bg-amber-500/25 transition flex items-center gap-1">
+                    <i data-lucide="plus" class="w-3.5 h-3.5"></i> Añadir destinatario
                 </button>
             </div>
-            <div class="overflow-x-auto rounded-lg border border-slate-800">
-                <table class="w-full text-xs">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
                     <thead>
-                        <tr class="bg-slate-900 text-slate-400 text-[10px] uppercase tracking-wider">
-                            <th class="px-3 py-2 text-left">Email</th>
-                            <th class="px-3 py-2 text-left hidden sm:table-cell">Nombre</th>
-                            <th class="px-3 py-2 text-center">Estado</th>
-                            <th class="px-3 py-2 text-right">Acciones</th>
+                        <tr class="bg-slate-800/50 text-slate-300 text-xs uppercase tracking-wider">
+                            <th class="px-3 py-2 text-left font-semibold">Email</th>
+                            <th class="px-3 py-2 text-left hidden sm:table-cell font-semibold">Nombre</th>
+                            <th class="px-3 py-2 text-center font-semibold">Estado</th>
+                            <th class="px-3 py-2 text-right font-semibold">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                         <template x-for="d in destinatarios" :key="d.id">
-                            <tr class="border-t border-slate-800/60">
+                            <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
                                 <td class="px-3 py-2 text-slate-300" x-text="d.email"></td>
                                 <td class="px-3 py-2 text-slate-400 hidden sm:table-cell" x-text="d.nombre || '—'"></td>
                                 <td class="px-3 py-2 text-center">
                                     <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold"
-                                        :class="d.activo ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700/40 text-slate-500'"
+                                        :class="d.activo ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700/40 text-slate-400'"
                                         x-text="d.activo ? 'Activo' : 'Inactivo'"></span>
                                 </td>
                                 <td class="px-3 py-2 text-right">
@@ -133,7 +143,7 @@
                             </tr>
                         </template>
                         <tr x-show="destinatarios.length === 0">
-                            <td colspan="4" class="px-3 py-6 text-center text-slate-600">Sin destinatarios de prueba configurados.</td>
+                            <td colspan="4" class="px-3 py-6 text-center text-slate-400">Sin destinatarios de prueba configurados.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -142,28 +152,28 @@
 
         <!-- Leads TEST -->
         <div class="mb-6">
-            <h6 class="text-xs font-semibold text-slate-300 mb-2">Leads TEST</h6>
-            <div class="overflow-x-auto rounded-lg border border-slate-800">
-                <table class="w-full text-xs">
+            <h6 class="text-sm font-semibold text-slate-300 mb-3">Leads TEST</h6>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
                     <thead>
-                        <tr class="bg-slate-900 text-slate-400 text-[10px] uppercase tracking-wider">
-                            <th class="px-3 py-2 text-left">ID</th>
-                            <th class="px-3 py-2 text-left">Club</th>
-                            <th class="px-3 py-2 text-left">Email</th>
-                            <th class="px-3 py-2 text-center">Estado</th>
+                        <tr class="bg-slate-800/50 text-slate-300 text-xs uppercase tracking-wider">
+                            <th class="px-3 py-2 text-left font-semibold">ID</th>
+                            <th class="px-3 py-2 text-left font-semibold">Club</th>
+                            <th class="px-3 py-2 text-left font-semibold">Email</th>
+                            <th class="px-3 py-2 text-center font-semibold">Estado</th>
                         </tr>
                     </thead>
                     <tbody>
                         <template x-for="l in leadsTest" :key="l.id">
-                            <tr class="border-t border-slate-800/60">
-                                <td class="px-3 py-2 text-slate-500" x-text="l.id"></td>
+                            <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                                <td class="px-3 py-2 text-slate-400" x-text="l.id"></td>
                                 <td class="px-3 py-2 text-slate-300" x-text="l.nombre_club"></td>
                                 <td class="px-3 py-2 text-slate-400" x-text="l.email"></td>
                                 <td class="px-3 py-2 text-center text-slate-400" x-text="l.estado_lead"></td>
                             </tr>
                         </template>
                         <tr x-show="leadsTest.length === 0">
-                            <td colspan="4" class="px-3 py-6 text-center text-slate-600">No hay leads TEST.</td>
+                            <td colspan="4" class="px-3 py-6 text-center text-slate-400">No hay leads TEST.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -172,25 +182,25 @@
 
         <!-- Histórico de pruebas -->
         <div class="mb-6">
-            <div class="flex items-center justify-between mb-2">
-                <h6 class="text-xs font-semibold text-slate-300">Histórico de pruebas</h6>
-                <span class="text-[10px] text-slate-500" x-text="'Total: ' + historico.length"></span>
+            <div class="flex items-center justify-between mb-3">
+                <h6 class="text-sm font-semibold text-slate-300">Histórico de pruebas</h6>
+                <span class="text-xs text-slate-400" x-text="'Total: ' + historico.length"></span>
             </div>
-            <div class="overflow-x-auto rounded-lg border border-slate-800 max-h-64 overflow-y-auto">
-                <table class="w-full text-xs">
-                    <thead class="sticky top-0 bg-slate-900">
-                        <tr class="text-slate-400 text-[10px] uppercase tracking-wider">
-                            <th class="px-3 py-2 text-left">ID</th>
-                            <th class="px-3 py-2 text-left">Club</th>
-                            <th class="px-3 py-2 text-left">Email</th>
-                            <th class="px-3 py-2 text-left">Fecha</th>
-                            <th class="px-3 py-2 text-center">Estado</th>
+            <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="sticky top-0 bg-slate-800/50">
+                        <tr class="text-slate-300 text-xs uppercase tracking-wider">
+                            <th class="px-3 py-2 text-left font-semibold">ID</th>
+                            <th class="px-3 py-2 text-left font-semibold">Club</th>
+                            <th class="px-3 py-2 text-left font-semibold">Email</th>
+                            <th class="px-3 py-2 text-left font-semibold">Fecha</th>
+                            <th class="px-3 py-2 text-center font-semibold">Estado</th>
                         </tr>
                     </thead>
                     <tbody>
                         <template x-for="h in historico" :key="h.id">
-                            <tr class="border-t border-slate-800/60">
-                                <td class="px-3 py-2 text-slate-500" x-text="h.id"></td>
+                            <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                                <td class="px-3 py-2 text-slate-400" x-text="h.id"></td>
                                 <td class="px-3 py-2 text-slate-300" x-text="h.club"></td>
                                 <td class="px-3 py-2 text-slate-400" x-text="h.email"></td>
                                 <td class="px-3 py-2 text-slate-400" x-text="h.fecha_envio"></td>
@@ -198,7 +208,7 @@
                             </tr>
                         </template>
                         <tr x-show="historico.length === 0">
-                            <td colspan="5" class="px-3 py-6 text-center text-slate-600">Sin envíos de prueba registrados.</td>
+                            <td colspan="5" class="px-3 py-6 text-center text-slate-400">Sin envíos de prueba registrados.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -206,13 +216,15 @@
         </div>
 
         <!-- Acciones -->
-        <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-            <button @click="limpiarHistorico()" class="px-3 py-2 bg-rose-500/15 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold hover:bg-rose-500/25 transition flex items-center gap-1">
-                <i data-lucide="trash" class="w-3.5 h-3.5"></i> Limpiar histórico de pruebas
+        <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+            <button @click="limpiarHistorico()" class="px-4 py-2 bg-rose-500/15 text-rose-400 border border-rose-500/30 rounded-lg text-sm font-semibold hover:bg-rose-500/25 transition flex items-center gap-2">
+                <i data-lucide="trash" class="w-4 h-4"></i> Limpiar histórico de pruebas
             </button>
         </div>
     </div>
 </div>
+</div>
+
 
 <script>
 function configIA() {

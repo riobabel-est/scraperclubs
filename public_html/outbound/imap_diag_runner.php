@@ -41,7 +41,7 @@ echo "[" . date('Y-m-d H:i:s') . "] Host: {$IMAP_HOST}:{$IMAP_PORT}\n";
 
 $imap = new ClienteIMAP($IMAP_HOST, $IMAP_PORT);
 try {
-    $imap->conectar($cuenta['usuario'], $cuenta['password']);
+    $imap->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
     echo "[" . date('Y-m-d H:i:s') . "] [OK] Login IMAP correcto\n";
 
     $total = $imap->seleccionar('INBOX');

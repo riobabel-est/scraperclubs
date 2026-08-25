@@ -25,9 +25,9 @@
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
         <h5 class="text-sm font-semibold text-slate-200 mb-2">Campaña</h5>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-          <div><span class="text-slate-500">Identificador:</span> <span class="text-slate-200" x-text="campaña.identificador || '—'"></span></div>
-          <div><span class="text-slate-500">Estado:</span> <span class="text-slate-200" x-text="campaña.estado"></span></div>
-          <div><span class="text-slate-500">Entorno:</span> <span class="text-slate-200" x-text="campaña.entorno"></span></div>
+          <div><span class="text-slate-400">Identificador:</span> <span class="text-slate-200" x-text="campaña.identificador || '—'"></span></div>
+          <div><span class="text-slate-400">Estado:</span> <span class="text-slate-200" x-text="campaña.estado"></span></div>
+          <div><span class="text-slate-400">Entorno:</span> <span class="text-slate-200" x-text="campaña.entorno"></span></div>
           <div>
             <span x-show="!coherente" class="text-amber-400 text-[11px]">⚠ entorno incoherente para piloto</span>
           </div>
@@ -102,7 +102,7 @@
           </template>
         </tbody>
       </table>
-      <p class="text-[11px] text-slate-500 mt-2">PRR = POSITIVE / ACEPTADOS SMTP. No se declara variante ganadora.</p>
+      <p class="text-[11px] text-slate-400 mt-2">PRR = POSITIVE / ACEPTADOS SMTP. No se declara variante ganadora.</p>
     </div>
     </template>
 
@@ -126,7 +126,7 @@
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mt-4 text-xs text-slate-400">
       <div x-show="mayorPrr">Mayor PRR observado actualmente: <span class="text-slate-200 font-semibold" x-text="mayorPrr"></span></div>
       <div x-show="!mayorPrr && metricas.aceptados < 1">OBSERVACIÓN INSUFICIENTE</div>
-      <p class="text-[11px] text-slate-500 mt-2">Open se registra por píxel y puede verse afectado por privacidad, caché o bloqueo de imágenes. Open ≠ interés comercial.</p>
+      <p class="text-[11px] text-slate-400 mt-2">Open se registra por píxel y puede verse afectado por privacidad, caché o bloqueo de imágenes. Open ≠ interés comercial.</p>
     </div>
     </template>
   </div>

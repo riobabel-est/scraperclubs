@@ -15,11 +15,11 @@
 <!-- LISTADO DE PLANTILLAS -->
 <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col">
 <label class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Plantillas</label>
-<div class="text-xs text-slate-500 mt-1 mb-2" x-show="templatesFiltradas.length > 0">
+<div class="text-xs text-slate-400 mt-1 mb-2" x-show="templatesFiltradas.length > 0">
 <span x-text="templatesFiltradas.length"></span> plantillas
-<span class="text-slate-600">·</span>
+<span class="text-slate-400">·</span>
 📧 <span x-text="templatesFiltradas.filter(t=>t.tipo!=='whatsapp').length" class="text-slate-400"></span>
-<span class="text-slate-600">·</span>
+<span class="text-slate-400">·</span>
 💬 <span x-text="templatesFiltradas.filter(t=>t.tipo==='whatsapp').length" class="text-slate-400"></span>
 </div>
 
@@ -27,7 +27,7 @@
 <div class="relative mt-2" x-show="templatesFiltradas.length > 0 || edSearch">
 <input type="text" x-model="edSearch" placeholder="Buscar plantilla..." 
 class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50 pl-8">
-<i data-lucide="search" class="w-4 h-4 text-slate-500 absolute left-2.5 top-2.5"></i>
+<i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5"></i>
 </div>
 
 <!-- Lista scrollable -->
@@ -43,7 +43,7 @@ class="w-full text-left px-3 py-2.5 rounded-lg transition-all border flex items-
 <!-- Nombre + Pipeline -->
 <div class="flex-1 min-w-0">
 <div class="text-sm truncate" x-text="t.nombre" :class="et == t.id ? 'font-semibold' : ''"></div>
-<div class="text-[10px] truncate mt-0.5" :class="et == t.id ? 'text-amber-500/70' : 'text-slate-600 group-hover:text-slate-500'" x-text="t.categoria || 'Sin pipeline'"></div>
+<div class="text-[10px] truncate mt-0.5" :class="et == t.id ? 'text-amber-500/70' : 'text-slate-400 group-hover:text-slate-400'" x-text="t.categoria || 'Sin pipeline'"></div>
 </div>
 <!-- Check -->
 <span x-show="et == t.id" class="flex-shrink-0"><i data-lucide="check" class="w-3.5 h-3.5"></i></span>
@@ -52,7 +52,7 @@ class="w-full text-left px-3 py-2.5 rounded-lg transition-all border flex items-
 </div>
 
 <!-- Empty state -->
-<div class="text-center py-10 text-xs text-slate-600" x-show="templatesFiltradas.length === 0">
+<div class="text-center py-10 text-xs text-slate-400" x-show="templatesFiltradas.length === 0">
 <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-30"></i>
 <p>No hay plantillas aquí.</p>
 <p class="mt-1">Crea una con el botón de abajo.</p>
@@ -87,7 +87,7 @@ class="w-full py-2 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounde
 x-text="edPlataforma==='whatsapp'?'💬 WhatsApp':'📧 Email'"></span>
 </div>
         <div class="flex items-center gap-2">
-            <span class="text-xs text-slate-500" x-text="edNombre||'(nueva)'"></span>
+            <span class="text-xs text-slate-400" x-text="edNombre||'(nueva)'"></span>
             <button @click="pvLive = !pvLive; if(pvLive){ renderLivePreview(); }" type="button"
                 class="px-3 py-1.5 rounded-lg text-xs font-semibold transition border flex items-center gap-1.5"
                 :class="pvLive ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'">
@@ -105,7 +105,7 @@ x-text="edPlataforma==='whatsapp'?'💬 WhatsApp':'📧 Email'"></span>
 </div>
 <div>
 <label class="text-xs text-slate-400 uppercase tracking-wider">Pipeline</label>
-<select x-model="ec" class="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-500 cursor-not-allowed" disabled>
+<select x-model="ec" class="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-400 cursor-not-allowed" disabled>
 <template x-for="e in estadosLead" :key="e"><option :value="e" x-text="e"></option></template>
 </select>
 </div>
@@ -114,12 +114,12 @@ x-text="edPlataforma==='whatsapp'?'💬 WhatsApp':'📧 Email'"></span>
 <div class="flex gap-1 bg-slate-800 rounded-lg p-1">
 <button @click="edPlataforma='email'; edTipo = edTipo==='whatsapp'?'html':edTipo"
 class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex items-center justify-center gap-1"
-:class="edPlataforma === 'email' ? 'bg-blue-500/20 text-blue-400' : 'text-slate-500 hover:text-slate-300'">
+:class="edPlataforma === 'email' ? 'bg-blue-500/20 text-blue-400' : 'text-slate-400 hover:text-slate-300'">
 📧 Email
 </button>
 <button @click="edPlataforma='whatsapp'"
 class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex items-center justify-center gap-1"
-:class="edPlataforma === 'whatsapp' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:text-slate-300'">
+:class="edPlataforma === 'whatsapp' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400 hover:text-slate-300'">
 💬 WA
 </button>
 </div>
@@ -129,11 +129,11 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 <!-- Sub-formato: solo Email -->
 <div x-show="edPlataforma === 'email'" class="flex gap-1 bg-slate-800/40 rounded-lg p-1 mb-3">
 <button @click="edTipo='html'" class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all"
-:class="edTipo === 'html' ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300'">
+:class="edTipo === 'html' ? 'bg-slate-700 text-slate-200' : 'text-slate-400 hover:text-slate-300'">
 📄 HTML
 </button>
 <button @click="edTipo='texto_plano'" class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all"
-:class="edTipo === 'texto_plano' ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300'">
+:class="edTipo === 'texto_plano' ? 'bg-slate-700 text-slate-200' : 'text-slate-400 hover:text-slate-300'">
 📝 Texto Plano
 </button>
 </div>
@@ -148,7 +148,7 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 </div>
 <div x-show="edTestAb" class="space-y-2">
 <div>
-<label class="text-xs text-slate-400 uppercase tracking-wider">Asunto A <span class="text-slate-600">(33%)</span></label>
+<label class="text-xs text-slate-400 uppercase tracking-wider">Asunto A <span class="text-slate-400">(33%)</span></label>
 <input type="text" x-model="edAsunto" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50">
 </div>
 <div>
@@ -168,7 +168,7 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 
 <!-- ═══ A/B/C CUERPOS (solo si hay test A/B) ═══ -->
 <div x-show="edTestAb && edPlataforma === 'email'" class="mb-3 bg-slate-800/30 rounded-lg p-3 border border-purple-500/20">
-<label class="text-xs text-purple-400 font-semibold flex items-center gap-1 mb-2">🧪 Cuerpos A/B/C <span class="text-slate-500 font-normal">(cada variante puede tener texto distinto)</span></label>
+<label class="text-xs text-purple-400 font-semibold flex items-center gap-1 mb-2">🧪 Cuerpos A/B/C <span class="text-slate-400 font-normal">(cada variante puede tener texto distinto)</span></label>
 <div class="flex gap-1 mb-2 flex-wrap">
 <template x-for="tag in ['{{CLUB}}','{{CONTACTO}}','{{FEDERACION}}','{{ANIO}}']">
 <button type="button" @click="insertTag(tag)" class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-xs text-amber-400 hover:bg-slate-700 transition font-mono" x-text="tag"></button>
@@ -179,7 +179,7 @@ class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex item
 </div>
 <div class="space-y-3">
 <div>
-<label class="text-xs text-slate-400 uppercase tracking-wider">Cuerpo A <span class="text-slate-600">(33%)</span></label>
+<label class="text-xs text-slate-400 uppercase tracking-wider">Cuerpo A <span class="text-slate-400">(33%)</span></label>
 <textarea id="edCuerpoA" x-model="edCuerpo" @input="onCuerpoInput()" @focus="edFocus='edCuerpoA'" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 h-32 resize-y"></textarea>
 </div>
 <div>
@@ -221,7 +221,7 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
 
 <!-- PLACEHOLDER VACÍO -->
 <div class="lg:col-span-3 flex items-center justify-center" x-show="!et && !en" x-cloak>
-<div class="text-center text-slate-600">
+<div class="text-center text-slate-400">
 <i data-lucide="file-text" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
 <p class="text-sm">Selecciona una plantilla del listado<br>o crea una nueva para empezar.</p>
 </div>

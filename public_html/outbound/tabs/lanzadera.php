@@ -78,7 +78,7 @@
                         @change="lzSaveBatchSize()"
                         class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50 transition"
                         placeholder="1">
-                    <p class="text-xs text-slate-500 mt-1">1 = un único envío por ejecución</p>
+                    <p class="text-xs text-slate-400 mt-1">1 = un único envío por ejecución</p>
                 </div>
             </div>
 
@@ -110,7 +110,7 @@
                     class="w-full bg-slate-800 border border-amber-500/30 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500/50 resize-y"
                     placeholder="test1@gmail.com, test2@hotmail.com&#10;miau@outlook.es"></textarea>
                 <div class="flex items-center justify-between mt-2">
-                    <span class="text-xs text-slate-500" x-text="'(' + testEmailsList.length + ' emails detectados)'"></span>
+                    <span class="text-xs text-slate-400" x-text="'(' + testEmailsList.length + ' emails detectados)'"></span>
                     <span class="text-xs text-amber-400">Los envíos en modo pruebas irán al primer email de esta lista</span>
                 </div>
                 <button @click="enviarCorreoPrueba()" type="button"
@@ -126,7 +126,7 @@
             <div class="flex items-center gap-3 mb-4">
                 <i data-lucide="crosshair" class="w-5 h-5 text-cyan-400"></i>
                 <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Envío Dirigido (1 lead)</h5>
-                <span class="text-xs text-slate-500">Busca y selecciona un único lead</span>
+                <span class="text-xs text-slate-400">Busca y selecciona un único lead</span>
             </div>
 
             <!-- Buscador -->
@@ -149,7 +149,7 @@
                         :class="lzSelectedLeadId === lead.id ? 'bg-cyan-500/10 border-l-2 border-l-cyan-400' : ''">
                         <div class="min-w-0">
                             <div class="text-sm text-slate-200 truncate" x-text="'#' + lead.id + ' · ' + lead.nombre_club"></div>
-                            <div class="text-xs text-slate-500 truncate" x-text="lead.email + (lead.federacion ? ' · ' + lead.federacion : '')"></div>
+                            <div class="text-xs text-slate-400 truncate" x-text="lead.email + (lead.federacion ? ' · ' + lead.federacion : '')"></div>
                         </div>
                         <span class="text-xs shrink-0"
                             :class="lead.es_test ? 'text-amber-400' : 'text-emerald-400'"
@@ -157,7 +157,7 @@
                     </button>
                 </template>
             </div>
-            <div x-show="lzLeadSearch !== '' && lzLeadResults.length === 0 && !lzLeadSearching" class="mt-3 text-sm text-slate-500">
+            <div x-show="lzLeadSearch !== '' && lzLeadResults.length === 0 && !lzLeadSearching" class="mt-3 text-sm text-slate-400">
                 Sin resultados para "<span x-text="lzLeadSearch"></span>"
             </div>
 
@@ -166,11 +166,11 @@
                 <div class="mt-3 bg-cyan-500/5 border border-cyan-500/30 rounded-lg p-3">
                     <div class="flex items-center justify-between gap-2 mb-2">
                         <span class="text-xs uppercase tracking-wider text-cyan-400 font-semibold">Lead seleccionado</span>
-                        <button @click="lzClearLead()" type="button" class="text-xs text-slate-500 hover:text-rose-400 transition">✕ quitar</button>
+                        <button @click="lzClearLead()" type="button" class="text-xs text-slate-400 hover:text-rose-400 transition">✕ quitar</button>
                     </div>
                     <div class="text-sm text-slate-200" x-text="'#' + lzSelectedLeadId + ' · ' + (lzSelectedLead?.nombre_club || '')"></div>
                     <div class="text-xs text-slate-400" x-text="lzSelectedLead?.email || ''"></div>
-                    <div class="text-xs text-slate-500 mt-1" x-text="'Federación: ' + (lzSelectedLead?.federacion || '—') + ' · Estado: ' + (lzSelectedLead?.estado_lead || '—')"></div>
+                    <div class="text-xs text-slate-400 mt-1" x-text="'Federación: ' + (lzSelectedLead?.federacion || '—') + ' · Estado: ' + (lzSelectedLead?.estado_lead || '—')"></div>
 
                     <!-- Validación -->
                     <div class="flex items-center gap-2 mt-3">
@@ -190,7 +190,7 @@
                 </div>
             </template>
 
-            <p class="text-xs text-slate-500 mt-3">Al seleccionar un lead, la Lanzadera enviará SOLO a ese lead (ignora la cola). El tamaño de lote se fuerza a 1.</p>
+            <p class="text-xs text-slate-400 mt-3">Al seleccionar un lead, la Lanzadera enviará SOLO a ese lead (ignora la cola). El tamaño de lote se fuerza a 1.</p>
         </div>
 
         <!-- BLOQUE 2 IZQ: MONITORIZACIÓN DEL MOTOR + KPIs -->
@@ -236,7 +236,7 @@
                         <div class="text-base font-semibold"
                             :class="lzTasaExito >= 90 ? 'text-emerald-400' : (lzTasaExito >= 70 ? 'text-amber-400' : 'text-rose-400')"
                             x-text="lzTasaExito + '%'">—</div>
-                        <div class="text-xs text-slate-500 mt-0.5" x-text="lzLogEnviados.length + ' procesados'"></div>
+                        <div class="text-xs text-slate-400 mt-0.5" x-text="lzLogEnviados.length + ' procesados'"></div>
                     </div>
                 </div>
             </div>
@@ -270,9 +270,9 @@
                     <div class="flex items-center gap-1">
                         <span class="text-sm font-semibold text-slate-300"
                             x-text="lzCuentaActivaLimite !== null ? lzCuentaActivaLimite : '—'">—</span>
-                        <span class="text-xs text-slate-500">/ cuenta / día</span>
+                        <span class="text-xs text-slate-400">/ cuenta / día</span>
                     </div>
-                    <div class="text-xs text-slate-500 mt-1" x-text="lzCuentaActivaLabel"></div>
+                    <div class="text-xs text-slate-400 mt-1" x-text="lzCuentaActivaLabel"></div>
                 </div>
             </div>
         </div>
@@ -283,14 +283,14 @@
                 <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
                     📜 Log de Envíos Realizados
                 </h5>
-                <span class="text-xs text-slate-500" x-text="lzLogEnviados.length + ' registros'"></span>
+                <span class="text-xs text-slate-400" x-text="lzLogEnviados.length + ' registros'"></span>
             </div>
 
             <div class="overflow-y-auto max-h-96 custom-scrollbar" id="lzLogScroll" @scroll="lzOnLogScroll()">
                 <div x-show="lzLogEnviados.length === 0" class="text-center py-10">
-                    <i data-lucide="scroll-text" class="w-10 h-10 text-slate-700 mx-auto mb-3"></i>
+                    <i data-lucide="scroll-text" class="w-10 h-10 text-slate-400 mx-auto mb-3"></i>
                     <p class="text-slate-400 text-sm">Sin envíos realizados en esta sesión</p>
-                    <p class="text-slate-500 text-xs mt-1">Los resultados aparecerán en tiempo real</p>
+                    <p class="text-slate-400 text-xs mt-1">Los resultados aparecerán en tiempo real</p>
                 </div>
                 <table x-show="lzLogEnviados.length > 0" class="w-full text-sm">
                     <thead>
@@ -307,7 +307,7 @@
                                 <td class="px-2 py-1.5 text-slate-400 text-xs" x-text="log.timestamp?.substring(11, 19)"></td>
                                 <td class="px-2 py-1.5">
                                     <span class="text-slate-200 text-xs" x-text="log.club"></span>
-                                    <div class="text-xs text-slate-500" x-text="log.email"></div>
+                                    <div class="text-xs text-slate-400" x-text="log.email"></div>
                                 </td>
                                 <td class="px-2 py-1.5 text-slate-300 text-xs hidden sm:table-cell" x-text="log.cuenta_smtp?.split('@')[0] || '—'"></td>
                                 <td class="px-2 py-1.5 text-center">
@@ -355,7 +355,7 @@
             <div class="flex items-center gap-3 mb-4">
                 <i data-lucide="server" class="w-5 h-5 text-cyan-400"></i>
                 <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Estado de Cuentas SMTP</h5>
-                <span class="text-sm text-slate-500" x-text="'(' + lzCuentasSmtp.length + ' cuentas)'"></span>
+                <span class="text-sm text-slate-400" x-text="'(' + lzCuentasSmtp.length + ' cuentas)'"></span>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
@@ -395,7 +395,7 @@
                             </tr>
                         </template>
                         <tr x-show="lzCuentasSmtp.length === 0">
-                            <td colspan="4" class="px-3 py-8 text-center text-slate-500">Sin cuentas SMTP configuradas</td>
+                            <td colspan="4" class="px-3 py-8 text-center text-slate-400">Sin cuentas SMTP configuradas</td>
                         </tr>
                     </tbody>
                 </table>
@@ -409,7 +409,7 @@
                     📋 Cola de Envíos en Espera
                 </h5>
                 <div class="flex items-center gap-2">
-                    <span class="text-xs text-slate-500" x-text="'(' + lzCola.length + ' candidatos)'"></span>
+                    <span class="text-xs text-slate-400" x-text="'(' + lzCola.length + ' candidatos)'"></span>
                     <button @click="cargarCola()" :disabled="!puedeCargarCola() || lzMotorEstado === 'ACTIVO'"
                         class="px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5
                                bg-blue-500/20 text-blue-400 hover:bg-blue-500/30
@@ -439,9 +439,9 @@
 
             <div class="overflow-y-auto max-h-[500px] custom-scrollbar" id="lzColaScroll" @scroll="lzOnColaScroll()">
                 <div x-show="lzCola.length === 0" class="text-center py-10">
-                    <i data-lucide="inbox" class="w-10 h-10 text-slate-700 mx-auto mb-3"></i>
+                    <i data-lucide="inbox" class="w-10 h-10 text-slate-400 mx-auto mb-3"></i>
                     <p class="text-slate-400 text-sm">Carga la cola para ver los próximos envíos</p>
-                    <p class="text-slate-500 text-xs mt-1">Configura el lote a la izquierda y pulsa "Cargar Cola"</p>
+                    <p class="text-slate-400 text-xs mt-1">Configura el lote a la izquierda y pulsa "Cargar Cola"</p>
                 </div>
                 <table x-show="lzCola.length > 0" class="w-full text-sm">
                     <thead>
@@ -463,10 +463,10 @@
                                     'bg-rose-500/10': lzColaCompletados[item.id] && lzColaResultados[item.id] && !lzColaResultados[item.id].ok,
                                     'hover:bg-slate-800/30': !lzColaCompletados[item.id] && idx !== lzColaIndex
                                 }">
-                                <td class="px-2 py-1.5 text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-400' : 'text-slate-500'" x-text="idx + 1"></td>
+                                <td class="px-2 py-1.5 text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-400' : 'text-slate-400'" x-text="idx + 1"></td>
                                 <td class="px-2 py-1.5">
                                     <span class="font-normal text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-300' : 'text-slate-200'" x-text="item.nombre_club"></span>
-                                    <span class="text-xs block" :class="lzColaCompletados[item.id] ? 'text-slate-500' : 'text-slate-500'" x-text="item.federacion?.substring(0, 25) || ''"></span>
+                                    <span class="text-xs block" :class="lzColaCompletados[item.id] ? 'text-slate-400' : 'text-slate-400'" x-text="item.federacion?.substring(0, 25) || ''"></span>
                                 </td>
                                 <td class="px-2 py-1.5 hidden sm:table-cell">
                                     <code class="text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-400' : 'text-slate-400'" x-text="item.email"></code>
@@ -493,7 +493,7 @@
                     </tbody>
                 </table>
                 <div x-show="lzCola.length > 0 && lzColaPaginada.length < lzCola.length" class="text-center py-3">
-                    <span class="text-xs text-slate-500">Desplázate para cargar más ({{ lzColaPaginada.length }} / {{ lzCola.length }})</span>
+                    <span class="text-xs text-slate-400">Desplázate para cargar más ({{ lzColaPaginada.length }} / {{ lzCola.length }})</span>
                 </div>
             </div>
         </div>

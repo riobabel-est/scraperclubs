@@ -29,7 +29,7 @@
   <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap shrink-0">
     <i data-lucide="inbox" class="w-5 h-5 text-amber-400"></i>
     <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Unibox de Respuestas</h5>
-    <span class="text-xs text-slate-500" x-text="rsFiltradas.length + ' conversaciones'"></span>
+    <span class="text-xs text-slate-400" x-text="rsFiltradas.length + ' conversaciones'"></span>
     <div class="flex items-center gap-2 ml-auto flex-wrap">
       <button @click="syncRespuestas()" :disabled="rsSyncing" class="px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-sm font-semibold hover:bg-amber-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed">
         <i data-lucide="refresh-cw" class="w-4 h-4 inline-block mr-1" :class="rsSyncing ? 'animate-spin' : ''"></i>
@@ -53,7 +53,7 @@
         <div class="relative">
           <!-- Lupa inline (SVG): siempre visible, sin depender de lucide/JS -->
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-               class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" aria-hidden="true">
+               class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" aria-hidden="true">
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
@@ -91,7 +91,7 @@
             <!-- Fila 2: De / Para (una sola línea compacta) -->
             <div class="flex items-center gap-2 mt-1.5 text-xs font-mono">
               <span class="text-amber-400 truncate" x-text="'De: ' + (conv.remitente_email || conv.email || '—')"></span>
-              <span class="text-slate-600 shrink-0">·</span>
+              <span class="text-slate-400 shrink-0">·</span>
               <span class="text-blue-400 truncate" x-text="'Para: ' + (conv.buzon_destino || conv.buzón_cuenta || '—')"></span>
             </div>
             <!-- Fila 3: snippet -->
@@ -113,7 +113,7 @@
           </div>
         </template>
 
-        <div x-show="rsFiltradas.length === 0" class="p-8 text-center text-slate-600 text-sm">
+        <div x-show="rsFiltradas.length === 0" class="p-8 text-center text-slate-400 text-sm">
           Sin conversaciones con los filtros seleccionados
         </div>
       </div>
@@ -126,8 +126,8 @@
 
 
       <!-- Estado vacío (sin selección) -->
-      <div x-show="!rsSeleccion" class="flex-1 flex flex-col items-center justify-center text-slate-600 gap-3">
-        <i data-lucide="inbox" class="w-12 h-12 text-slate-700"></i>
+      <div x-show="!rsSeleccion" class="flex-1 flex flex-col items-center justify-center text-slate-400 gap-3">
+        <i data-lucide="inbox" class="w-12 h-12 text-slate-400"></i>
         <p class="text-sm">Selecciona una conversación de la lista para ver el hilo completo</p>
       </div>
 
@@ -145,7 +145,7 @@
                   x-text="(rsSeleccion.nombre_club && rsSeleccion.nombre_club !== '—') ? (rsSeleccion.nombre_club || rsSeleccion.club) : (rsSeleccion.remitente_email || rsSeleccion.email || '—')"></h5>
               <div class="text-sm text-slate-400 truncate">
                 <span x-text="rsSeleccion.contacto_nombre || rsSeleccion.persona_contacto || '—'"></span>
-                <span x-show="rsSeleccion.telefono || rsSeleccion.telefono_movil" class="text-slate-500"> · </span>
+                <span x-show="rsSeleccion.telefono || rsSeleccion.telefono_movil" class="text-slate-400"> · </span>
                 <span x-text="rsSeleccion.telefono || rsSeleccion.telefono_movil || ''"></span>
               </div>
               <!-- Email de Origen y Email de Destino (FutProtec) -->
@@ -178,7 +178,7 @@
                   <span class="text-xs font-bold uppercase tracking-wider"
                         :class="rsEsEntrante(m) ? 'text-slate-400' : 'text-orange-400'"
                         x-text="rsEsEntrante(m) ? (m.remitente || 'Club') : 'FutProtec'"></span>
-                  <span class="text-xs text-slate-500" x-text="rsFmtFecha(m.fecha_respuesta || m.fecha_envio)"></span>
+                  <span class="text-xs text-slate-400" x-text="rsFmtFecha(m.fecha_respuesta || m.fecha_envio)"></span>
                   <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold border" :class="rsClasColor(m.clasificacion)" x-text="rsClasLabel(m.clasificacion)"></span>
                 </div>
                 <div class="text-sm text-slate-300 font-medium" x-text="m.subject_respuesta || m.asunto_envio || ''"></div>
@@ -199,14 +199,14 @@
                       class="px-2 py-0.5 rounded text-xs font-semibold transition border"
                       :class="m.clasificacion === c
                         ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                        : 'bg-slate-900 text-slate-500 border-slate-700 hover:bg-slate-700 hover:text-slate-300'"
+                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700 hover:text-slate-300'"
                       x-text="c"></button>
                   </template>
                 </div>
               </div>
             </div>
           </template>
-          <p x-show="!rsSeleccion.mensajes || rsSeleccion.mensajes.length === 0" class="text-center text-slate-600 text-sm py-4">Sin mensajes en este hilo</p>
+          <p x-show="!rsSeleccion.mensajes || rsSeleccion.mensajes.length === 0" class="text-center text-slate-400 text-sm py-4">Sin mensajes en este hilo</p>
         </div>
 
         <!-- Footer: Caja de Respuesta Inmediata -->

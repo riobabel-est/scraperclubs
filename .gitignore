@@ -16,6 +16,11 @@ backups_deploy/
 public_html/outbound/data/*.bak*
 public_html/outbound/data/*.db*
 
+# ─── Clave maestra de cifrado (SENSIBLE — nunca commitear) ───
+public_html/outbound/inc/secret.php
+public_html/outbound/data/.futprotec_key
+
+
 # ─── Outputs de scraping ─────────────────────────────────────
 output/
 

@@ -27,8 +27,12 @@
 
 declare(strict_types=1);
 
+// Helper de cifrado reversible (descifra la contraseña POP3 almacenada).
+require_once __DIR__ . '/crypto.php';
+
 // ─── Configuración ───
 $POP3_HOST = 'mail.getfutprotec.com';
+
 $POP3_PORT = 995; // POP3 SSL
 $POP3_TIMEOUT = 5; // Timeout estricto de 5s por operación (mismo criterio que IMAP)
 
@@ -245,10 +249,11 @@ function pop3_procesar_buzon(SQLite3 $db, array $cuenta, ClientePOP3 $pop3): arr
                 // Reconectar y continuar con el siguiente mensaje.
                 try { $pop3->cerrar(); } catch (\Throwable $ign) {}
                 $pop3 = new ClientePOP3($GLOBALS['POP3_HOST'], $GLOBALS['POP3_PORT']);
-                $pop3->conectar($cuenta['usuario'], $cuenta['password']);
+                $pop3->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
             }
 
             // ─── Cuerpo: RETR <msg_num> con degradado elegante ───
+
             // Si TOP no aportó cuerpo (solo cabeceras), se intenta RETR para
             // obtener el cuerpo completo. Si falla, se mantienen los datos de TOP.
             if (empty($msg['cuerpo'])) {
@@ -261,9 +266,10 @@ function pop3_procesar_buzon(SQLite3 $db, array $cuenta, ClientePOP3 $pop3): arr
                     // Timeout/error en RETR: degradar elegantemente.
                     try { $pop3->cerrar(); } catch (\Throwable $ign) {}
                     $pop3 = new ClientePOP3($GLOBALS['POP3_HOST'], $GLOBALS['POP3_PORT']);
-                    $pop3->conectar($cuenta['usuario'], $cuenta['password']);
+                    $pop3->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
                 }
             }
+
 
             $clasificacion = imap_clasificar($msg);
             $envio = imap_atribuir($db, $msg);
@@ -303,8 +309,9 @@ function pop3_procesar_todas_cuentas(SQLite3 $db): array
         $resultado['cuentas']++;
         $pop3 = new ClientePOP3($GLOBALS['POP3_HOST'], $GLOBALS['POP3_PORT']);
         try {
-            $pop3->conectar($cuenta['usuario'], $cuenta['password']);
+            $pop3->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
             $stats = pop3_procesar_buzon($db, $cuenta, $pop3);
+
             $resultado['total_insertados'] += $stats['insertados'];
             $resultado['total_duplicados'] += $stats['duplicados'];
             $resultado['total_errores'] += $stats['errores'];

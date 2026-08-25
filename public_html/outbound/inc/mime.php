@@ -89,15 +89,18 @@ function enviarSMTPAutenticado(
     $esHtml = ($tipoPlantilla === 'html');
 
     // Normalizar la cuenta para el transporte centralizado.
+    // La contraseña puede venir cifrada (FP1:...) desde la BD; se descifra
+    // aquí para que el transporte reciba siempre el valor en claro.
     $cuentaNormalizada = [
         'email'          => $cuenta['email'],
         'host'           => $cuenta['host'],
         'puerto'         => (int)$cuenta['puerto'],
         'usuario'        => $cuenta['usuario'],
-        'password'       => $cuenta['password'],
+        'password'       => futprotec_descifrarPassword($cuenta['password'] ?? ''),
         'seguridad'      => $cuenta['seguridad'] ?? 'ssl',
         'nombre_emisor'  => $cuenta['nombre_emisor'] ?? '',
     ];
+
 
     // Construir opciones para el transporte centralizado.
     $opciones = [];

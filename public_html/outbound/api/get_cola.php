@@ -184,10 +184,13 @@ try {
         }
 
         // Calcular hora estimada (se hará en frontend, pero damos posición)
+        // SEGURIDAD: NO se exponen smtp_usuario ni smtp_password al frontend.
+        // El envío se realiza server-side en enviar_lote.php, que resuelve la
+        // cuenta SMTP por id_cuenta_smtp desde la BD. El navegador solo necesita
+        // el id (smtp_asignada_id) para el envío; las credenciales son sensibles
+        // y nunca deben salir del servidor.
         $lead['smtp_asignada_email'] = $cuentaAsignada['email'];
         $lead['smtp_asignada_id']    = $cuentaAsignada['id'];
-        $lead['smtp_usuario']        = $cuentaAsignada['usuario'];
-        $lead['smtp_password']       = $cuentaAsignada['password'];
         $lead['smtp_host']           = $cuentaAsignada['host'];
         $lead['smtp_puerto']         = $cuentaAsignada['puerto'];
         $lead['smtp_seguridad']      = $cuentaAsignada['seguridad'];

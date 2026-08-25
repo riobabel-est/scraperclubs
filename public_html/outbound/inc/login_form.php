@@ -25,14 +25,14 @@ function showLoginForm(string $error = ''): void {
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-sm shadow-2xl">
             <div class="text-center mb-6">
                 <div class="text-2xl font-bold text-amber-400">FutProtec</div>
-                <p class="text-slate-500 text-xs mt-1">Panel CRM Kanban v2.0</p>
+                <p class="text-slate-400 text-xs mt-1">Panel CRM Kanban v2.0</p>
             </div>
             <?php if ($error): ?>
                 <div class="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 text-rose-400 text-xs text-center mb-4"><?= htmlspecialchars($error) ?></div>
             <?php endif; ?>
             <form method="post">
                 <div class="mb-4">
-                    <label class="text-xs text-slate-500 uppercase tracking-wider">Contrasena</label>
+                    <label class="text-xs text-slate-400 uppercase tracking-wider">Contrasena</label>
                     <div class="mt-1" style="position:relative;">
                         <input type="password" name="password" data-login-password-input
                             class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-3 pr-12 py-2 text-sm text-slate-200 text-center focus:outline-none focus:border-amber-500/50"

@@ -636,10 +636,10 @@ var app = function() {
             if (!a || !b) return;
             this.mha = this.fr('Club', a.nombre_club) + this.fr('Email', a.email) + this.fr('Fed', a.federacion || '')
                      + this.fr('Contacto', a.persona_contacto) + this.fr('Movil', a.telefono_movil) + this.fr('Fijo', a.telefono_fijo)
-                     + this.fr('Estado', a.estado_lead) + '<div class="mt-1"><strong class="text-slate-500">Notas:</strong><br>' + this.esc(a.observaciones || '(sin notas)') + '</div>';
+                     + this.fr('Estado', a.estado_lead) + '<div class="mt-1"><strong class="text-slate-400">Notas:</strong><br>' + this.esc(a.observaciones || '(sin notas)') + '</div>';
             this.mhb = this.fr('Club', b.nombre_club) + this.fr('Email', b.email) + this.fr('Fed', b.federacion || '')
                      + this.fr('Contacto', b.persona_contacto) + this.fr('Movil', b.telefono_movil) + this.fr('Fijo', b.telefono_fijo)
-                     + this.fr('Estado', b.estado_lead) + '<div class="mt-1"><strong class="text-slate-500">Notas:</strong><br>' + this.esc(b.observaciones || '(sin notas)') + '</div>';
+                     + this.fr('Estado', b.estado_lead) + '<div class="mt-1"><strong class="text-slate-400">Notas:</strong><br>' + this.esc(b.observaciones || '(sin notas)') + '</div>';
             this.mf = [
                 { name: 'nombre', label: 'Nombre', vA: a.nombre_club, vB: b.nombre_club, cA: true },
                 { name: 'contacto', label: 'Contacto', vA: a.persona_contacto, vB: b.persona_contacto, cA: !!a.persona_contacto },
@@ -650,7 +650,7 @@ var app = function() {
             this.mm = true; this.mn = true;
             setTimeout(() => lucide.createIcons(), 100);
         },
-        fr(label, val) { return '<div><strong class="text-slate-500 text-[9px]">' + label + ':</strong> ' + this.esc(val || '-') + '</div>'; },
+        fr(label, val) { return '<div><strong class="text-slate-400 text-[9px]">' + label + ':</strong> ' + this.esc(val || '-') + '</div>'; },
         async doMerge() {
             const fm = { nombre: 'nombre_club', contacto: 'persona_contacto', movil: 'telefono_movil', fijo: 'telefono_fijo', estado: 'estado_lead' };
             for (const f of this.mf) {
@@ -718,21 +718,21 @@ var app = function() {
                    + '<td class="px-3 py-2"><span class="font-medium text-slate-300">' + this.esc(l.nombre_club) + '</span>'
                    + (l.es_duplicado == 1 ? ' <span class="bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded-full text-[9px] font-semibold cursor-pointer" onclick="window.app.openMerge(' + l.duplicado_id + ',' + l.id + ')">DUPLICADO</span>' : '')
                    + '</td>'
-                   + '<td class="px-3 py-2 hidden md:table-cell"><code class="text-[10px] text-slate-500">' + this.esc(l.email) + '</code></td>'
+                   + '<td class="px-3 py-2 hidden md:table-cell"><code class="text-[10px] text-slate-400">' + this.esc(l.email) + '</code></td>'
                    + '<td class="px-3 py-2 hidden md:table-cell text-[10px] text-slate-400 font-mono">' + this.esc(l.telefono_movil || '-') + '</td>'
                    + '<td class="px-3 py-2 text-[10px] text-slate-400">' + this.esc(l.estado_lead) + '</td>'
-                   + '<td class="px-3 py-2 hidden lg:table-cell text-[10px] text-slate-600">' + this.esc(l.federacion || '') + '</td>'
+                   + '<td class="px-3 py-2 hidden lg:table-cell text-[10px] text-slate-400">' + this.esc(l.federacion || '') + '</td>'
                    + '<td class="px-3 py-2 text-right"><button class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-[10px] text-slate-400 hover:text-slate-200 hover:border-slate-600 transition" onclick="window.app.openLead(' + l.id + ')">Ficha</button></td>'
                    + '</tr>';
             });
-            document.getElementById('gestorBody').innerHTML = h || '<tr><td colspan="6" class="px-3 py-8 text-center text-slate-600">Sin resultados</td></tr>';
+            document.getElementById('gestorBody').innerHTML = h || '<tr><td colspan="6" class="px-3 py-8 text-center text-slate-400">Sin resultados</td></tr>';
             let pg = '';
             const tp = j.total_pages; const cp = this.gp;
             let s = Math.max(1, cp - 2); let e = Math.min(tp, cp + 2);
-            const bpg = (n) => '<button class="px-2 py-0.5 text-[10px] rounded border ' + (n === cp ? 'bg-slate-700 border-slate-600 text-slate-200' : 'border-slate-800 text-slate-500 hover:text-slate-300') + '" onclick="window.app.gp=' + n + ';window.app.loadGestor()" title="Ir a pagina ' + n + '">' + n + '</button>';
-            if (s > 1) { pg += bpg(1); if (s > 2) pg += '<span class="px-1 text-slate-600">…</span>'; }
+            const bpg = (n) => '<button class="px-2 py-0.5 text-[10px] rounded border ' + (n === cp ? 'bg-slate-700 border-slate-600 text-slate-200' : 'border-slate-800 text-slate-400 hover:text-slate-300') + '" onclick="window.app.gp=' + n + ';window.app.loadGestor()" title="Ir a pagina ' + n + '">' + n + '</button>';
+            if (s > 1) { pg += bpg(1); if (s > 2) pg += '<span class="px-1 text-slate-400">…</span>'; }
             for (let i = s; i <= e; i++) pg += bpg(i);
-            if (e < tp) { if (e < tp - 1) pg += '<span class="px-1 text-slate-600">…</span>'; pg += bpg(tp); }
+            if (e < tp) { if (e < tp - 1) pg += '<span class="px-1 text-slate-400">…</span>'; pg += bpg(tp); }
             document.getElementById('gestorP').innerHTML = pg;
         },
         gSort(col) {
@@ -1142,29 +1142,42 @@ var app = function() {
             const r = await fetch('api/smtp.php?action=get_accounts'); const j = await r.json(); if (!j.ok) return;
             let h = '';
             j.accounts.forEach(a => {
+                const usados = parseInt(a.enviados_hoy || 0, 10);
+                const limite = parseInt(a.limite_diario || 0, 10);
+                const pct = limite > 0 ? Math.min(100, Math.round((usados / limite) * 100)) : 0;
+                const barColor = pct >= 90 ? 'bg-rose-500' : (pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500');
+                const smtpDot = a.activa == 1
+                    ? '<span class="inline-flex items-center gap-1.5 text-emerald-400"><span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-xs font-semibold">ON</span></span>'
+                    : '<span class="inline-flex items-center gap-1.5 text-slate-400"><span class="w-2 h-2 rounded-full bg-slate-500"></span><span class="text-xs font-semibold">OFF</span></span>';
+                const imapDot = a.ultimo_error
+                    ? '<span class="inline-flex items-center gap-1.5 text-rose-400" title="' + this.esc(a.ultimo_error) + '"><span class="w-2 h-2 rounded-full bg-rose-400"></span><span class="text-xs font-semibold">ERR</span></span>'
+                    : '<span class="inline-flex items-center gap-1.5 text-emerald-400"><span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-xs font-semibold">OK</span></span>';
+                const usoColor = usados >= limite ? 'text-rose-400' : 'text-slate-300';
                 h += '<tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">'
-                   + '<td class="px-3 py-2"><code class="text-[10px] text-slate-300">' + this.esc(a.email) + '</code></td>'
-                   + '<td class="px-3 py-2 hidden sm:table-cell text-[10px] text-slate-500">' + this.esc(a.host) + ':' + a.puerto + '</td>'
-                   + '<td class="px-3 py-2 text-center text-[10px]"><span class="text-slate-300 font-semibold">' + a.enviados_hoy + '</span><span class="text-slate-600"> / ' + a.limite_diario + '</span></td>'
-                   + '<td class="px-3 py-2 text-center">'
-                   + (a.activa == 1 ? '<span class="bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded-full text-[9px] font-semibold">ON</span>' : '<span class="bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded-full text-[9px] font-semibold">OFF</span>')
-                   + ' ' + (a.ultimo_error ? '<span class="bg-rose-500/15 text-rose-400 px-1.5 py-0.5 rounded-full text-[9px] font-semibold cursor-help" title="' + this.esc(a.ultimo_error) + '">!</span>' : '<span class="bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded-full text-[9px] font-semibold">OK</span>')
-                   + '</td>'
+                   + '<td class="px-3 py-2"><code class="text-sm text-slate-300">' + this.esc(a.email) + '</code></td>'
+                   + '<td class="px-3 py-2 hidden sm:table-cell text-sm text-slate-400">' + this.esc(a.host) + ':' + a.puerto + '</td>'
+                   + '<td class="px-3 py-2"><div class="flex items-center gap-2">'
+                   + '<div class="flex-1 bg-slate-700 rounded-full h-2"><div class="h-2 rounded-full transition-all duration-500 ' + barColor + '" style="width:' + pct + '%"></div></div>'
+                   + '<span class="text-xs w-14 text-right ' + usoColor + '">' + usados + ' / ' + limite + '</span>'
+                   + '</div></td>'
+                   + '<td class="px-3 py-2 text-center">' + smtpDot + '</td>'
+                   + '<td class="px-3 py-2 text-center">' + imapDot + '</td>'
                    + '<td class="px-3 py-2 text-right"><div class="flex gap-1 justify-end">'
-                   + '<button class="px-2 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded text-[10px] hover:bg-cyan-500/20 transition" onclick="window.app.testSmtp(' + a.id + ',this)"><i data-lucide="zap" class="w-3 h-3"></i></button>'
-                   + '<button class="px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded text-[10px] hover:bg-amber-500/20 transition" onclick="window.app.toggleSmtp(' + a.id + ')"><i data-lucide="power" class="w-3 h-3"></i></button>'
-                   + '<button class="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded text-[10px] hover:bg-blue-500/20 transition" onclick="window.app.openSmtp(' + a.id + ')"><i data-lucide="pencil" class="w-3 h-3"></i></button>'
-                   + '<button class="px-2 py-1 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded text-[10px] hover:bg-rose-500/20 transition" onclick="window.app.deleteSmtp(' + a.id + ')"><i data-lucide="trash-2" class="w-3 h-3"></i></button>'
+                   + '<button class="px-2 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded text-xs hover:bg-cyan-500/20 transition" onclick="window.app.testSmtp(' + a.id + ',this)"><i data-lucide="zap" class="w-3.5 h-3.5"></i></button>'
+                   + '<button class="px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded text-xs hover:bg-amber-500/20 transition" onclick="window.app.toggleSmtp(' + a.id + ')"><i data-lucide="power" class="w-3.5 h-3.5"></i></button>'
+                   + '<button class="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded text-xs hover:bg-blue-500/20 transition" onclick="window.app.openSmtp(' + a.id + ')"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>'
+                   + '<button class="px-2 py-1 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded text-xs hover:bg-rose-500/20 transition" onclick="window.app.deleteSmtp(' + a.id + ')"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>'
                    + '</div></td></tr>';
             });
-            document.getElementById('smtpBody').innerHTML = h || '<tr><td colspan="5" class="px-3 py-8 text-center text-slate-600">Sin cuentas</td></tr>';
+            document.getElementById('smtpBody').innerHTML = h || '<tr><td colspan="6" class="px-3 py-8 text-center text-slate-400">Sin cuentas</td></tr>';
             setTimeout(() => lucide.createIcons(), 50);
         },
+
         async openSmtp(id) {
             this.se = id;
             this.sp = false;
             if (id > 0) { const r = await fetch('api/smtp.php?action=get_accounts'); const j = await r.json(); const a = j.accounts.find(x => x.id == id);
-                if (a) { this.sf = { email: a.email, host: a.host, puerto: a.puerto, usuario: a.usuario, password: a.password, seguridad: a.seguridad, limite_diario: a.limite_diario, nombre_emisor: a.nombre_emisor || '', cargo_emisor: a.cargo_emisor || '' }; }
+                if (a) { this.sf = { email: a.email, host: a.host, puerto: a.puerto, usuario: a.usuario, password: a.password || '', seguridad: a.seguridad, limite_diario: a.limite_diario, nombre_emisor: a.nombre_emisor || '', cargo_emisor: a.cargo_emisor || '' }; }
             } else { this.sf = { email: '', host: 'mail.getfutprotec.com', puerto: 465, usuario: '', password: '', seguridad: 'ssl', limite_diario: 50 }; }
             this.sm = true; setTimeout(() => lucide.createIcons(), 100);
         },
@@ -1887,5 +1900,24 @@ console.log('[DEBUG] app.js ejecutado. window.Alpine definido?', typeof window.A
 console.log('[DEBUG] window._cfg definido?', typeof window._cfg !== 'undefined');
 console.log('[DEBUG] typeof app:', typeof app);
 console.log('[DEBUG] Componentes usados con x-data="fn()" (sin registro Alpine.data).');
+
+// ─── Toggle de contraseña SMTP (JS nativo, sin Alpine) ──────────────────────
+// Movido desde tabs/modals.php (refactor 2026-08-25). Usa delegación de eventos
+// para funcionar con cualquier input[data-smtp-password-input] + botón
+// [data-smtp-toggle] que exista en el DOM (modal SMTP).
+document.addEventListener('click', function (e) {
+	var btn = e.target.closest('[data-smtp-toggle]');
+	if (!btn) return;
+	var input = btn.parentElement ? btn.parentElement.querySelector('input[data-smtp-password-input]') : null;
+	if (!input) return;
+	var eye = btn.querySelector('[data-eye]');
+	var eyeOff = btn.querySelector('[data-eye-off]');
+	var show = (input.type === 'password');
+	input.type = show ? 'text' : 'password';
+	if (eye) eye.classList.toggle('hidden', show);
+	if (eyeOff) eyeOff.classList.toggle('hidden', !show);
+	btn.title = show ? 'Ocultar contraseña' : 'Mostrar contraseña';
+});
+
 
 

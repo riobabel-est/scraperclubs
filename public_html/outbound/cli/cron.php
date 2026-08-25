@@ -268,7 +268,7 @@ if ($modoEntorno === 'produccion') {
         $smtpHost = $cuentaRow['host'];
         $smtpPort = (int)$cuentaRow['puerto'];
         $smtpUser = $cuentaRow['usuario'];
-        $smtpPass = $cuentaRow['password'];
+        $smtpPass = futprotec_descifrarPassword($cuentaRow['password'] ?? '');
         $smtpSecure = $cuentaRow['seguridad']; // ssl o tls
 
         // Usar mail() como fallback si no hay configuración completa

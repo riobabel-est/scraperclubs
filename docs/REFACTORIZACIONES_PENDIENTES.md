@@ -128,11 +128,37 @@ Hace 6 cosas: (a) asegurar esquema, (b) 4 comprobaciones de idempotencia, (c) IN
 `registrarLog()`, `notificarRespuesta()`. La idempotencia repite 4 veces el mismo patrón
 `SELECT id FROM respuestas WHERE X LIMIT 1` — extraíble a `existeRespuesta($db, $columna, $valor)`.
 
+#### ✅ ESTADO: COMPLETADO EN LOCAL (2026-08-23)
+
+`imap_registrar_respuesta()` (líneas 1159-1210) ya es un **orquestador delgado** que delega
+en funciones puras extraídas:
+
+| Función | Responsabilidad |
+|---|---|
+| `imap_asegurar_esquema()` | Migración idempotente de columnas de `respuestas` |
+| `imap_existe_respuesta()` | Idempotencia genérica (`SELECT id FROM respuestas WHERE X LIMIT 1`) |
+| `imap_insertar_respuesta()` | INSERT en `respuestas` (devuelve id o null) |
+| `imap_registrar_log_respuesta()` | INSERT en `comunicaciones_log` |
+| `imap_notificar_respuesta()` | Notificación FASE G (🔔 NUEVA RESPUESTA) |
+| `imap_mover_kanban()` | Mueve lead a '03 En Conversación' (respuesta humana) |
+| `imap_es_respuesta_humana()` | Helper de clasificación humana (heurística + IA) |
+
+Además, la sección 6.2 (`imap_procesar_buzon`) también quedó resuelta: el bucle anidado
+(carpetas → mensajes) ahora delega en `imap_procesar_mensaje()` (líneas 1225-1295), que
+encapsula el flujo completo de un único mensaje con degradado elegante y reconexión ante
+timeout. Se añadieron además variantes "ligeras" (`imap_procesar_mensaje_ligero`,
+`imap_procesar_buzon_ligero`, `imap_procesar_todas_cuentas_ligero`) para el dashboard.
+
+`php -l` OK. Contrato de retorno preservado (`'insertado'|'duplicado'|'error'`).
+
+**Pendiente:** deploy a producción (requiere aprobación del usuario) + smoke test.
+
 ### 3.4 Estimación
 
 - `analytics.php`: **3-4 horas**
 - `leads.php`: **1-2 horas**
-- `imap_respuestas.php`: **2-3 horas**
+- `imap_respuestas.php`: **2-3 horas** (implementación completada; resta deploy + test)
+
 
 ---
 
@@ -151,6 +177,21 @@ Hace 6 cosas: (a) asegurar esquema, (b) 4 comprobaciones de idempotencia, (c) IN
 - Bloque `<script>` JS nativo (toggle SMTP) incrustado en medio de vistas HTML.
 
 **Refactor:** Mover a `js/app.js` o un helper JS.
+
+#### ✅ ESTADO: COMPLETADO EN LOCAL (2026-08-25)
+
+El bloque `<script>` inline (líneas 250-265, toggle de contraseña SMTP) fue **eliminado**
+de `tabs/modals.php`. El handler ya vivía en `js/app.js` (al final del archivo) usando
+delegación de eventos sobre `input[data-smtp-password-input]` + botón `[data-smtp-toggle]`,
+por lo que no se perdió funcionalidad. De paso se aplicó el **refactor de contraste UI**
+pendiente en `modals.php` (55 reemplazos `text-slate-500`/`text-slate-600` →
+`text-slate-400`, vía `scripts/refactor_contraste_ui.py`).
+
+- `php -l tabs/modals.php` OK. `node --check js/app.js` OK.
+- Sin `<script>` inline restante en `modals.php` (los atributos `data-*` del modal SMTP
+  se conservan, son el gancho del handler).
+
+**Pendiente:** commitear + deploy a producción.
 
 ### 4.3 Estimación
 
@@ -210,6 +251,16 @@ Bucle anidado (carpetas → mensajes) con 3 niveles de try/catch difícil de seg
 
 **Refactor:** Extraer el procesamiento de un único mensaje (674-701) a una función.
 
+#### ✅ ESTADO: COMPLETADO EN LOCAL (2026-08-23)
+
+Resuelto junto con la sección 3.3. `imap_procesar_buzon()` ahora delega en
+`imap_procesar_mensaje()` (líneas 1225-1295), que encapsula el flujo completo de un
+único mensaje (FETCH ENVELOPE → cuerpo con degradado → fallback de metadatos →
+clasificación → atribución → registro) y devuelve contadores incrementales. Se añadieron
+variantes "ligeras" para el dashboard (`imap_procesar_mensaje_ligero`,
+`imap_procesar_buzon_ligero`, `imap_procesar_todas_cuentas_ligero`).
+
+
 ### 6.3 `inc/eligibilidad.php`
 
 Lógica de negocio mezclada con consultas SQL.
@@ -267,7 +318,13 @@ Lógica de negocio mezclada con consultas SQL.
 - **Refactor SMTP unificado (sección 2):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-22). Creado `inc/smtp_transport.php`; reescritos `mime.php`, `cron.php` y `enviar_smtp_random.php` para delegar. `php -l` OK en los 5 archivos. **Validado en producción** con los 159 envíos reales de campaña 2 (el microenvío vía HTTP quedó bloqueado por el WAF de SiteGround, pero no es necesario — ver `checkpoint_microenvio_smtp_403_waf.md`). **Estado: RESUELTO.**
 - **Refactor analytics.php (sección 3.1):** ✅ **COMPLETADO EN LOCAL** (2026-08-22). Extraídas 11 funciones puras de `get_analytics`, `get_respuestas` y `get_followups`. `php -l` OK. Ver `checkpoint_refactor_analytics_funciones_puras.md`. **Pendiente:** deploy a producción (requiere aprobación del usuario).
 - **Refactor dashboard.php (sección 4.1):** ✅ **COMPLETADO EN LOCAL** (2026-08-22). Ver `checkpoint_refactor_dashboard_funciones_puras.md`. **Pendiente:** deploy a producción.
-- **SIGUIENTE PENDIENTE PRIORITARIO (sección 3.2):** Refactor de `api/leads.php` — extraer la lógica de `scan_duplicates` (~105 líneas) a funciones auxiliares. Prioridad alta, estimación **1-2 horas**.
+- **Refactor leads.php scan_duplicates (sección 3.2):** ✅ **COMPLETADO EN LOCAL** (2026-08-23). Extraídas 4 funciones puras; handler `scan_duplicates` como orquestador delgado. `php -l` OK. Ver `checkpoint_refactor_leads_scan_duplicates.md`. **Pendiente:** deploy a producción + smoke test.
+- **Refactor imap_respuestas.php (sección 3.3 + 6.2):** ✅ **COMPLETADO EN LOCAL** (2026-08-23). `imap_registrar_respuesta()` y `imap_procesar_buzon()` ya delegan en funciones puras. `php -l` OK. **Pendiente:** deploy a producción + smoke test.
+- **Refactor modals.php (sección 4.2):** ✅ **COMPLETADO EN LOCAL** (2026-08-25). Bloque `<script>` inline (toggle SMTP) eliminado de `tabs/modals.php`; el handler delegado ya vivía en `js/app.js`. Aplicado además el contraste UI pendiente en `modals.php` (55 reemplazos). `php -l` + `node --check` OK. **Pendiente:** commitear + deploy a producción.
+- **SIGUIENTE PENDIENTE PRIORITARIO (sección 5):** Refactor de `js/app.js` — dividir `iniciarMotor()`, unificar getters duplicados (`lzTasaExito`/`lzEnvioOkPct`), separar `enviarCorreoPrueba()`, extraer renderizado de `loadGestor()`/`loadSmtp()`. Prioridad media, estimación **4-5 horas**.
+- **Pendiente posterior (sección 6.3):** Refactor de `inc/eligibilidad.php` — separar lógica de negocio de consultas SQL. Prioridad baja, estimación **1-2 horas**.
+- **Pendiente posterior (sección 6.3):** Refactor de `inc/eligibilidad.php` — separar lógica de negocio de consultas SQL. Prioridad baja, estimación **1-2 horas**.
+
 
 ---
 

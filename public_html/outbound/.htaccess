@@ -8,6 +8,8 @@
     RewriteEngine On
     RewriteRule ^data/ - [F,L]
     RewriteRule ^cli/ - [F,L]
+    # Bloquear acceso directo a la clave maestra de cifrado
+    RewriteRule ^inc/secret\.php$ - [F,L]
 </IfModule>
 
 # Desactivar listado de directorios
@@ -15,5 +17,10 @@ Options -Indexes
 
 # Proteger archivos sensibles
 <FilesMatch "^(enviar_smtp_random\.php|cron\.php)$">
+    Require all denied
+</FilesMatch>
+
+# Bloquear acceso directo a la clave maestra de cifrado (inc/secret.php)
+<FilesMatch "^(secret\.php)$">
     Require all denied
 </FilesMatch>

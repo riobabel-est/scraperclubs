@@ -18,7 +18,11 @@
  * Compatible con SiteGround (PHP 8.x nativo, sin extensiones PECL).
  */
 
+// Helper de cifrado reversible (descifra la contraseña SMTP almacenada).
+require_once __DIR__ . '/crypto.php';
+
 if (!function_exists('futprotec_leerRespuestaSMTP')) {
+
     /**
      * Lee una respuesta multilínea del servidor SMTP (RFC 5321).
      */
@@ -71,7 +75,10 @@ if (!function_exists('futprotec_enviarSMTP')) {
         $smtpPort  = (int)($cuenta['puerto'] ?? 587);
         $smtpUser  = $cuenta['usuario'] ?? $cuenta['user'] ?? '';
         $smtpPass  = $cuenta['password'] ?? $cuenta['pass'] ?? '';
+        // La contraseña puede estar cifrada en BD (FP1:...). Descifrar antes de usar.
+        $smtpPass  = futprotec_descifrarPassword($smtpPass);
         $seguridad = strtolower($cuenta['seguridad'] ?? '');
+
 
         // Inferir seguridad si no viene explícita.
         if ($seguridad === '') {

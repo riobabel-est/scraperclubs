@@ -1,7 +1,7 @@
 <div class="space-y-4">
     <div class="flex items-center justify-between flex-wrap gap-2">
         <h5 class="text-sm font-semibold text-slate-300">Lista Negra</h5>
-        <span class="text-xs text-slate-500">Gestión manual de supresión (opt-out real y bloqueo manual)</span>
+        <span class="text-xs text-slate-400">Gestión manual de supresión (opt-out real y bloqueo manual)</span>
     </div>
 
     <!-- ─── BÚSQUEDA DE LEAD ─────────────────────────────────────────────── -->
@@ -17,15 +17,15 @@
 
         <!-- Resultados de búsqueda -->
         <div x-show="blResults.length > 0" x-cloak class="mt-3">
-            <div class="text-xs text-slate-500 mb-2" x-text="blResults.length + ' resultado(s)'"></div>
+            <div class="text-xs text-slate-400 mb-2" x-text="blResults.length + ' resultado(s)'"></div>
             <div class="space-y-2">
                 <template x-for="r in blResults" :key="r.id">
                     <div class="flex items-center justify-between bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
                         <div class="min-w-0">
                             <div class="text-sm text-slate-200 font-medium truncate" x-text="r.nombre_club"></div>
-                            <div class="text-xs text-slate-500 truncate" x-text="r.email + ' · ' + (r.federacion || '')"></div>
+                            <div class="text-xs text-slate-400 truncate" x-text="r.email + ' · ' + (r.federacion || '')"></div>
                             <div class="text-xs mt-0.5">
-                                <span class="text-slate-500" x-text="'Estado: ' + r.estado_lead"></span>
+                                <span class="text-slate-400" x-text="'Estado: ' + r.estado_lead"></span>
                                 <span x-show="r.es_test" class="ml-2 text-amber-400">TEST</span>
                             </div>
                         </div>
@@ -36,7 +36,7 @@
                                 </button>
                             </template>
                             <template x-if="blEsSuprimido(r)">
-                                <span class="text-xs text-slate-500">Ya suprimido</span>
+                                <span class="text-xs text-slate-400">Ya suprimido</span>
                             </template>
                         </div>
                     </div>
@@ -55,8 +55,8 @@
             </button>
         </div>
 
-        <div x-show="blList.length === 0 && !blLoading" x-cloak class="text-center text-slate-600 text-sm py-8">No hay leads en Lista Negra.</div>
-        <div x-show="blLoading" x-cloak class="text-center text-slate-600 text-sm py-8">Cargando...</div>
+        <div x-show="blList.length === 0 && !blLoading" x-cloak class="text-center text-slate-400 text-sm py-8">No hay leads en Lista Negra.</div>
+        <div x-show="blLoading" x-cloak class="text-center text-slate-400 text-sm py-8">Cargando...</div>
 
         <div x-show="blList.length > 0" x-cloak class="overflow-x-auto rounded-lg border border-slate-800">
             <table class="w-full text-sm">
@@ -83,8 +83,8 @@
                                     <i data-lucide="user-x" class="w-3.5 h-3.5"></i> 🟠 Bloqueo manual
                                 </span>
                             </td>
-                            <td class="px-3 py-2 text-xs text-slate-500 hidden lg:table-cell" x-text="l.motivo"></td>
-                            <td class="px-3 py-2 text-xs text-slate-500 hidden lg:table-cell" x-text="l.fecha"></td>
+                            <td class="px-3 py-2 text-xs text-slate-400 hidden lg:table-cell" x-text="l.motivo"></td>
+                            <td class="px-3 py-2 text-xs text-slate-400 hidden lg:table-cell" x-text="l.fecha"></td>
                             <td class="px-3 py-2 text-right">
                                 <button @click="blRemove(l)" class="px-3 py-1.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold hover:bg-emerald-500/25 transition flex items-center gap-1 ml-auto">
                                     <i data-lucide="user-check" class="w-3.5 h-3.5"></i> Quitar de Lista Negra

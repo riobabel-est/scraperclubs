@@ -22,8 +22,12 @@
 
 declare(strict_types=1);
 
+// Helper de cifrado reversible (descifra la contraseña IMAP almacenada).
+require_once __DIR__ . '/crypto.php';
+
 // ─── Configuración ───
 $DB_PATH = __DIR__ . '/../data/stats.db';
+
 $IMAP_HOST = 'mail.getfutprotec.com';
 $IMAP_PORT = 993; // IMAP SSL
 // Timeout estricto de 5 segundos por operación de socket (FASE 2):
@@ -1253,8 +1257,9 @@ function imap_procesar_mensaje(SQLite3 $db, array $cuenta, string $carpeta, stri
             // continuar con el siguiente mensaje de forma limpia.
             try { $imap->cerrar(); } catch (\Throwable $ign) {}
             $imap = new ClienteIMAP($GLOBALS['IMAP_HOST'], $GLOBALS['IMAP_PORT']);
-            $imap->conectar($cuenta['usuario'], $cuenta['password']);
+            $imap->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
             $imap->seleccionar($carpeta);
+
         }
 
         // ─── Fallback de metadatos: si ENVELOPE no aportó nada ───
@@ -1383,8 +1388,9 @@ function imap_procesar_todas_cuentas(SQLite3 $db): array
         $resultado['cuentas']++;
         $imap = new ClienteIMAP($GLOBALS['IMAP_HOST'], $GLOBALS['IMAP_PORT']);
         try {
-            $imap->conectar($cuenta['usuario'], $cuenta['password']);
+            $imap->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
             $stats = imap_procesar_buzon($db, $cuenta, $imap);
+
             $resultado['total_insertados'] += $stats['insertados'];
             $resultado['total_duplicados'] += $stats['duplicados'];
             $resultado['total_errores'] += $stats['errores'];
@@ -1526,8 +1532,9 @@ function imap_procesar_todas_cuentas_ligero(SQLite3 $db): array
         $resultado['cuentas']++;
         $imap = new ClienteIMAP($GLOBALS['IMAP_HOST'], $GLOBALS['IMAP_PORT']);
         try {
-            $imap->conectar($cuenta['usuario'], $cuenta['password']);
+            $imap->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
             $stats = imap_procesar_buzon_ligero($db, $cuenta, $imap);
+
             $resultado['total_insertados'] += $stats['insertados'];
             $resultado['total_duplicados'] += $stats['duplicados'];
             $resultado['total_errores'] += $stats['errores'];

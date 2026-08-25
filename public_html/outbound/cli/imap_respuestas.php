@@ -126,7 +126,7 @@ foreach ($cuentas as $cuenta) {
     if ($driver === 'POP3') {
         $pop3 = new ClientePOP3($POP3_HOST, $POP3_PORT);
         try {
-            $pop3->conectar($cuenta['usuario'], $cuenta['password']);
+            $pop3->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
             imap_log("  [OK] Login POP3 correcto");
             $stats = pop3_procesar_buzon($db, $cuenta, $pop3);
             $totales['mensajes'] += $stats['mensajes'];
@@ -146,7 +146,7 @@ foreach ($cuentas as $cuenta) {
     // ─── Driver IMAP (por defecto) ───
     $imap = new ClienteIMAP($IMAP_HOST, $IMAP_PORT);
     try {
-        $imap->conectar($cuenta['usuario'], $cuenta['password']);
+        $imap->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
         imap_log("  [OK] Login IMAP correcto");
 
         foreach ($CARPETAS_AUDITAR as $carpeta) {
@@ -176,7 +176,7 @@ foreach ($cuentas as $cuenta) {
                             // Timeout/error en BODY.PEEK[TEXT]: reconectar.
                             try { $imap->cerrar(); } catch (\Throwable $ign) {}
                             $imap = new ClienteIMAP($IMAP_HOST, $IMAP_PORT);
-                            $imap->conectar($cuenta['usuario'], $cuenta['password']);
+                            $imap->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
                             $imap->seleccionar($carpeta);
                         }
 

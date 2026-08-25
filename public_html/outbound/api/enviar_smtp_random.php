@@ -245,7 +245,7 @@ function enviarSMTP(array $cuenta, string $destinatario, string $asunto, string 
     $smtpHost  = $cuenta['smtp'];
     $smtpPort  = $cuenta['puerto'];
     $smtpUser  = $cuenta['user'];
-    $smtpPass  = $cuenta['pass'];
+    $smtpPass  = futprotec_descifrarPassword($cuenta['pass'] ?? '');
 
     // Construir cabeceras
     $boundary = md5(uniqid((string)random_int(0, 99999), true));
@@ -289,7 +289,7 @@ function enviarSMTPAutenticado(array $cuenta, string $destinatario, string $asun
         'host'          => $cuenta['smtp'],
         'puerto'        => (int)$cuenta['puerto'],
         'usuario'       => $cuenta['user'],
-        'password'      => $cuenta['pass'],
+        'password'      => futprotec_descifrarPassword($cuenta['pass'] ?? ''),
         'seguridad'     => ((int)$cuenta['puerto'] === 465) ? 'ssl' : 'tls',
         'nombre_emisor' => $cuenta['nombre'] ?? '',
     ];
@@ -377,7 +377,7 @@ for ($i = 0; $i < $lote; $i++) {
     $cuentaSMTP = [
         'email'  => $cuenta['email'],
         'user'   => $cuenta['usuario'],
-        'pass'   => $cuenta['password'],
+        'pass'   => futprotec_descifrarPassword($cuenta['password'] ?? ''),
         'nombre' => $cuenta['email'],
         'smtp'   => $cuenta['host'],
         'puerto' => (int)$cuenta['puerto'],
