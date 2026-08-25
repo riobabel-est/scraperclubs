@@ -16,7 +16,7 @@
         <!-- Selector de proveedor -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Proveedor de IA</label>
+                <label class="block text-sm font-semibold text-slate-300 mb-1.5">Proveedor de IA</label>
                 <select x-model="proveedor" @change="cambiarProveedor()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
                     <option value="deepseek">DeepSeek</option>
                     <option value="openai">OpenAI (ChatGPT)</option>
@@ -25,31 +25,36 @@
                     <option value="mistral">Mistral AI</option>
                     <option value="groq">Groq (Llama)</option>
                 </select>
-                <p class="text-[11px] text-slate-400 mt-1.5">Selecciona el proveedor activo para clasificar respuestas.</p>
+                <p class="text-xs text-slate-400 mt-1.5">Selecciona el proveedor activo para clasificar respuestas.</p>
             </div>
 
-            <!-- API Key -->
+            <!-- API Key (toggle mostrar/ocultar robusto: x-ref + data-ia-eye/-off) -->
             <div>
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5" x-text="'API Key de ' + nombreProveedor"></label>
+                <label class="block text-sm font-semibold text-slate-300 mb-1.5" x-text="'API Key de ' + nombreProveedor"></label>
                 <div class="flex gap-2">
-                    <input type="password" x-model="apiKey" placeholder="sk-..." autocomplete="off"
+                    <input type="password" x-model="apiKey" x-ref="iaApiKeyInput" placeholder="sk-..." autocomplete="off"
                         class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/50">
-                    <button @click="toggleMostrar()" class="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:bg-slate-700 transition" title="Mostrar/ocultar">
-                        <i data-lucide="eye" class="w-4 h-4"></i>
+                    <button @click="toggleMostrar()" type="button" x-ref="iaToggleBtn"
+                        class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-slate-200 hover:border-slate-600 transition"
+                        :title="mostrar ? 'Ocultar API Key' : 'Mostrar API Key'">
+                        <i data-lucide="eye" data-ia-eye class="w-4 h-4"></i>
+                        <i data-lucide="eye-off" data-ia-eye-off class="w-4 h-4 hidden"></i>
                     </button>
                 </div>
-                <p class="text-[11px] text-slate-400 mt-1.5">Se guarda en la BD de configuración. Nunca se expone en logs ni commits.</p>
+                <p class="text-xs text-slate-400 mt-1.5">Se guarda en la BD de configuración. Nunca se expone en logs ni commits.</p>
+                <p class="text-xs mt-1" :class="apiKey ? 'text-emerald-400' : 'text-amber-400'"
+                   x-text="apiKey ? '✓ API key configurada (' + apiKey.length + ' caracteres)' : '⚠ Sin API key configurada'"></p>
             </div>
 
             <!-- Modelo -->
             <div>
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Modelo / Versión</label>
+                <label class="block text-sm font-semibold text-slate-300 mb-1.5">Modelo / Versión</label>
                 <select x-model="modelo" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
                     <template x-for="m in modelosDisponibles" :key="m.value">
                         <option :value="m.value" x-text="m.label"></option>
                     </template>
                 </select>
-                <p class="text-[11px] text-slate-400 mt-1.5" x-text="notaModelo"></p>
+                <p class="text-xs text-slate-400 mt-1.5" x-text="notaModelo"></p>
             </div>
         </div>
 
@@ -302,6 +307,7 @@ function configIA() {
     return {
         proveedor: 'deepseek',
         apiKey: '',
+        _keysCache: {},
         modelo: 'deepseek-chat',
         mostrar: false,
         guardando: false,
@@ -314,6 +320,9 @@ function configIA() {
                 const r = await fetch('?action=get_config&keys=ia_proveedor,deepseek_api_key,deepseek_model,openai_api_key,openai_model,anthropic_api_key,anthropic_model,google_api_key,google_model,mistral_api_key,mistral_model,groq_api_key,groq_model');
                 const j = await r.json();
                 if (j.ok && j.config) {
+                    // Cache de todas las claves devueltas (get_config) para que
+                    // cambiarProveedor() pueda recuperar la API key de cada proveedor.
+                    this._keysCache = j.config;
                     this.proveedor = j.config.ia_proveedor || 'deepseek';
                     this.apiKey = j.config[CATALOGO[this.proveedor].claveApi] || '';
                     this.modelo = j.config[CATALOGO[this.proveedor].claveModelo] || (CATALOGO[this.proveedor].modelos[0] || {}).value || '';
@@ -329,8 +338,18 @@ function configIA() {
         },
         toggleMostrar() {
             this.mostrar = !this.mostrar;
-            const input = this.$el.querySelector('input[type="password"]');
+            // x-ref permite encontrar el input en ambos sentidos (antes fallaba al
+            // buscar 'input[type="password"]' cuando el campo ya era type=text).
+            const input = this.$refs.iaApiKeyInput;
             if (input) input.type = this.mostrar ? 'text' : 'password';
+            // Feedback visual: alternar iconos eye / eye-off.
+            const btn = this.$refs.iaToggleBtn;
+            if (btn) {
+                const eye = btn.querySelector('[data-ia-eye]');
+                const eyeOff = btn.querySelector('[data-ia-eye-off]');
+                if (eye) eye.classList.toggle('hidden', this.mostrar);
+                if (eyeOff) eyeOff.classList.toggle('hidden', !this.mostrar);
+            }
         },
         async guardar() {
             this.guardando = true; this.guardado = false;

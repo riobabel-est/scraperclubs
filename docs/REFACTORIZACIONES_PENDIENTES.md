@@ -231,9 +231,25 @@ Generan HTML de tablas inline (lógica de UI mezclada con fetch).
 
 **Refactor:** Extraer renderizado a funciones de plantilla.
 
+#### ✅ ESTADO: COMPLETADO EN LOCAL (2026-08-25)
+
+| Subsección | Qué se hizo |
+|---|---|
+| 5.1 `iniciarMotor()` | Dividido en **orquestador delgado** + `enviarDirigido()` (CASO A) + `enviarCola()` (CASO B). Se reutiliza el getter `lzCuentaActiva` (ya existente) en lugar de recalcular la cuenta SMTP activa inline. |
+| 5.2 Getters | `lzEnvioOkPct` ahora **delega en `lzTasaExito`** (misma fórmula). Ambos getters se conservan porque la UI (`tabs/lanzadera.php`) los referencia por separado. |
+| 5.3 `enviarCorreoPrueba()` | Extraídos `validarPruebaEmail()`, `obtenerCandidatosPrueba()` y `armarSeleccionPrueba()`. El método principal quedó como **orquestador** (validar → candidatos → selección → confirm → envío). |
+| 5.4 `loadGestor()`/`loadSmtp()` | Renderizado extraído a `renderGestorRows()`, `renderGestorPaginacion()` y `renderSmtpRows()` (funciones de plantilla puras). |
+
+- `node --check js/app.js` OK. Contratos públicos preservados: `iniciarMotor`,
+  `lzTasaExito`, `lzEnvioOkPct`, `lzEnvioErrorPct`, `loadGestor`, `loadSmtp`,
+  `enviarCorreoPrueba` (todas referenciadas desde `tabs/lanzadera.php` y `tabs/gestor.php`).
+- Delta neto: +131 / −81 líneas (crece ligeramente por comentarios de refactor).
+
+**Pendiente:** deploy a producción + smoke test + commitear.
+
 ### 5.5 Estimación
 
-**4-5 horas.**
+**4-5 horas** (implementación completada; resta deploy + test).
 
 ---
 
@@ -321,9 +337,8 @@ Lógica de negocio mezclada con consultas SQL.
 - **Refactor leads.php scan_duplicates (sección 3.2):** ✅ **COMPLETADO EN LOCAL** (2026-08-23). Extraídas 4 funciones puras; handler `scan_duplicates` como orquestador delgado. `php -l` OK. Ver `checkpoint_refactor_leads_scan_duplicates.md`. **Pendiente:** deploy a producción + smoke test.
 - **Refactor imap_respuestas.php (sección 3.3 + 6.2):** ✅ **COMPLETADO EN LOCAL** (2026-08-23). `imap_registrar_respuesta()` y `imap_procesar_buzon()` ya delegan en funciones puras. `php -l` OK. **Pendiente:** deploy a producción + smoke test.
 - **Refactor modals.php (sección 4.2):** ✅ **COMPLETADO EN LOCAL** (2026-08-25). Bloque `<script>` inline (toggle SMTP) eliminado de `tabs/modals.php`; el handler delegado ya vivía en `js/app.js`. Aplicado además el contraste UI pendiente en `modals.php` (55 reemplazos). `php -l` + `node --check` OK. **Pendiente:** commitear + deploy a producción.
-- **SIGUIENTE PENDIENTE PRIORITARIO (sección 5):** Refactor de `js/app.js` — dividir `iniciarMotor()`, unificar getters duplicados (`lzTasaExito`/`lzEnvioOkPct`), separar `enviarCorreoPrueba()`, extraer renderizado de `loadGestor()`/`loadSmtp()`. Prioridad media, estimación **4-5 horas**.
-- **Pendiente posterior (sección 6.3):** Refactor de `inc/eligibilidad.php` — separar lógica de negocio de consultas SQL. Prioridad baja, estimación **1-2 horas**.
-- **Pendiente posterior (sección 6.3):** Refactor de `inc/eligibilidad.php` — separar lógica de negocio de consultas SQL. Prioridad baja, estimación **1-2 horas**.
+- **Refactor app.js (sección 5):** ✅ **COMPLETADO EN LOCAL** (2026-08-25). `iniciarMotor()` dividido en `enviarDirigido()`/`enviarCola()`; getters unificados (`lzEnvioOkPct` delega en `lzTasaExito`); `enviarCorreoPrueba()` con `validarPruebaEmail()`/`obtenerCandidatosPrueba()`/`armarSeleccionPrueba()`; renderizado de `loadGestor()`/`loadSmtp()` en funciones de plantilla. `node --check` OK. Contratos públicos preservados. **Pendiente:** deploy a producción + smoke test + commitear.
+- **SIGUIENTE PENDIENTE PRIORITARIO (sección 6.3):** Refactor de `inc/eligibilidad.php` — separar lógica de negocio de consultas SQL. Prioridad baja, estimación **1-2 horas**.
 
 
 ---

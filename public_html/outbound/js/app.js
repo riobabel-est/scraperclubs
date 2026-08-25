@@ -272,11 +272,14 @@ var app = function() {
         get lzTotalProcesados() {
             return this.lzLogEnviados.length;
         },
+        // Refactor §5.2: fuente única de cálculo de %. lzEnvioOkPct delega en
+        // lzTasaExito (misma fórmula). Ambos getters se conservan porque la UI los
+        // referencia por separado (tabs/lanzadera.php).
         get lzTasaExito() {
             return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioOkCount / this.lzTotalProcesados) * 100) : 0;
         },
         get lzEnvioOkPct() {
-            return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioOkCount / this.lzTotalProcesados) * 100) : 0;
+            return this.lzTasaExito;
         },
         get lzEnvioErrorPct() {
             return this.lzTotalProcesados > 0 ? Math.round((this.lzEnvioErrorCount / this.lzTotalProcesados) * 100) : 0;
@@ -712,8 +715,14 @@ var app = function() {
             const j = await r.json();
             if (!j.ok) return;
             this.gt = j.total + ' resultados';
+            // Refactor §5.4: renderizado extraído a funciones de plantilla.
+            document.getElementById('gestorBody').innerHTML = this.renderGestorRows(j.data);
+            document.getElementById('gestorP').innerHTML = this.renderGestorPaginacion(j.total_pages);
+        },
+        // Renderizado de filas del Gestor (extraído de loadGestor, refactor §5.4).
+        renderGestorRows(rows) {
             let h = '';
-            j.data.forEach(l => {
+            rows.forEach(l => {
                 h += '<tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">'
                    + '<td class="px-3 py-2"><span class="font-medium text-slate-300">' + this.esc(l.nombre_club) + '</span>'
                    + (l.es_duplicado == 1 ? ' <span class="bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded-full text-[9px] font-semibold cursor-pointer" onclick="window.app.openMerge(' + l.duplicado_id + ',' + l.id + ')">DUPLICADO</span>' : '')
@@ -725,15 +734,18 @@ var app = function() {
                    + '<td class="px-3 py-2 text-right"><button class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-[10px] text-slate-400 hover:text-slate-200 hover:border-slate-600 transition" onclick="window.app.openLead(' + l.id + ')">Ficha</button></td>'
                    + '</tr>';
             });
-            document.getElementById('gestorBody').innerHTML = h || '<tr><td colspan="6" class="px-3 py-8 text-center text-slate-400">Sin resultados</td></tr>';
+            return h || '<tr><td colspan="6" class="px-3 py-8 text-center text-slate-400">Sin resultados</td></tr>';
+        },
+        // Renderizado de paginación del Gestor (extraído de loadGestor, refactor §5.4).
+        renderGestorPaginacion(totalPages) {
+            const tp = totalPages; const cp = this.gp;
             let pg = '';
-            const tp = j.total_pages; const cp = this.gp;
             let s = Math.max(1, cp - 2); let e = Math.min(tp, cp + 2);
             const bpg = (n) => '<button class="px-2 py-0.5 text-[10px] rounded border ' + (n === cp ? 'bg-slate-700 border-slate-600 text-slate-200' : 'border-slate-800 text-slate-400 hover:text-slate-300') + '" onclick="window.app.gp=' + n + ';window.app.loadGestor()" title="Ir a pagina ' + n + '">' + n + '</button>';
             if (s > 1) { pg += bpg(1); if (s > 2) pg += '<span class="px-1 text-slate-400">…</span>'; }
             for (let i = s; i <= e; i++) pg += bpg(i);
             if (e < tp) { if (e < tp - 1) pg += '<span class="px-1 text-slate-400">…</span>'; pg += bpg(tp); }
-            document.getElementById('gestorP').innerHTML = pg;
+            return pg;
         },
         gSort(col) {
             if (this.gsc === col) this.gso = this.gso === 'ASC' ? 'DESC' : 'ASC';
@@ -898,57 +910,30 @@ var app = function() {
             const campana = (this.lzCampanas || []).find(c => String(c.id) === String(this.lzCampaignId));
             const op = this.campanaOperable(campana);
             if (!op.ok) { alert(op.motivo); return; }
-            if (!this.lzIdPlantillaEmail) { alert('Selecciona primero una plantilla de email en la configuración del lote.'); return; }
+            // Refactor §5.3: validaciones extraídas a validarPruebaEmail().
+            const error = this.validarPruebaEmail();
+            if (error) { alert(error); return; }
             const emails = this.testEmailsList;
-            if (emails.length === 0) { alert('Configura al menos un email de prueba en "Destinos de Prueba".'); return; }
 
             // ─── Selección de leads SOLO compatibles con la campaña ─────────────
-            // Nunca se usa get_leads_table sin filtro de compatibilidad TEST/REAL.
-            // Si lzCola ya contiene leads compatibles (cargados por get_cola.php),
-            // se reutilizan. Si está vacía, se obtienen internamente vía get_cola.php
-            // con campaign_id, que aplica sqlFiltroCompatibilidadLeadCampana().
-            let candidatos = (this.lzCola || []).filter(c => c && c.id);
-            if (candidatos.length === 0) {
-                try {
-                    const params = new URLSearchParams();
-                    params.append('campaign_id', this.lzCampaignId);
-                    if (this.lzEstadoLead) params.append('estado_lead', this.lzEstadoLead);
-                    if (this.lzFederacion) params.append('federacion', this.lzFederacion);
-                    const r = await fetch('api/get_cola.php?' + params.toString());
-                    const j = await r.json();
-                    candidatos = (j.ok && Array.isArray(j.cola)) ? j.cola.filter(c => c && c.id) : [];
-                } catch (e) { candidatos = []; }
-            }
+            // Refactor §5.3: extraído a obtenerCandidatosPrueba(). Nunca se usa
+            // get_leads_table sin filtro de compatibilidad TEST/REAL; se reutiliza
+            // lzCola o se pide a get_cola.php con campaign_id (que aplica
+            // sqlFiltroCompatibilidadLeadCampana()).
+            const candidatos = await this.obtenerCandidatosPrueba();
             if (candidatos.length === 0) { alert('No hay leads compatibles con la campaña seleccionada para la prueba.\nCargue una cola válida o amplíe el universo TEST.\nNo se ha enviado nada.'); return; }
 
-            const smtp = (this.lzCuentasSmtp || []).find(c => c.activa == 1) || (this.lzCuentasSmtp || [])[0];
+            const smtp = this.lzCuentaActiva;
             if (!smtp || !smtp.id) { alert('No hay cuentas SMTP configuradas.'); return; }
             const tpl = (this.lzTemplatesEmail || []).find(t => t.id == this.lzIdPlantillaEmail);
             const esAbc = tpl && parseInt(tpl.test_ab) === 1;
 
             // ─── Selección A/B/C: buscar leads que cubran las variantes ─────────
-            // La variante la calcula el servidor (get_cola.php → asignarVariante()).
-            // No se fuerza variante: se elige un lead distinto por cada variante.
-            let seleccion = [];
-            if (esAbc) {
-                const porVariante = { A: null, B: null, C: null };
-                for (const c of candidatos) {
-                    const v = c.variante_ab || 'A';
-                    if (!porVariante[v]) porVariante[v] = c;
-                    if (porVariante.A && porVariante.B && porVariante.C) break;
-                }
-                if (!porVariante.A || !porVariante.B || !porVariante.C) {
-                    alert('No hay tres leads compatibles que cubran A/B/C.\nCargue una cola válida o amplíe el universo TEST.\nNo se ha enviado nada.');
-                    return;
-                }
-                seleccion = [
-                    { variante: 'A', club: porVariante.A },
-                    { variante: 'B', club: porVariante.B },
-                    { variante: 'C', club: porVariante.C },
-                ];
-            } else {
-                seleccion = [{ variante: 'A', club: candidatos[0] }];
-            }
+            // Refactor §5.3: extraído a armarSeleccionPrueba(). La variante la
+            // calcula el servidor (get_cola.php → asignarVariante()); aquí solo se
+            // elige un lead distinto por cada variante.
+            const seleccion = this.armarSeleccionPrueba(candidatos, esAbc);
+            if (!seleccion) return;
 
             const cantidad = seleccion.length;
             if (!confirm('Se enviarán ' + cantidad + (esAbc ? ' correos de prueba (variantes A, B y C)' : ' correo de prueba (mensaje único)') + ' a: ' + emails.join(', ') + ' usando la cuenta ' + smtp.email + '.\n\n¿Continuar?')) return;
@@ -974,6 +959,56 @@ var app = function() {
             alert('Resultado de la prueba:\n\n' + resultados.join('\n'));
 
         },
+        // Validaciones previas de una prueba de envío (refactor §5.3).
+        // Devuelve string de error (para alert) o null si todo es correcto.
+        validarPruebaEmail() {
+            if (!this.lzCampaignId) return 'Selecciona una campaña antes de enviar.';
+            if (!this.lzIdPlantillaEmail) return 'Selecciona primero una plantilla de email en la configuración del lote.';
+            const emails = this.testEmailsList;
+            if (emails.length === 0) return 'Configura al menos un email de prueba en "Destinos de Prueba".';
+            return null;
+        },
+        // Obtiene leads compatibles con la campaña para la prueba (refactor §5.3).
+        async obtenerCandidatosPrueba() {
+            let candidatos = (this.lzCola || []).filter(c => c && c.id);
+            if (candidatos.length === 0) {
+                try {
+                    const params = new URLSearchParams();
+                    params.append('campaign_id', this.lzCampaignId);
+                    if (this.lzEstadoLead) params.append('estado_lead', this.lzEstadoLead);
+                    if (this.lzFederacion) params.append('federacion', this.lzFederacion);
+                    const r = await fetch('api/get_cola.php?' + params.toString());
+                    const j = await r.json();
+                    candidatos = (j.ok && Array.isArray(j.cola)) ? j.cola.filter(c => c && c.id) : [];
+                } catch (e) { candidatos = []; }
+            }
+            return candidatos;
+        },
+        // Selección de leads de prueba cubriendo las variantes A/B/C (refactor §5.3).
+        // Devuelve [{variante, club}] o null si no hay cobertura suficiente (ya alerta).
+        armarSeleccionPrueba(candidatos, esAbc) {
+            let seleccion = [];
+            if (esAbc) {
+                const porVariante = { A: null, B: null, C: null };
+                for (const c of candidatos) {
+                    const v = c.variante_ab || 'A';
+                    if (!porVariante[v]) porVariante[v] = c;
+                    if (porVariante.A && porVariante.B && porVariante.C) break;
+                }
+                if (!porVariante.A || !porVariante.B || !porVariante.C) {
+                    alert('No hay tres leads compatibles que cubran A/B/C.\nCargue una cola válida o amplíe el universo TEST.\nNo se ha enviado nada.');
+                    return null;
+                }
+                seleccion = [
+                    { variante: 'A', club: porVariante.A },
+                    { variante: 'B', club: porVariante.B },
+                    { variante: 'C', club: porVariante.C },
+                ];
+            } else {
+                seleccion = [{ variante: 'A', club: candidatos[0] }];
+            }
+            return seleccion;
+        },
         async lzOnEstadoChange() {
             this.lzIdPlantillaEmail = ''; this.lzTemplatesEmail = []; if (!this.lzEstadoLead) return;
             try { const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.lzEstadoLead)); const j = await r.json();
@@ -998,46 +1033,56 @@ var app = function() {
         async iniciarMotor() {
             if (!this.lzCampaignId) { alert('Selecciona una campaña antes de enviar.'); return; }
 
-            // ─── CASO A: Envío dirigido (un único lead seleccionado) ──────────
+            // Refactor §5.1: la lógica de cada flujo vive en su propio método.
             // Si hay un lead seleccionado en "Envío Dirigido", se envía SOLO a ese
-            // lead, ignorando la cola. El tamaño de lote se fuerza a 1.
+            // lead, ignorando la cola. Si no, se procesa la cola normal por lotes.
             const dirigido = this.lzSelectedLeadId > 0 && this.lzSelectedLead;
             if (dirigido) {
-                if (!this.lzIdPlantillaEmail) { alert('Selecciona una plantilla de email antes de enviar.'); return; }
-                this.lzMotorEstado = 'ACTIVO'; this.lzAbortController = new AbortController(); const signal = this.lzAbortController.signal;
-                this.lzSendCalls = 0;
-                const lead = this.lzSelectedLead;
-                const r = Math.random(); const vAb = r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C');
-                const fd = new FormData();
-                fd.append('id_club', lead.id);
-                fd.append('id_plantilla', this.lzIdPlantillaEmail);
-                fd.append('id_cuenta_smtp', (this.lzCuentasSmtp.find(c => c.activa == 1) || this.lzCuentasSmtp[0] || {}).id || '');
-                fd.append('modo_test', this.modeTest ? '1' : '0');
-                fd.append('variante_ab', vAb);
-                fd.append('campaign_id', this.lzCampaignId);
-                if (this.modeTest && this.testEmailsList.length > 0) { fd.append('test_email', this.testEmailsList[0]); }
-                try {
-                    const r = await fetch('api/enviar_lote.php', { method: 'POST', body: fd, signal: signal }); const j = await r.json();
-                    this.lzSendCalls++;
-                    this.lzColaCompletados[lead.id] = true;
-                    this.lzColaResultados[lead.id] = { ok: !!j.envio_exitoso, error: j.error_smtp || j.error || '' };
-                    this.lzLogEnviados.unshift({ timestamp: j.timestamp || new Date().toISOString(), club: j.club || lead.nombre_club, email: j.email || lead.email, cuenta_smtp: j.cuenta_smtp || '', envio_exitoso: j.envio_exitoso || false, error_smtp: j.error_smtp || '' });
-                    if (this.lzLogEnviadosPaginados.length === 0) { this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length)); this.lzLogPageCurrent = 1; }
-                    if (j.envio_exitoso) { this.lzKpiEnviosHoy = (this.lzKpiEnviosHoy || 0) + 1; }
-                } catch (e) {
-                    if (e.name !== 'AbortError') {
-                        this.lzColaCompletados[lead.id] = true;
-                        this.lzColaResultados[lead.id] = { ok: false, error: e.message || 'Error de red' };
-                        this.lzLogEnviados.unshift({ timestamp: new Date().toISOString(), club: lead.nombre_club, email: lead.email, cuenta_smtp: '—', envio_exitoso: false, error_smtp: e.message || 'Error de red' });
-                        if (this.lzLogEnviadosPaginados.length === 0) { this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length)); this.lzLogPageCurrent = 1; }
-                    }
-                }
-                this.lzMotorEstado = 'PAUSADO';
-                this.lzAbortController = null; setTimeout(() => lucide.createIcons(), 100);
-                return;
+                await this.enviarDirigido();
+            } else {
+                await this.enviarCola();
             }
+        },
 
-            // ─── CASO B: Cola normal con límite de lote ───────────────────────
+        // ─── CASO A: Envío dirigido (un único lead seleccionado) ──────────────
+        // Extraído de iniciarMotor (refactor §5.1). El tamaño de lote se fuerza a 1.
+        async enviarDirigido() {
+            if (!this.lzIdPlantillaEmail) { alert('Selecciona una plantilla de email antes de enviar.'); return; }
+            this.lzMotorEstado = 'ACTIVO'; this.lzAbortController = new AbortController(); const signal = this.lzAbortController.signal;
+            this.lzSendCalls = 0;
+            const lead = this.lzSelectedLead;
+            const r = Math.random(); const vAb = r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C');
+            const fd = new FormData();
+            fd.append('id_club', lead.id);
+            fd.append('id_plantilla', this.lzIdPlantillaEmail);
+            fd.append('id_cuenta_smtp', (this.lzCuentaActiva || {}).id || '');
+            fd.append('modo_test', this.modeTest ? '1' : '0');
+            fd.append('variante_ab', vAb);
+            fd.append('campaign_id', this.lzCampaignId);
+            if (this.modeTest && this.testEmailsList.length > 0) { fd.append('test_email', this.testEmailsList[0]); }
+            try {
+                const r = await fetch('api/enviar_lote.php', { method: 'POST', body: fd, signal: signal }); const j = await r.json();
+                this.lzSendCalls++;
+                this.lzColaCompletados[lead.id] = true;
+                this.lzColaResultados[lead.id] = { ok: !!j.envio_exitoso, error: j.error_smtp || j.error || '' };
+                this.lzLogEnviados.unshift({ timestamp: j.timestamp || new Date().toISOString(), club: j.club || lead.nombre_club, email: j.email || lead.email, cuenta_smtp: j.cuenta_smtp || '', envio_exitoso: j.envio_exitoso || false, error_smtp: j.error_smtp || '' });
+                if (this.lzLogEnviadosPaginados.length === 0) { this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length)); this.lzLogPageCurrent = 1; }
+                if (j.envio_exitoso) { this.lzKpiEnviosHoy = (this.lzKpiEnviosHoy || 0) + 1; }
+            } catch (e) {
+                if (e.name !== 'AbortError') {
+                    this.lzColaCompletados[lead.id] = true;
+                    this.lzColaResultados[lead.id] = { ok: false, error: e.message || 'Error de red' };
+                    this.lzLogEnviados.unshift({ timestamp: new Date().toISOString(), club: lead.nombre_club, email: lead.email, cuenta_smtp: '—', envio_exitoso: false, error_smtp: e.message || 'Error de red' });
+                    if (this.lzLogEnviadosPaginados.length === 0) { this.lzLogEnviadosPaginados = this.lzLogEnviados.slice(0, Math.min(this.lzLogPageSize, this.lzLogEnviados.length)); this.lzLogPageCurrent = 1; }
+                }
+            }
+            this.lzMotorEstado = 'PAUSADO';
+            this.lzAbortController = null; setTimeout(() => lucide.createIcons(), 100);
+        },
+
+        // ─── CASO B: Cola normal con límite de lote ───────────────────────────
+        // Extraído de iniciarMotor (refactor §5.1).
+        async enviarCola() {
             if (this.lzCola.length === 0) return;
             const batchSize = Math.max(1, parseInt(this.lzBatchSize) || 1);
             this.lzMotorEstado = 'ACTIVO'; this.lzAbortController = new AbortController(); const signal = this.lzAbortController.signal;
@@ -1140,8 +1185,14 @@ var app = function() {
         // ─── SMTP ─────────────────────────────────────────────────────────────
         async loadSmtp() {
             const r = await fetch('api/smtp.php?action=get_accounts'); const j = await r.json(); if (!j.ok) return;
+            // Refactor §5.4: renderizado extraído a función de plantilla.
+            document.getElementById('smtpBody').innerHTML = this.renderSmtpRows(j.accounts);
+            setTimeout(() => lucide.createIcons(), 50);
+        },
+        // Renderizado de filas de cuentas SMTP (extraído de loadSmtp, refactor §5.4).
+        renderSmtpRows(accounts) {
             let h = '';
-            j.accounts.forEach(a => {
+            accounts.forEach(a => {
                 const usados = parseInt(a.enviados_hoy || 0, 10);
                 const limite = parseInt(a.limite_diario || 0, 10);
                 const pct = limite > 0 ? Math.min(100, Math.round((usados / limite) * 100)) : 0;
@@ -1169,8 +1220,7 @@ var app = function() {
                    + '<button class="px-2 py-1 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded text-xs hover:bg-rose-500/20 transition" onclick="window.app.deleteSmtp(' + a.id + ')"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>'
                    + '</div></td></tr>';
             });
-            document.getElementById('smtpBody').innerHTML = h || '<tr><td colspan="6" class="px-3 py-8 text-center text-slate-400">Sin cuentas</td></tr>';
-            setTimeout(() => lucide.createIcons(), 50);
+            return h || '<tr><td colspan="6" class="px-3 py-8 text-center text-slate-400">Sin cuentas</td></tr>';
         },
 
         async openSmtp(id) {
