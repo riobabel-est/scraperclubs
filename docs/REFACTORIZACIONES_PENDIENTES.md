@@ -281,6 +281,24 @@ variantes "ligeras" para el dashboard (`imap_procesar_mensaje_ligero`,
 
 Lógica de negocio mezclada con consultas SQL.
 
+#### ✅ ESTADO: COMPLETADO (2026-08-25)
+
+Extraídas las consultas SQL a funciones de **acceso a datos**, dejando la lógica de
+negocio como orquestadores:
+
+| Función de acceso a datos (nueva) | Usada por |
+|---|---|
+| `getEntornoCampana($db, $id)` | `esCampanaTest()` |
+| `getLeadParaElegibilidad($db, $leadId)` | `esElegibleParaEnvio()` |
+| `esEstadoSupresion($estado)` (pura) | `esElegibleParaEnvio()` |
+| `getEnviosPlantillaEnCampanasActivas($db, $plantillaId)` | `plantillaEstaCongelada()` |
+| `insertarEnvioLogico($db, ..., $ignore)` | `reservarEnvioLogico()` |
+| `getEnvioLogicoExistente($db, $leadId, $campaignId)` | `reservarEnvioLogico()` |
+
+Contrato público preservado (nombres/firmas/retornos intactos). `php -l` OK + test
+funcional `scripts/test_eligibilidad.php` (20/20 PASS, sobre copia de BD). Ver
+`docs/checkpoint_refactor_eligibilidad.md`.
+
 ### 6.4 Estimación
 
 **2-3 horas.**
@@ -338,7 +356,7 @@ Lógica de negocio mezclada con consultas SQL.
 - **Refactor imap_respuestas.php (sección 3.3 + 6.2):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-25). `imap_registrar_respuesta()` y `imap_procesar_buzon()` ya delegan en funciones puras. `php -l` OK.
 - **Refactor modals.php (sección 4.2):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-25). Bloque `<script>` inline (toggle SMTP) eliminado de `tabs/modals.php`; el handler delegado ya vivía en `js/app.js`. Aplicado además el contraste UI pendiente en `modals.php` (55 reemplazos). `php -l` + `node --check` OK.
 - **Refactor app.js (sección 5):** ✅ **COMPLETADO, DESPLEGADO Y COMMITEADO** (2026-08-25). `iniciarMotor()` dividido en `enviarDirigido()`/`enviarCola()`; getters unificados (`lzEnvioOkPct` delega en `lzTasaExito`); `enviarCorreoPrueba()` con `validarPruebaEmail()`/`obtenerCandidatosPrueba()`/`armarSeleccionPrueba()`; renderizado de `loadGestor()`/`loadSmtp()` en funciones de plantilla. `node --check` OK + test funcional 38/38. Ver `checkpoint_refactor_app_js.md`.
-- **SIGUIENTE PENDIENTE PRIORITARIO (sección 6.3):** Refactor de `inc/eligibilidad.php` — separar lógica de negocio de consultas SQL. Prioridad baja, estimación **1-2 horas**.
+- **SIGUIENTE PENDIENTE PRIORITARIO (sección 6.3):** Refactor de `inc/eligibilidad.php` — ✅ **COMPLETADO** (2026-08-25). SQL separado en funciones de acceso a datos (`getEntornoCampana`, `getLeadParaElegibilidad`, `esEstadoSupresion`, `getEnviosPlantillaEnCampanasActivas`, `insertarEnvioLogico`, `getEnvioLogicoExistente`); orquestadores delgados. `php -l` OK + test 20/20. Ver `checkpoint_refactor_eligibilidad.md`.
 - **CRÍTICO (auditoría 2026-08-25):** Credenciales hardcodeadas — ✅ **RESUELTO** (2026-08-25). `AUTH_KEY` del dashboard, tokens de runners y `CSRF_SECRET` movidos a `inc/secret.php` (gitignored + .htaccess). API keys de IA cifradas `FP1:` en BD (config) y descifradas al uso. Además: **la contraseña del panel y el email de recuperación se gestionan desde la UI** (bloque "Seguridad del Panel" en Configuración) con **recuperación por email mediante token de un solo uso** (`request_reset`/`reset_password`). Ver `docs/CONFIGURACION_SEGURIDAD.md`.
 - **MEDIO (auditoría 2026-08-25):** Colisiones de funciones sin `function_exists` en `inc/mime.php`, `inc/abc.php`, `inc/eligibilidad.php`, `inc/helpers.php`, `inc/pop3_respuestas.php` (hoy latentes porque `enviar_smtp_random.php` está bloqueado). Envolver en guardas. Ver informe de auditoría.
 - **MEDIO-BAJO (auditoría 2026-08-25):** Dividir monolitos — `inc/imap_respuestas.php` (1553 líneas) es el principal candidato; también `api/leads.php` (1186), `cli/init_db.php` (806). Ver informe de auditoría.

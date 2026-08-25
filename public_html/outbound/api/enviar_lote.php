@@ -425,6 +425,7 @@ $db->close();
 // FUNCIÓN: Escribir log de envío en archivo
 // ═══════════════════════════════════════════════════════════════════════════════
 
+if (!function_exists('escribirLogEnvio')) {
 /**
  * Escribe una línea de log de envío en el archivo diario.
  * Formato: [YYYY-MM-DD HH:MM:SS] RESULTADO | CLUB | EMAIL | CUENTA_SMTP | TRACKING_ID | ERROR (si aplica)
@@ -448,6 +449,7 @@ function escribirLogEnvio(string $logDir, string $resultado, string $club, strin
         $error ? ' | Error: ' . $error : ''
     );
     @file_put_contents($archivo, $linea, FILE_APPEND | LOCK_EX);
+}
 }
 
 // Las funciones convertirContenidoAHtml() y enviarSMTPAutenticado() se definen

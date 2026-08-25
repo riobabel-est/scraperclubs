@@ -55,89 +55,11 @@ function registrarErrorSMTP(SQLite3 $db, int $cuentaId, string $error): void
     $db->exec("UPDATE cuentas_smtp SET ultimo_error = '" . $db->escapeString($error) . "' WHERE id = {$cuentaId}");
 }
 
-// Fallback: array hardcodeado si no hay cuentas en BD (solo se usa si obtenerCuentaSMTP retorna null)
-$CUENTAS_SMTP_FALLBACK = [
-    [
-        'email'  => 'rodrigo@getfutprotec.com',
-        'user'   => 'rodrigo@getfutprotec.com',
-        'pass'   => '%75Q2%#_g*12',
-        'nombre' => 'Rodrigo Vázquez | FutProtec',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-    [
-        'email'  => 'mario.ortiz@getfutprotec.com',
-        'user'   => 'mario.ortiz@getfutprotec.com',
-        'pass'   => 'ci21w_S%34#f',
-        'nombre' => 'Mario Ortiz | Área de Clubes FutProtec',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-    [
-        'email'  => 'alvaro.ruiz@getfutprotec.com',
-        'user'   => 'alvaro.ruiz@getfutprotec.com',
-        'pass'   => '~i1c%)1)i@35',
-        'nombre' => 'Álvaro Ruiz | Equipamiento FutProtec',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-    [
-        'email'  => 'carlos.mora@getfutprotec.com',
-        'user'   => 'carlos.mora@getfutprotec.com',
-        'pass'   => '_%}jP|nb~b1f',
-        'nombre' => 'Carlos Mora | Proyectos Cantera FutProtec',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-    [
-        'email'  => 'javier.sanz@getfutprotec.com',
-        'user'   => 'javier.sanz@getfutprotec.com',
-        'pass'   => '11k1%425e;%4',
-        'nombre' => 'Javier Sanz | At. Clubes FutProtec',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-    [
-        'email'  => 'diego.navarro@getfutprotec.com',
-        'user'   => 'diego.navarro@getfutprotec.com',
-        'pass'   => '1;2Aj]#1`11i',
-        'nombre' => 'Diego Navarro | Equipaciones FutProtec',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-    [
-        'email'  => 'pablo.blanco@getfutprotec.com',
-        'user'   => 'pablo.blanco@getfutprotec.com',
-        'pass'   => '(5^j@c[3k%3d',
-        'nombre' => 'Pablo Blanco | FutProtec Oficial',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-    [
-        'email'  => 'gonzalo.vega@getfutprotec.com',
-        'user'   => 'gonzalo.vega@getfutprotec.com',
-        'pass'   => ';^361y)bO1*5',
-        'nombre' => 'Gonzalo Vega | Gestión Deportivo FutProtec',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-    [
-        'email'  => 'adrian.cano@getfutprotec.com',
-        'user'   => 'adrian.cano@getfutprotec.com',
-        'pass'   => 'k@1$%%kl2lKb',
-        'nombre' => 'Adrián Cano | FutProtec Canteras',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-    [
-        'email'  => 'sergio.gil@getfutprotec.com',
-        'user'   => 'sergio.gil@getfutprotec.com',
-        'pass'   => '(5^j@c[3k%3d',
-        'nombre' => 'Sergio Gil | Relaciones Clubes FutProtec',
-        'smtp'   => 'mail.getfutprotec.com',
-        'puerto' => 465,
-    ],
-];
+// Fallback: el motor está BLOQUEADO (die arriba). Las cuentas reales
+// viven en la BD (cuentas_smtp) con contraseñas cifradas (FP1:). Este array
+// se vacía para no mantener credenciales en claro en el repo (auditoría 2026-08-25).
+$CUENTAS_SMTP_FALLBACK = [];
+
 
 // Contenido del email — se carga desde la BD (plantillas) al inicializar BD
 // $ASUNTO y $CUERPO_HTML_TEMPLATE se definen mas abajo, tras abrir la BD

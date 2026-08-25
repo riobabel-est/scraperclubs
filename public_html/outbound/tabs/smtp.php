@@ -110,12 +110,11 @@
             <div class="space-y-3">
                 <div>
                     <label class="block text-sm font-semibold text-slate-300 mb-1.5">Contraseña actual</label>
-                    <div class="relative">
+                    <div class="flex gap-2">
                         <input type="password" x-model="actual" x-ref="secPassActual" autocomplete="off"
-                            class="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-12 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50">
+                            class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50">
                         <button type="button" x-ref="secBtnActual" @click="toggleCampo('secPassActual','secBtnActual')"
-                            style="position:absolute; right:0.5rem; top:50%; transform:translateY(-50%); width:2rem; height:2rem; display:flex; align-items:center; justify-content:center; border-radius:0.375rem; color:#94a3b8; background:transparent; border:none; cursor:pointer; transition:color .15s, background-color .15s;"
-                            class="hover:text-emerald-400 hover:bg-slate-700/60"
+                            class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-slate-200 hover:border-slate-600 transition"
                             title="Mostrar contraseña" aria-label="Mostrar contraseña">
                             <i data-lucide="eye" data-eye class="w-4 h-4"></i>
                             <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
@@ -125,12 +124,11 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                         <label class="block text-sm font-semibold text-slate-300 mb-1.5">Nueva contraseña</label>
-                        <div class="relative">
+                        <div class="flex gap-2">
                             <input type="password" x-model="nueva" x-ref="secPassNueva" autocomplete="new-password"
-                                class="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-12 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50" placeholder="Mínimo 8 caracteres">
+                                class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50" placeholder="Mínimo 8 caracteres">
                             <button type="button" x-ref="secBtnNueva" @click="toggleCampo('secPassNueva','secBtnNueva')"
-                                style="position:absolute; right:0.5rem; top:50%; transform:translateY(-50%); width:2rem; height:2rem; display:flex; align-items:center; justify-content:center; border-radius:0.375rem; color:#94a3b8; background:transparent; border:none; cursor:pointer; transition:color .15s, background-color .15s;"
-                                class="hover:text-emerald-400 hover:bg-slate-700/60"
+                                class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-slate-200 hover:border-slate-600 transition"
                                 title="Mostrar contraseña" aria-label="Mostrar contraseña">
                                 <i data-lucide="eye" data-eye class="w-4 h-4"></i>
                                 <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
@@ -139,12 +137,11 @@
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-slate-300 mb-1.5">Confirmar nueva</label>
-                        <div class="relative">
+                        <div class="flex gap-2">
                             <input type="password" x-model="confirmar" x-ref="secPassConfirmar" autocomplete="new-password"
-                                class="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-12 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50">
+                                class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50">
                             <button type="button" x-ref="secBtnConfirmar" @click="toggleCampo('secPassConfirmar','secBtnConfirmar')"
-                                style="position:absolute; right:0.5rem; top:50%; transform:translateY(-50%); width:2rem; height:2rem; display:flex; align-items:center; justify-content:center; border-radius:0.375rem; color:#94a3b8; background:transparent; border:none; cursor:pointer; transition:color .15s, background-color .15s;"
-                                class="hover:text-emerald-400 hover:bg-slate-700/60"
+                                class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-slate-200 hover:border-slate-600 transition"
                                 title="Mostrar contraseña" aria-label="Mostrar contraseña">
                                 <i data-lucide="eye" data-eye class="w-4 h-4"></i>
                                 <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>

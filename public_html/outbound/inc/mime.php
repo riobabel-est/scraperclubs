@@ -15,6 +15,7 @@ declare(strict_types=1);
 // Transporte SMTP centralizado (unifica las implementaciones previas).
 require_once __DIR__ . '/smtp_transport.php';
 
+if (!function_exists('convertirContenidoAHtml')) {
 /**
  * Convierte un contenido comercial de texto plano en un HTML deliberadamente
  * sencillo (sin tablas, sin imágenes decorativas, sin CSS complejo, sin JS,
@@ -54,7 +55,9 @@ function convertirContenidoAHtml(string $texto, string $trackUrl, string $tracki
         . '</div>'
         . $pixel;
 }
+}
 
+if (!function_exists('enviarSMTPAutenticado')) {
 /**
  * Envía un email vía SMTP autenticado nativo.
  *
@@ -121,4 +124,5 @@ function enviarSMTPAutenticado(
 
     // Delegar en el transporte SMTP centralizado.
     return futprotec_enviarSMTP($cuentaNormalizada, $destinatario, $asunto, $cuerpoHTML, $opciones);
+}
 }

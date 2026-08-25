@@ -38,6 +38,20 @@ function esLeadTest(array $lead): bool
 }
 
 /**
+ * Acceso a datos: entorno de una campaña (refactor §6.3).
+ * Devuelve `pipelines.entorno` o '' si no existe / id inválido.
+ */
+function getEntornoCampana(SQLite3 $db, int $idCampana): string
+{
+    if ($idCampana <= 0) {
+        return '';
+    }
+    return (string)$db->querySingle(
+        "SELECT entorno FROM pipelines WHERE id = " . $idCampana
+    );
+}
+
+/**
  * DEFINICIÓN DE CAMPAÑA TEST (FASE 6F.6).
  *
  * Una campaña es TEST cuando `pipelines.entorno` = 'test' (case-insensitive).
@@ -45,13 +59,7 @@ function esLeadTest(array $lead): bool
  */
 function esCampanaTest(SQLite3 $db, int $idCampana): bool
 {
-    if ($idCampana <= 0) {
-        return false;
-    }
-    $entorno = strtolower((string)$db->querySingle(
-        "SELECT entorno FROM pipelines WHERE id = " . $idCampana
-    ));
-    return $entorno === 'test';
+    return strtolower(getEntornoCampana($db, $idCampana)) === 'test';
 }
 
 /**
@@ -129,6 +137,38 @@ function sqlFiltroCompatibilidadLeadCampana(SQLite3 $db, int $idCampana): string
 }
 
 /**
+ * Acceso a datos: lead con los campos mínimos para evaluar elegibilidad
+ * (refactor §6.3).
+ */
+function getLeadParaElegibilidad(SQLite3 $db, int $leadId): ?array
+{
+    if ($leadId <= 0) {
+        return null;
+    }
+    $lead = $db->querySingle(
+        "SELECT id, email, estado_lead, es_duplicado, nombre_club
+         FROM clubes_crm WHERE id = " . $leadId,
+        true
+    );
+    return $lead ?: null;
+}
+
+/**
+ * Lógica pura: ¿el estado del lead es de supresión/baja? (refactor §6.3).
+ * Modelo de 7 columnas (V5.1):
+ *   '06 Perdido' → mala venta manual (No interesa / Rechazó propuesta / Otro)
+ *   '07 Baja'    → baja automática de campaña (opt-out/unsubscribe automático)
+ * Se mantienen además los estados legacy de supresión para no romper datos históricos.
+ */
+function esEstadoSupresion(string $estadoLead): bool
+{
+    return in_array($estadoLead, [
+        'Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido',
+        '06 Perdido', '06 Baja/Archivado', 'Baja/Archivado', '07 Baja', 'Baja'
+    ], true);
+}
+
+/**
  * ¿Puede este lead recibir este envío?
  *
  * Bloques (servidor, no confiar en JS):
@@ -151,28 +191,12 @@ function esElegibleParaEnvio(SQLite3 $db, int $leadId, int $campaignId = 0): arr
         return ['ok' => false, 'razon' => 'lead_no_valido'];
     }
 
-    // Estados de supresión / baja que bloquean el envío comercial.
-    // Modelo de 7 columnas (V5.1):
-    //   '06 Perdido' → mala venta manual (No interesa / Rechazó propuesta / Otro)
-    //   '07 Baja'    → baja automática de campaña (opt-out/unsubscribe automático)
-    // Se mantienen además los estados legacy de supresión para no romper datos históricos.
-    $estadosSupresion = [
-        'Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido',
-        '06 Perdido', '06 Baja/Archivado', 'Baja/Archivado', '07 Baja', 'Baja'
-    ];
-
-
-    $lead = $db->querySingle(
-        "SELECT id, email, estado_lead, es_duplicado, nombre_club
-         FROM clubes_crm WHERE id = " . $leadId,
-        true
-    );
-
+    $lead = getLeadParaElegibilidad($db, $leadId);
     if (!$lead) {
         return ['ok' => false, 'razon' => 'lead_no_encontrado'];
     }
 
-    if (in_array($lead['estado_lead'], $estadosSupresion, true)) {
+    if (esEstadoSupresion((string)($lead['estado_lead'] ?? ''))) {
         return ['ok' => false, 'razon' => 'supresion'];
     }
 
@@ -203,6 +227,24 @@ function esElegibleParaEnvio(SQLite3 $db, int $leadId, int $campaignId = 0): arr
 }
 
 /**
+ * Acceso a datos: nº de envíos de una plantilla en campañas PILOT/ACTIVE
+ * (refactor §6.3).
+ */
+function getEnviosPlantillaEnCampanasActivas(SQLite3 $db, int $plantillaId): int
+{
+    if ($plantillaId <= 0) {
+        return 0;
+    }
+    return (int)$db->querySingle(
+        "SELECT COUNT(*)
+         FROM envios e
+         JOIN pipelines p ON p.id = e.campaign_id
+         WHERE e.plantilla_id = {$plantillaId}
+           AND UPPER(p.estado) IN ('PILOT','ACTIVE')"
+    );
+}
+
+/**
  * Congelación mínima de plantillas (FASE 3A, AJUSTE 2).
  *
  * Una plantilla usada por una campaña en PILOT/ACTIVE no debe sobrescribirse:
@@ -215,17 +257,7 @@ function esElegibleParaEnvio(SQLite3 $db, int $leadId, int $campaignId = 0): arr
  */
 function plantillaEstaCongelada(SQLite3 $db, int $plantillaId): bool
 {
-    if ($plantillaId <= 0) {
-        return false;
-    }
-    $n = (int)$db->querySingle(
-        "SELECT COUNT(*)
-         FROM envios e
-         JOIN pipelines p ON p.id = e.campaign_id
-         WHERE e.plantilla_id = {$plantillaId}
-           AND UPPER(p.estado) IN ('PILOT','ACTIVE')"
-    );
-    return $n > 0;
+    return getEnviosPlantillaEnCampanasActivas($db, $plantillaId) > 0;
 }
 
 /**
@@ -272,53 +304,55 @@ function reservarEnvioLogico(
 
     if ($campaignId > 0) {
         // Reserva idempotente: solo una fila (lead_id, campaign_id) con campaign no nulo.
-        $stmt = $db->prepare(
-            "INSERT OR IGNORE INTO envios
-                (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje,
-                 lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, es_test)
-             VALUES
-                (:club, :email, :fed, :cuenta, 'pendiente', :tid, :asunto, :cuerpo,
-                 :lid, :cid, :variant, :pid, :sid, :mid, :estest)"
-        );
-        $stmt->bindValue(':club',  $club,  SQLITE3_TEXT);
-        $stmt->bindValue(':email', $email, SQLITE3_TEXT);
-        $stmt->bindValue(':fed',   $federacion, SQLITE3_TEXT);
-        $stmt->bindValue(':cuenta',$cuentaEmision, SQLITE3_TEXT);
-        $stmt->bindValue(':tid',   $trackingId, SQLITE3_TEXT);
-        $stmt->bindValue(':asunto',$asunto, SQLITE3_TEXT);
-        $stmt->bindValue(':cuerpo',$cuerpo, SQLITE3_TEXT);
-        $stmt->bindValue(':lid',   $leadId, SQLITE3_INTEGER);
-        $stmt->bindValue(':cid',   $campaignId, SQLITE3_INTEGER);
-        $stmt->bindValue(':variant', $variant, SQLITE3_TEXT);
-        $stmt->bindValue(':pid',   $plantillaId, SQLITE3_INTEGER);
-        $stmt->bindValue(':sid',   $smtpId, SQLITE3_INTEGER);
-        $stmt->bindValue(':mid',   $messageId, SQLITE3_TEXT);
-        $stmt->bindValue(':estest', $esTest, SQLITE3_INTEGER);
-        $stmt->execute();
-
+        insertarEnvioLogico($db, $club, $email, $federacion, $cuentaEmision, $trackingId,
+            $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, true);
         if ($db->changes() > 0) {
-    return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
-}
+            return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
+        }
         // Ya existe: devolver la fila existente (no crear segundo envío lógico).
-        $row = $db->querySingle(
-            "SELECT id, estado FROM envios WHERE lead_id = {$leadId} AND campaign_id = {$campaignId} ORDER BY id DESC LIMIT 1",
-            true
-        );
+        $row = getEnvioLogicoExistente($db, $leadId, $campaignId);
         if ($row) {
             return ['id' => (int)$row['id'], 'nuevo' => false, 'estado' => (string)$row['estado']];
         }
-        // Fallback teórico (no debería pasar con el índice): insert directo.
+        // Fallback teórico (no debería pasar con el índice): cae al insert directo.
     }
 
     // Sin campaña (legacy/test): insert directo.
-    $stmt = $db->prepare(
-        "INSERT INTO envios
-            (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje,
-             lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, es_test)
+    insertarEnvioLogico($db, $club, $email, $federacion, $cuentaEmision, $trackingId,
+        $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, false);
+
+    return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
+}
+
+/**
+ * Persistencia: INSERT del envío lógico (refactor §6.3).
+ * @param bool $ignore true → INSERT OR IGNORE (reserva idempotente con campaña)
+ */
+function insertarEnvioLogico(
+    SQLite3 $db,
+    string $club,
+    string $email,
+    string $federacion,
+    string $cuentaEmision,
+    string $trackingId,
+    string $asunto,
+    string $cuerpo,
+    int $leadId,
+    int $campaignId,
+    ?string $variant,
+    ?int $plantillaId,
+    ?int $smtpId,
+    string $messageId,
+    int $esTest,
+    bool $ignore = false
+): void {
+    $sql = ($ignore ? 'INSERT OR IGNORE INTO envios' : 'INSERT INTO envios')
+        . " (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje,
+            lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, es_test)
          VALUES
             (:club, :email, :fed, :cuenta, 'pendiente', :tid, :asunto, :cuerpo,
-             :lid, :cid, :variant, :pid, :sid, :mid, :estest)"
-    );
+             :lid, :cid, :variant, :pid, :sid, :mid, :estest)";
+    $stmt = $db->prepare($sql);
     $stmt->bindValue(':club',  $club,  SQLITE3_TEXT);
     $stmt->bindValue(':email', $email, SQLITE3_TEXT);
     $stmt->bindValue(':fed',   $federacion, SQLITE3_TEXT);
@@ -334,6 +368,20 @@ function reservarEnvioLogico(
     $stmt->bindValue(':mid',   $messageId, SQLITE3_TEXT);
     $stmt->bindValue(':estest', $esTest, SQLITE3_INTEGER);
     $stmt->execute();
+}
 
-    return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
+/**
+ * Acceso a datos: fila del envío lógico existente para (lead, campaña)
+ * (refactor §6.3).
+ */
+function getEnvioLogicoExistente(SQLite3 $db, int $leadId, int $campaignId): ?array
+{
+    if ($leadId <= 0 || $campaignId <= 0) {
+        return null;
+    }
+    $row = $db->querySingle(
+        "SELECT id, estado FROM envios WHERE lead_id = {$leadId} AND campaign_id = {$campaignId} ORDER BY id DESC LIMIT 1",
+        true
+    );
+    return $row ?: null;
 }

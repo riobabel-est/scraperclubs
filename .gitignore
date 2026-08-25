@@ -35,6 +35,7 @@ logs/
 debug/
 tmp/
 export/
+archivo_inactivo/
 _*.txt
 _*.py
 _*.php

@@ -1105,6 +1105,7 @@ function mostrarPaginaReset(bool $tokenValido, string $token): void
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>FutProtec — Restablecer contraseña</title>
         <link rel="stylesheet" href="css/tailwind.min.css">
+        <script src="https://unpkg.com/lucide@latest"></script>
         <style>body { font-family: 'Inter', system-ui, sans-serif; }</style>
     </head>
     <body class="bg-slate-950 min-h-screen flex items-center justify-center">
@@ -1126,14 +1127,28 @@ function mostrarPaginaReset(bool $tokenValido, string $token): void
                     <input type="hidden" name="reset_token" value="<?= htmlspecialchars($token, ENT_QUOTES, 'UTF-8') ?>">
                     <div class="mb-4">
                         <label class="text-sm text-slate-300 uppercase tracking-wider">Nueva contraseña</label>
-                        <input type="password" id="new_password" name="new_password" required minlength="8"
-                            class="mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50"
-                            placeholder="Mínimo 8 caracteres">
+                        <div class="flex gap-2 mt-1">
+                            <input type="password" id="new_password" name="new_password" required minlength="8" data-reset-password-input
+                                class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50"
+                                placeholder="Mínimo 8 caracteres">
+                            <button type="button" data-reset-toggle aria-label="Mostrar contraseña" title="Mostrar contraseña"
+                                class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-amber-400 hover:border-amber-500/40 transition">
+                                <i data-lucide="eye" data-eye class="w-4 h-4"></i>
+                                <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="mb-4">
                         <label class="text-sm text-slate-300 uppercase tracking-wider">Confirmar contraseña</label>
-                        <input type="password" id="confirm_password" name="confirm_password" required minlength="8"
-                            class="mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+                        <div class="flex gap-2 mt-1">
+                            <input type="password" id="confirm_password" name="confirm_password" required minlength="8" data-reset-password-input
+                                class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+                            <button type="button" data-reset-toggle aria-label="Mostrar contraseña" title="Mostrar contraseña"
+                                class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-amber-400 hover:border-amber-500/40 transition">
+                                <i data-lucide="eye" data-eye class="w-4 h-4"></i>
+                                <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
+                            </button>
+                        </div>
                     </div>
                     <p id="resetMsg" class="text-sm mb-4 hidden"></p>
                     <button type="submit" id="resetBtn"
@@ -1181,6 +1196,22 @@ function mostrarPaginaReset(bool $tokenValido, string $token): void
                 btn.textContent = 'Guardar nueva contraseña';
             }
         });
+        // Toggle mostrar/ocultar de los campos de contraseña (botón ojo).
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-reset-toggle]');
+            if (!btn) return;
+            var input = btn.parentElement ? btn.parentElement.querySelector('input[data-reset-password-input]') : null;
+            if (!input) return;
+            var eye = btn.querySelector('[data-eye]');
+            var eyeOff = btn.querySelector('[data-eye-off]');
+            var show = (input.type === 'password');
+            input.type = show ? 'text' : 'password';
+            if (eye) eye.classList.toggle('hidden', show);
+            if (eyeOff) eyeOff.classList.toggle('hidden', !show);
+            btn.title = show ? 'Ocultar contraseña' : 'Mostrar contraseña';
+            btn.setAttribute('aria-label', btn.title);
+        });
+        lucide.createIcons();
         </script>
         <?php endif; ?>
     </body>
@@ -1213,13 +1244,12 @@ function showLoginForm(string $error = ''): void {
             <form method="post">
                 <div class="mb-4">
                     <label class="text-sm text-slate-300 uppercase tracking-wider">Contrasena</label>
-                    <div class="mt-1" style="position:relative;">
+                    <div class="flex gap-2 mt-1">
                         <input type="password" name="password" data-login-password-input
-                            class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-3 pr-12 py-2 text-sm text-slate-200 text-center focus:outline-none focus:border-amber-500/50"
+                            class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 text-center focus:outline-none focus:border-amber-500/50"
                             placeholder="........" required autofocus>
                         <button type="button" data-login-toggle aria-label="Mostrar contraseña" title="Mostrar contraseña"
-                            style="position:absolute; right:0.5rem; top:50%; transform:translateY(-50%); width:2rem; height:2rem; display:flex; align-items:center; justify-content:center; border-radius:0.375rem; color:#94a3b8; background:transparent; border:none; cursor:pointer; transition:color .15s, background-color .15s;"
-                            class="hover:text-amber-400 hover:bg-slate-700/60">
+                            class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-amber-400 hover:border-amber-500/40 transition">
                             <i data-lucide="eye" data-eye class="w-4 h-4"></i>
                             <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
                         </button>

@@ -353,6 +353,7 @@ exit(0);
 // FUNCIÓN AUXILIAR: envío SMTP con autenticación vía socket
 // ═════════════════════════════════════════════════════════════════════════════
 
+if (!function_exists('enviarSMTP')) {
 /**
  * Envía un email usando SMTP con autenticación vía socket directo.
  *
@@ -398,4 +399,5 @@ function enviarSMTP(
         return false;
     }
     return true;
+}
 }

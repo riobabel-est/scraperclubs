@@ -75,6 +75,7 @@ require_once __DIR__ . '/../inc/imap_respuestas.php';
 require_once __DIR__ . '/../inc/pop3_respuestas.php';
 
 // ─── Helper de logging (consola + archivo) ───
+if (!function_exists('imap_cron_log')) {
 function imap_cron_log(string $mensaje, bool $echo = true): void
 {
     global $LOG_PATH;
@@ -87,6 +88,7 @@ function imap_cron_log(string $mensaje, bool $echo = true): void
         @mkdir($dir, 0755, true);
     }
     @file_put_contents($LOG_PATH, $linea . "\n", FILE_APPEND | LOCK_EX);
+}
 }
 
 $db = new SQLite3($DB_PATH);

@@ -130,7 +130,7 @@ check('kanban_movido = 1 (respuesta humana)', (int)$row['kanban_movido'] === 1);
 
 // Kanban: respuesta humana movió el lead a '03 Respondió'
 $estadoLead = $db->querySingle("SELECT estado_lead FROM clubes_crm WHERE id = 42");
-check('Kanban movido a 03 Respondió', $estadoLead === '03 Respondió');
+check('Kanban movido a 03 En Conversación', $estadoLead === '03 En Conversación');
 
 // Notificación FASE G: evento notificacion_respuesta registrado
 $notifCount = $db->querySingle("SELECT COUNT(*) FROM comunicaciones_log WHERE tipo_evento = 'notificacion_respuesta'");
@@ -187,12 +187,12 @@ $estadoOptOut = $db->querySingle("SELECT estado_lead FROM clubes_crm WHERE id = 
 check('Kanban NO reactiva opt-out real', $estadoOptOut === 'Opt-Out');
 
 echo "\n=== TEST 7: Kanban — lead ya en etapa posterior ===\n";
-$db->exec("UPDATE clubes_crm SET estado_lead = '04 Interesado', observaciones = '' WHERE id = 42");
+$db->exec("UPDATE clubes_crm SET estado_lead = '04 Propuesta', observaciones = '' WHERE id = 42");
 $msgPosterior = imap_parsear_mensaje("Message-ID: <posterior@club.com>\r\nIn-Reply-To: <futprotec-abc123@getfutprotec.com>\r\nFrom: info@adxyz.com\r\nSubject: Re: Piloto\r\n\r\nposterior");
 $rPosterior = imap_registrar_respuesta($db, $msgPosterior, $envio, 'humana', 'INBOX', '88889', 'rodrigo@getfutprotec.com');
 check('respuesta insertada', $rPosterior === 'insertado');
 $estadoPosterior = $db->querySingle("SELECT estado_lead FROM clubes_crm WHERE id = 42");
-check('Kanban NO retrocede (ya en 04)', $estadoPosterior === '04 Interesado');
+check('Kanban NO retrocede (ya en 04)', $estadoPosterior === '04 Propuesta');
 
 $db->close();
 

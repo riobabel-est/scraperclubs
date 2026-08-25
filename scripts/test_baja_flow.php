@@ -95,7 +95,14 @@ function leadEstado(string $tmpDb, string $email): array {
 
 // Helper: CSRF esperado (mismo algoritmo que baja.php).
 function csrfFor(string $tmpDb, string $ident): string {
-    $secret = hash('sha256', $tmpDb . '::futprotec_baja_csrf_v1');
+    // El secreto CSRF ahora vive en inc/secret.php (centro único, 2026-08-25).
+    // Fallback al método antiguo (derivado de la ruta) si el archivo no existe.
+    $secretos = [];
+    $secretFile = __DIR__ . '/../public_html/outbound/inc/secret.php';
+    if (file_exists($secretFile)) {
+        $secretos = require $secretFile;
+    }
+    $secret = $secretos['csrf_secret'] ?? hash('sha256', $tmpDb . '::futprotec_baja_csrf_v1');
     return hash_hmac('sha256', $ident, $secret);
 }
 
