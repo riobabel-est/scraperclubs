@@ -9,9 +9,55 @@
  */
 declare(strict_types=1);
 
-define('AUTH_KEY', 'FutProtec2026!');
+// ─── RUTA BD + SESIÓN ────────────────────────────────────────────────────────
 $DB_PATH = __DIR__ . '/data/stats.db';
 session_start();
+
+// ─── SECRETOS (centro único: inc/secret.php — gitignored + .htaccess) ───────
+$__secretos = [];
+if (file_exists(__DIR__ . '/inc/secret.php')) {
+    $__secretos = require __DIR__ . '/inc/secret.php';
+}
+
+// ─── CONEXIÓN BD (temprana: la pass del panel puede vivir cifrada en config) ─
+$db = null;
+if (file_exists($DB_PATH)) {
+    try {
+        $db = new SQLite3($DB_PATH);
+        $db->enableExceptions(true);
+        $db->exec('PRAGMA journal_mode=WAL');
+        $db->exec('PRAGMA busy_timeout=5000');
+    } catch (\Exception $e) {
+        $db = null;
+    }
+}
+
+// ─── PASS DEL PANEL (editable desde la UI) ───────────────────────────────────
+// 1) BD config['auth_dashboard'] cifrada FP1: (fuente principal desde 2026-08-25).
+// 2) Fallback: inc/secret.php['auth_dashboard'] (transición / si aún no hay BD).
+require_once __DIR__ . '/inc/crypto.php';
+$__authFromDb = '';
+if ($db) {
+    try {
+        $__authFromDb = (string)$db->querySingle("SELECT valor FROM config WHERE clave='auth_dashboard'");
+        if ($__authFromDb !== '') {
+            $__authFromDb = futprotec_descifrarPassword($__authFromDb);
+        }
+    } catch (\Exception $e) {
+        $__authFromDb = '';
+    }
+}
+define('AUTH_KEY', $__authFromDb !== '' ? $__authFromDb : (string)($__secretos['auth_dashboard'] ?? ''));
+
+// Email de recuperación configurado (editable desde la UI, tabla config).
+$RESET_EMAIL = '';
+if ($db) {
+    try {
+        $RESET_EMAIL = (string)$db->querySingle("SELECT valor FROM config WHERE clave='reset_email'");
+    } catch (\Exception $e) {
+        $RESET_EMAIL = '';
+    }
+}
 
 // ─── ANTI-CACHÉ (SOLO ENTORNO LOCAL/DEV) ────────────────────────────────────
 // Fuerza que el navegador SIEMPRE re-solicite el HTML y los assets (app.js,
@@ -45,7 +91,7 @@ if (isset($_GET['logout'])) {
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
-if (!file_exists($DB_PATH)) {
+if (!$db) {
     echo '<div class="max-w-lg mx-auto mt-20 p-8 text-center font-sans">
         <h2 class="text-xl font-bold text-red-400">stats.db no encontrada</h2>
         <p class="text-slate-400 mt-2">Ejecuta: <code class="bg-slate-800 px-2 py-1 rounded text-amber-400">php init_db.php</code></p>
@@ -53,18 +99,86 @@ if (!file_exists($DB_PATH)) {
     exit;
 }
 
-// ─── CONEXIÓN BD ─────────────────────────────────────────────────────────────
-$db = new SQLite3($DB_PATH);
-$db->enableExceptions(true);
-$db->exec('PRAGMA journal_mode=WAL');
-$db->exec('PRAGMA busy_timeout=5000');
-
 require_once __DIR__ . '/inc/eligibilidad.php';
 require_once __DIR__ . '/inc/metricas.php';
 require_once __DIR__ . '/inc/helpers.php';
 require_once __DIR__ . '/inc/imap_respuestas.php';
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
+
+// ═══════════════ RECUPERACIÓN DE CONTRASEÑA (público, sin sesión) ════════════
+// 1) POST action=request_reset → genera token (exp 30 min) y envía email.
+// 2) GET ?reset=TOKEN → página HTML para fijar nueva contraseña.
+// 3) POST action=reset_password → valida token y actualiza la pass cifrada.
+if ($action === 'request_reset') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!$db) { echo json_encode(['ok' => false, 'error' => 'BD no disponible']); exit; }
+    $email = strtolower(trim((string)($_POST['email'] ?? '')));
+    // Respuesta genérica para no revelar si el email existe en el sistema.
+    $respuestaGenerica = ['ok' => true, 'message' => 'Si el email es correcto, recibirás un enlace de recuperación.'];
+    if ($email === '' || strtolower($RESET_EMAIL) !== $email) {
+        echo json_encode($respuestaGenerica);
+        exit;
+    }
+    // Token de un solo uso + expiración 30 min.
+    $token = bin2hex(random_bytes(32));
+    $exp   = (string)(time() + 1800);
+    $stmtT = $db->prepare("INSERT INTO config (clave, valor) VALUES ('reset_token', :t) ON CONFLICT(clave) DO UPDATE SET valor = :t");
+    $stmtT->bindValue(':t', $token, SQLITE3_TEXT); $stmtT->execute();
+    $stmtE = $db->prepare("INSERT INTO config (clave, valor) VALUES ('reset_token_exp', :e) ON CONFLICT(clave) DO UPDATE SET valor = :e");
+    $stmtE->bindValue(':e', $exp, SQLITE3_TEXT); $stmtE->execute();
+    // Enviar email con el enlace (usa la cuenta SMTP activa de la BD).
+    $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
+        . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')
+        . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\')
+        . '/dashboard.php?reset=' . rawurlencode($token);
+    @enviarEmailRecuperacion($db, $RESET_EMAIL, $baseUrl); // fallo de SMTP no se revela
+    echo json_encode($respuestaGenerica);
+    exit;
+}
+
+// Página de reset (GET ?reset=TOKEN): muestra el formulario si el token es válido.
+if (isset($_GET['reset'])) {
+    $tokenReset = trim((string)$_GET['reset']);
+    $tokenValido = false;
+    if ($db && $tokenReset !== '') {
+        $savedTok = (string)$db->querySingle("SELECT valor FROM config WHERE clave='reset_token'");
+        $savedExp = (int)$db->querySingle("SELECT valor FROM config WHERE clave='reset_token_exp'");
+        $tokenValido = ($savedTok !== '' && hash_equals($savedTok, $tokenReset) && time() <= $savedExp);
+    }
+    if ($db) { $db->close(); }
+    mostrarPaginaReset($tokenValido, $tokenReset);
+    exit;
+}
+
+if ($action === 'reset_password') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!$db) { echo json_encode(['ok' => false, 'error' => 'BD no disponible']); exit; }
+    $token   = trim((string)($_POST['reset_token'] ?? ''));
+    $nueva   = (string)($_POST['new_password'] ?? '');
+    $confirma = (string)($_POST['confirm_password'] ?? '');
+    $savedTok = (string)$db->querySingle("SELECT valor FROM config WHERE clave='reset_token'");
+    $savedExp = (int)$db->querySingle("SELECT valor FROM config WHERE clave='reset_token_exp'");
+    if ($savedTok === '' || !hash_equals($savedTok, $token) || time() > $savedExp) {
+        echo json_encode(['ok' => false, 'error' => 'Enlace inválido o expirado. Solicita uno nuevo.']);
+        exit;
+    }
+    if (strlen($nueva) < 8) {
+        echo json_encode(['ok' => false, 'error' => 'La contraseña debe tener al menos 8 caracteres.']);
+        exit;
+    }
+    if ($nueva !== $confirma) {
+        echo json_encode(['ok' => false, 'error' => 'Las contraseñas no coinciden.']);
+        exit;
+    }
+    $cifrada = futprotec_cifrarPassword($nueva);
+    $stmt = $db->prepare("INSERT INTO config (clave, valor) VALUES ('auth_dashboard', :v) ON CONFLICT(clave) DO UPDATE SET valor = :v");
+    $stmt->bindValue(':v', $cifrada, SQLITE3_TEXT); $stmt->execute();
+    // Token de un solo uso: eliminar tras usarlo.
+    $db->exec("DELETE FROM config WHERE clave IN ('reset_token','reset_token_exp')");
+    echo json_encode(['ok' => true, 'message' => 'Contraseña actualizada. Ya puedes acceder al panel.']);
+    exit;
+}
 
 // ─── SINCRONIZACIÓN IMAP LIGERA AL CARGAR ────────────────────────────────────
 // Al acceder al dashboard se sincronizan las respuestas IMAP en MODO LIGERO
@@ -92,6 +206,46 @@ if (!empty($action) && empty($_SESSION['auth_outbound'])) {
     header('Content-Type: application/json');
     http_response_code(401);
     echo json_encode(['ok' => false, 'error' => 'No autorizado']);
+    exit;
+}
+
+// ═══════════════ GESTIÓN DE CREDENCIALES DEL PANEL (autenticado) ══════════════
+// change_password: cambia la contraseña del panel (cifrada FP1: en config).
+if ($action === 'change_password') {
+    header('Content-Type: application/json; charset=utf-8');
+    $actual   = (string)($_POST['password_actual'] ?? '');
+    $nueva    = (string)($_POST['password_nueva'] ?? '');
+    $confirma = (string)($_POST['password_confirmar'] ?? '');
+    if (!hash_equals((string)AUTH_KEY, $actual)) {
+        echo json_encode(['ok' => false, 'error' => 'La contraseña actual no es correcta.']);
+        exit;
+    }
+    if (strlen($nueva) < 8) {
+        echo json_encode(['ok' => false, 'error' => 'La nueva contraseña debe tener al menos 8 caracteres.']);
+        exit;
+    }
+    if ($nueva !== $confirma) {
+        echo json_encode(['ok' => false, 'error' => 'Las contraseñas no coinciden.']);
+        exit;
+    }
+    $cifrada = futprotec_cifrarPassword($nueva);
+    $stmt = $db->prepare("INSERT INTO config (clave, valor) VALUES ('auth_dashboard', :v) ON CONFLICT(clave) DO UPDATE SET valor = :v");
+    $stmt->bindValue(':v', $cifrada, SQLITE3_TEXT); $stmt->execute();
+    echo json_encode(['ok' => true, 'message' => 'Contraseña actualizada correctamente.']);
+    exit;
+}
+
+// update_reset_email: cambia el email de recuperación (contacto de reseteo).
+if ($action === 'update_reset_email') {
+    header('Content-Type: application/json; charset=utf-8');
+    $email = strtolower(trim((string)($_POST['reset_email'] ?? '')));
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['ok' => false, 'error' => 'Email de recuperación inválido.']);
+        exit;
+    }
+    $stmt = $db->prepare("INSERT INTO config (clave, valor) VALUES ('reset_email', :v) ON CONFLICT(clave) DO UPDATE SET valor = :v");
+    $stmt->bindValue(':v', $email, SQLITE3_TEXT); $stmt->execute();
+    echo json_encode(['ok' => true, 'message' => 'Email de recuperación actualizado.']);
     exit;
 }
 
@@ -895,6 +1049,144 @@ window._chipCounters = <?= json_encode($chipCounters, JSON_UNESCAPED_UNICODE) ?>
 </html>
 
 <?php
+// ═══════════════ HELPERS DE RECUPERACIÓN DE CONTRASEÑA ═══════════════════════
+/**
+ * Envía el email de recuperación usando la cuenta SMTP activa de la BD.
+ * Devuelve true/false; el fallo NO se revela al visitante (evita enumeración).
+ */
+function enviarEmailRecuperacion(SQLite3 $db, string $destino, string $enlace): bool
+{
+    require_once __DIR__ . '/inc/smtp_transport.php';
+
+    $cuenta = $db->querySingle("SELECT * FROM cuentas_smtp WHERE activa = 1 ORDER BY id LIMIT 1", true);
+    if (!$cuenta) {
+        $cuenta = $db->querySingle("SELECT * FROM cuentas_smtp ORDER BY id LIMIT 1", true);
+    }
+    if (!$cuenta || empty($cuenta['email'])) {
+        return false;
+    }
+
+    $pass = futprotec_descifrarPassword((string)($cuenta['password'] ?? ''));
+    $c = [
+        'email'          => (string)($cuenta['email'] ?? ''),
+        'usuario'        => (string)($cuenta['usuario'] ?? $cuenta['email'] ?? ''),
+        'password'       => $pass,
+        'host'           => (string)($cuenta['host'] ?? ''),
+        'puerto'         => (int)($cuenta['puerto'] ?? 465),
+        'seguridad'      => ((int)($cuenta['puerto'] ?? 465) === 465) ? 'ssl' : 'tls',
+        'nombre'         => 'FutProtec — Recuperación',
+    ];
+
+    $asunto = 'Recuperación de contraseña — Panel FutProtec';
+    $texto  = "Hola,\n\n"
+        . "Recibimos una solicitud para recuperar la contraseña del panel FutProtec.\n\n"
+        . "Para establecer una nueva contraseña, abre este enlace (válido 30 minutos):\n\n"
+        . $enlace . "\n\n"
+        . "Si no has solicitado este cambio, ignora este mensaje.\n\n"
+        . "— FutProtec";
+    $html = "<p>Hola,</p><p>Recibimos una solicitud para recuperar la contraseña del panel FutProtec.</p>"
+        . "<p>Para establecer una nueva contraseña, abre este enlace (válido 30 minutos):</p>"
+        . "<p><a href=\"" . htmlspecialchars($enlace, ENT_QUOTES, 'UTF-8') . "\">Restablecer contraseña</a></p>"
+        . "<p>Si no has solicitado este cambio, ignora este mensaje.</p><p>— FutProtec</p>";
+
+    $r = futprotec_enviarSMTP($c, $destino, $asunto, $html, ['texto_plano' => $texto]);
+    return (bool)($r['ok'] ?? false);
+}
+
+/**
+ * Página HTML de restablecimiento de contraseña (GET ?reset=TOKEN).
+ */
+function mostrarPaginaReset(bool $tokenValido, string $token): void
+{
+    ?><!DOCTYPE html>
+    <html lang="es" class="dark">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>FutProtec — Restablecer contraseña</title>
+        <link rel="stylesheet" href="css/tailwind.min.css">
+        <style>body { font-family: 'Inter', system-ui, sans-serif; }</style>
+    </head>
+    <body class="bg-slate-950 min-h-screen flex items-center justify-center">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+            <div class="text-center mb-6">
+                <div class="text-2xl font-bold text-amber-400">FutProtec</div>
+                <p class="text-slate-300 text-sm mt-1">Restablecer contraseña</p>
+            </div>
+            <?php if (!$tokenValido): ?>
+                <div class="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 text-rose-400 text-sm text-center mb-4">
+                    Enlace inválido o expirado. Solicita uno nuevo desde el panel.
+                </div>
+                <div class="text-center">
+                    <a href="<?= htmlspecialchars($_SERVER['PHP_SELF'] ?? 'dashboard.php') ?>"
+                       class="text-amber-400 hover:text-amber-300 text-sm">← Volver al acceso</a>
+                </div>
+            <?php else: ?>
+                <form id="resetForm" onsubmit="return false;">
+                    <input type="hidden" name="reset_token" value="<?= htmlspecialchars($token, ENT_QUOTES, 'UTF-8') ?>">
+                    <div class="mb-4">
+                        <label class="text-sm text-slate-300 uppercase tracking-wider">Nueva contraseña</label>
+                        <input type="password" id="new_password" name="new_password" required minlength="8"
+                            class="mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50"
+                            placeholder="Mínimo 8 caracteres">
+                    </div>
+                    <div class="mb-4">
+                        <label class="text-sm text-slate-300 uppercase tracking-wider">Confirmar contraseña</label>
+                        <input type="password" id="confirm_password" name="confirm_password" required minlength="8"
+                            class="mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+                    </div>
+                    <p id="resetMsg" class="text-sm mb-4 hidden"></p>
+                    <button type="submit" id="resetBtn"
+                        class="w-full py-2.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition">
+                        Guardar nueva contraseña
+                    </button>
+                </form>
+                <div class="text-center mt-4">
+                    <a href="<?= htmlspecialchars($_SERVER['PHP_SELF'] ?? 'dashboard.php') ?>"
+                       class="text-slate-400 hover:text-amber-400 text-xs">← Volver al acceso</a>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php if ($tokenValido): ?>
+        <script>
+        document.getElementById('resetForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            var btn = document.getElementById('resetBtn');
+            var msg = document.getElementById('resetMsg');
+            btn.disabled = true;
+            btn.textContent = 'Guardando...';
+            var fd = new FormData();
+            fd.append('action', 'reset_password');
+            fd.append('reset_token', document.querySelector('[name=reset_token]').value);
+            fd.append('new_password', document.getElementById('new_password').value);
+            fd.append('confirm_password', document.getElementById('confirm_password').value);
+            try {
+                var r = await fetch('?action=reset_password', { method: 'POST', body: fd });
+                var j = await r.json();
+                msg.classList.remove('hidden');
+                if (j.ok) {
+                    msg.className = 'text-sm mb-4 text-emerald-400';
+                    msg.textContent = j.message;
+                    setTimeout(function () { window.location.href = 'dashboard.php'; }, 1800);
+                } else {
+                    msg.className = 'text-sm mb-4 text-rose-400';
+                    msg.textContent = j.error || 'Error al restablecer.';
+                    btn.disabled = false;
+                    btn.textContent = 'Guardar nueva contraseña';
+                }
+            } catch (err) {
+                msg.className = 'text-sm mb-4 text-rose-400';
+                msg.textContent = 'Error de conexión. Inténtalo de nuevo.';
+                btn.disabled = false;
+                btn.textContent = 'Guardar nueva contraseña';
+            }
+        });
+        </script>
+        <?php endif; ?>
+    </body>
+    </html><?php
+}
+
 // ═══════════════ LOGIN FORM ═══════════════════════════════════════════════
 function showLoginForm(string $error = ''): void {
     ?>
@@ -937,6 +1229,20 @@ function showLoginForm(string $error = ''): void {
                     Acceder al Panel
                 </button>
             </form>
+            <div class="text-center mt-4">
+                <button type="button" data-forgot-toggle class="text-sm text-slate-400 hover:text-amber-400 transition">¿Olvidaste la contraseña?</button>
+            </div>
+            <div id="forgotBox" class="hidden mt-3">
+                <form id="forgotForm" onsubmit="return false;">
+                    <input type="email" id="forgotEmail" required placeholder="Email de recuperación"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/50">
+                    <button type="submit" id="forgotBtn"
+                        class="mt-2 w-full py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition">
+                        Enviar enlace de recuperación
+                    </button>
+                </form>
+                <p id="forgotMsg" class="text-sm mt-2 hidden"></p>
+            </div>
         </div>
         <script>
         // Toggle de contraseña del login con JavaScript nativo (sin Alpine)
@@ -953,6 +1259,38 @@ function showLoginForm(string $error = ''): void {
             if (eyeOff) eyeOff.classList.toggle('hidden', !show);
             btn.title = show ? 'Ocultar contraseña' : 'Mostrar contraseña';
             btn.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
+        });
+        // Recuperación de contraseña: mostrar/ocultar el form de email + envío.
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-forgot-toggle]');
+            if (!btn) return;
+            var box = document.getElementById('forgotBox');
+            if (box) box.classList.toggle('hidden');
+        });
+        document.getElementById('forgotForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            var email = document.getElementById('forgotEmail').value.trim();
+            var btn = document.getElementById('forgotBtn');
+            var msg = document.getElementById('forgotMsg');
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+            msg.classList.add('hidden');
+            var fd = new FormData();
+            fd.append('action', 'request_reset');
+            fd.append('email', email);
+            try {
+                var r = await fetch('?action=request_reset', { method: 'POST', body: fd });
+                var j = await r.json();
+                msg.className = 'text-sm mt-2 text-slate-300';
+                msg.textContent = j.message || 'Si el email es correcto, recibirás un enlace.';
+                msg.classList.remove('hidden');
+            } catch (err) {
+                msg.className = 'text-sm mt-2 text-rose-400';
+                msg.textContent = 'Error de conexión. Inténtalo de nuevo.';
+                msg.classList.remove('hidden');
+            }
+            btn.disabled = false;
+            btn.textContent = 'Enviar enlace de recuperación';
         });
         lucide.createIcons();
         </script>

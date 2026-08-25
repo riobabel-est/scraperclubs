@@ -28,9 +28,14 @@ ini_set('display_errors', 0);
 $dbPath = defined('BAJA_DB_PATH') ? BAJA_DB_PATH : __DIR__ . '/../data/stats.db';
 
 
-// Secreto de firma CSRF (estable por servidor, NO es una credencial SMTP).
-// Derivado de la ruta de la BD para no hardcodear un valor arbitrario.
-$CSRF_SECRET = hash('sha256', $dbPath . '::futprotec_baja_csrf_v1');
+// Secreto de firma CSRF (centro único: inc/secret.php — gitignored + .htaccess).
+// Fallback transitorio al método antiguo (derivado de la ruta) si el campo aún
+// no existe en el secret.php desplegado.
+$__secretos = [];
+if (file_exists(__DIR__ . '/../inc/secret.php')) {
+    $__secretos = require __DIR__ . '/../inc/secret.php';
+}
+$CSRF_SECRET = (string)($__secretos['csrf_secret'] ?? hash('sha256', $dbPath . '::futprotec_baja_csrf_v1'));
 
 // Estados de supresión que indican que el lead ya está dado de baja.
 $estadosBaja = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out'];

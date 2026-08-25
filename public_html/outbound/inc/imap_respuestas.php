@@ -712,7 +712,7 @@ function imap_clasificar_con_ia(SQLite3 $db, array $msg): ?string
     if (!isset($PROVEEDORES[$proveedor])) {
         $proveedor = 'deepseek';
     }
-    $apiKey = $config[$PROVEEDORES[$proveedor]['api']] ?? '';
+    $apiKey = futprotec_descifrarPassword($config[$PROVEEDORES[$proveedor]['api']] ?? '');
     $modelo = $config[$PROVEEDORES[$proveedor]['modelo']] ?? ($MODELOS_DEFECTO[$proveedor] ?? 'deepseek-chat');
 
     if ($apiKey === '') {

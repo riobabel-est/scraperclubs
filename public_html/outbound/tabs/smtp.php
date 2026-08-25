@@ -97,6 +97,85 @@
         </div>
     </div>
 
+    <!-- ═══════════ SEGURIDAD DEL PANEL (contraseña + email recuperación) ═══════════ -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="seguridadPanel()" x-init="cargar()">
+        <div class="flex items-center gap-3 mb-4">
+            <i data-lucide="shield" class="w-5 h-5 text-emerald-400"></i>
+            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Seguridad del Panel</h5>
+        </div>
+
+        <!-- Cambiar contraseña -->
+        <div class="mb-5">
+            <h6 class="text-sm font-semibold text-slate-300 mb-2">Cambiar contraseña de acceso</h6>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-300 mb-1.5">Contraseña actual</label>
+                    <div class="relative">
+                        <input type="password" x-model="actual" x-ref="secPassActual" autocomplete="off"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-12 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50">
+                        <button type="button" x-ref="secBtnActual" @click="toggleCampo('secPassActual','secBtnActual')"
+                            style="position:absolute; right:0.5rem; top:50%; transform:translateY(-50%); width:2rem; height:2rem; display:flex; align-items:center; justify-content:center; border-radius:0.375rem; color:#94a3b8; background:transparent; border:none; cursor:pointer; transition:color .15s, background-color .15s;"
+                            class="hover:text-emerald-400 hover:bg-slate-700/60"
+                            title="Mostrar contraseña" aria-label="Mostrar contraseña">
+                            <i data-lucide="eye" data-eye class="w-4 h-4"></i>
+                            <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-300 mb-1.5">Nueva contraseña</label>
+                        <div class="relative">
+                            <input type="password" x-model="nueva" x-ref="secPassNueva" autocomplete="new-password"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-12 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50" placeholder="Mínimo 8 caracteres">
+                            <button type="button" x-ref="secBtnNueva" @click="toggleCampo('secPassNueva','secBtnNueva')"
+                                style="position:absolute; right:0.5rem; top:50%; transform:translateY(-50%); width:2rem; height:2rem; display:flex; align-items:center; justify-content:center; border-radius:0.375rem; color:#94a3b8; background:transparent; border:none; cursor:pointer; transition:color .15s, background-color .15s;"
+                                class="hover:text-emerald-400 hover:bg-slate-700/60"
+                                title="Mostrar contraseña" aria-label="Mostrar contraseña">
+                                <i data-lucide="eye" data-eye class="w-4 h-4"></i>
+                                <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-300 mb-1.5">Confirmar nueva</label>
+                        <div class="relative">
+                            <input type="password" x-model="confirmar" x-ref="secPassConfirmar" autocomplete="new-password"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-12 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50">
+                            <button type="button" x-ref="secBtnConfirmar" @click="toggleCampo('secPassConfirmar','secBtnConfirmar')"
+                                style="position:absolute; right:0.5rem; top:50%; transform:translateY(-50%); width:2rem; height:2rem; display:flex; align-items:center; justify-content:center; border-radius:0.375rem; color:#94a3b8; background:transparent; border:none; cursor:pointer; transition:color .15s, background-color .15s;"
+                                class="hover:text-emerald-400 hover:bg-slate-700/60"
+                                title="Mostrar contraseña" aria-label="Mostrar contraseña">
+                                <i data-lucide="eye" data-eye class="w-4 h-4"></i>
+                                <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <button @click="cambiarPass()"
+                    class="px-4 py-2 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-lg text-sm font-semibold hover:bg-emerald-500/25 transition flex items-center gap-1.5">
+                    <i data-lucide="key-round" class="w-4 h-4"></i> Cambiar contraseña
+                </button>
+                <p x-show="msgPass" class="text-sm" :class="msgPassOk ? 'text-emerald-400' : 'text-rose-400'" x-text="msgPass"></p>
+            </div>
+        </div>
+
+        <!-- Email de recuperación -->
+        <div class="pt-4 border-t border-slate-800">
+            <h6 class="text-sm font-semibold text-slate-300 mb-2">Email de recuperación</h6>
+            <p class="text-xs text-slate-400 mb-2">A esta dirección se envía el enlace para restablecer la contraseña si la olvidas.</p>
+            <div class="flex gap-2">
+                <input type="email" x-model="emailRecuperacion" placeholder="contacto@ejemplo.com"
+                    class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500/50">
+                <button @click="guardarEmail()"
+                    class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition">
+                    Guardar
+                </button>
+            </div>
+            <p x-show="msgEmail" class="text-sm mt-2" :class="msgEmailOk ? 'text-emerald-400' : 'text-rose-400'" x-text="msgEmail"></p>
+        </div>
+    </div>
+
     </div><!-- /columna izquierda -->
 
     <!-- ═══════════ COLUMNA DERECHA ═══════════ -->
@@ -430,6 +509,79 @@ function gestionPruebas() {
                 await this.cargarHistorico();
             } else {
                 alert(j.error || 'Error al limpiar histórico');
+            }
+        }
+    };
+}
+
+function seguridadPanel() {
+    return {
+        actual: '',
+        nueva: '',
+        confirmar: '',
+        emailRecuperacion: '',
+        msgPass: '',
+        msgPassOk: false,
+        msgEmail: '',
+        msgEmailOk: false,
+        // Toggle mostrar/ocultar de un campo de contraseña (x-ref + data-eye/-off).
+        toggleCampo(ref, btnRef) {
+            const input = this.$refs[ref];
+            if (!input) return;
+            const pasarAVisible = (input.type === 'password');
+            input.type = pasarAVisible ? 'text' : 'password';
+            const btn = this.$refs[btnRef];
+            if (btn) {
+                const eye = btn.querySelector('[data-eye]');
+                const eyeOff = btn.querySelector('[data-eye-off]');
+                if (eye) eye.classList.toggle('hidden', pasarAVisible);
+                if (eyeOff) eyeOff.classList.toggle('hidden', !pasarAVisible);
+                btn.title = pasarAVisible ? 'Ocultar contraseña' : 'Mostrar contraseña';
+                btn.setAttribute('aria-label', btn.title);
+            }
+        },
+        async cargar() {
+            try {
+                const r = await fetch('?action=get_config&keys=reset_email');
+                const j = await r.json();
+                if (j.ok && j.config) {
+                    this.emailRecuperacion = j.config.reset_email || '';
+                }
+            } catch (e) { /* silencioso */ }
+        },
+        async cambiarPass() {
+            this.msgPass = '';
+            if (this.nueva.length < 8) { this.msgPass = 'La nueva contraseña debe tener al menos 8 caracteres.'; this.msgPassOk = false; return; }
+            if (this.nueva !== this.confirmar) { this.msgPass = 'Las contraseñas no coinciden.'; this.msgPassOk = false; return; }
+            const f = new FormData();
+            f.append('action', 'change_password');
+            f.append('password_actual', this.actual);
+            f.append('password_nueva', this.nueva);
+            f.append('password_confirmar', this.confirmar);
+            try {
+                const r = await fetch('?action=change_password', { method: 'POST', body: f });
+                const j = await r.json();
+                this.msgPass = j.message || (j.ok ? 'Contraseña actualizada.' : 'Error al cambiar la contraseña.');
+                this.msgPassOk = !!j.ok;
+                if (j.ok) { this.actual = ''; this.nueva = ''; this.confirmar = ''; }
+            } catch (e) {
+                this.msgPass = 'Error de conexión al cambiar la contraseña.';
+                this.msgPassOk = false;
+            }
+        },
+        async guardarEmail() {
+            this.msgEmail = '';
+            const f = new FormData();
+            f.append('action', 'update_reset_email');
+            f.append('reset_email', this.emailRecuperacion);
+            try {
+                const r = await fetch('?action=update_reset_email', { method: 'POST', body: f });
+                const j = await r.json();
+                this.msgEmail = j.message || (j.ok ? 'Email actualizado.' : 'Error al guardar el email.');
+                this.msgEmailOk = !!j.ok;
+            } catch (e) {
+                this.msgEmail = 'Error de conexión.';
+                this.msgEmailOk = false;
             }
         }
     };

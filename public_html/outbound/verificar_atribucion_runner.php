@@ -3,7 +3,12 @@
  * Runner web temporal: Verifica el estado de atribución de las respuestas IMAP.
  * Solo lectura. No modifica nada.
  */
-define('AUTH_KEY', 'VERIFICAR_ATRIBUCION_20260823');
+// Secreto del runner (centro único: inc/secret.php — gitignored + .htaccess)
+$__secretos = [];
+if (file_exists(__DIR__ . '/inc/secret.php')) {
+    $__secretos = require __DIR__ . '/inc/secret.php';
+}
+define('AUTH_KEY', (string)($__secretos['auth_runners'] ?? ''));
 if (!isset($_GET['token']) || $_GET['token'] !== AUTH_KEY) {
     http_response_code(403);
     echo "Acceso denegado";

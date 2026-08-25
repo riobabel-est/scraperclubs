@@ -332,13 +332,17 @@ Lógica de negocio mezclada con consultas SQL.
 - **Pendiente de producción:** Ejecutar `php cli/imap_respuestas.php` en remoto (requiere aprobación del usuario).
 - **Motor de envío:** Pausado (sin envíos automáticos no autorizados).
 - **Refactor SMTP unificado (sección 2):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-22). Creado `inc/smtp_transport.php`; reescritos `mime.php`, `cron.php` y `enviar_smtp_random.php` para delegar. `php -l` OK en los 5 archivos. **Validado en producción** con los 159 envíos reales de campaña 2 (el microenvío vía HTTP quedó bloqueado por el WAF de SiteGround, pero no es necesario — ver `checkpoint_microenvio_smtp_403_waf.md`). **Estado: RESUELTO.**
-- **Refactor analytics.php (sección 3.1):** ✅ **COMPLETADO EN LOCAL** (2026-08-22). Extraídas 11 funciones puras de `get_analytics`, `get_respuestas` y `get_followups`. `php -l` OK. Ver `checkpoint_refactor_analytics_funciones_puras.md`. **Pendiente:** deploy a producción (requiere aprobación del usuario).
-- **Refactor dashboard.php (sección 4.1):** ✅ **COMPLETADO EN LOCAL** (2026-08-22). Ver `checkpoint_refactor_dashboard_funciones_puras.md`. **Pendiente:** deploy a producción.
-- **Refactor leads.php scan_duplicates (sección 3.2):** ✅ **COMPLETADO EN LOCAL** (2026-08-23). Extraídas 4 funciones puras; handler `scan_duplicates` como orquestador delgado. `php -l` OK. Ver `checkpoint_refactor_leads_scan_duplicates.md`. **Pendiente:** deploy a producción + smoke test.
-- **Refactor imap_respuestas.php (sección 3.3 + 6.2):** ✅ **COMPLETADO EN LOCAL** (2026-08-23). `imap_registrar_respuesta()` y `imap_procesar_buzon()` ya delegan en funciones puras. `php -l` OK. **Pendiente:** deploy a producción + smoke test.
-- **Refactor modals.php (sección 4.2):** ✅ **COMPLETADO EN LOCAL** (2026-08-25). Bloque `<script>` inline (toggle SMTP) eliminado de `tabs/modals.php`; el handler delegado ya vivía en `js/app.js`. Aplicado además el contraste UI pendiente en `modals.php` (55 reemplazos). `php -l` + `node --check` OK. **Pendiente:** commitear + deploy a producción.
-- **Refactor app.js (sección 5):** ✅ **COMPLETADO EN LOCAL** (2026-08-25). `iniciarMotor()` dividido en `enviarDirigido()`/`enviarCola()`; getters unificados (`lzEnvioOkPct` delega en `lzTasaExito`); `enviarCorreoPrueba()` con `validarPruebaEmail()`/`obtenerCandidatosPrueba()`/`armarSeleccionPrueba()`; renderizado de `loadGestor()`/`loadSmtp()` en funciones de plantilla. `node --check` OK. Contratos públicos preservados. **Pendiente:** deploy a producción + smoke test + commitear.
+- **Refactor analytics.php (sección 3.1):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-25). Extraídas 11 funciones puras de `get_analytics`, `get_respuestas` y `get_followups`. `php -l` OK. Ver `checkpoint_refactor_analytics_funciones_puras.md`.
+- **Refactor dashboard.php (sección 4.1):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-25). Ver `checkpoint_refactor_dashboard_funciones_puras.md`.
+- **Refactor leads.php scan_duplicates (sección 3.2):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-25). Extraídas 4 funciones puras; handler `scan_duplicates` como orquestador delgado. `php -l` OK. Ver `checkpoint_refactor_leads_scan_duplicates.md`.
+- **Refactor imap_respuestas.php (sección 3.3 + 6.2):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-25). `imap_registrar_respuesta()` y `imap_procesar_buzon()` ya delegan en funciones puras. `php -l` OK.
+- **Refactor modals.php (sección 4.2):** ✅ **COMPLETADO Y DESPLEGADO** (2026-08-25). Bloque `<script>` inline (toggle SMTP) eliminado de `tabs/modals.php`; el handler delegado ya vivía en `js/app.js`. Aplicado además el contraste UI pendiente en `modals.php` (55 reemplazos). `php -l` + `node --check` OK.
+- **Refactor app.js (sección 5):** ✅ **COMPLETADO, DESPLEGADO Y COMMITEADO** (2026-08-25). `iniciarMotor()` dividido en `enviarDirigido()`/`enviarCola()`; getters unificados (`lzEnvioOkPct` delega en `lzTasaExito`); `enviarCorreoPrueba()` con `validarPruebaEmail()`/`obtenerCandidatosPrueba()`/`armarSeleccionPrueba()`; renderizado de `loadGestor()`/`loadSmtp()` en funciones de plantilla. `node --check` OK + test funcional 38/38. Ver `checkpoint_refactor_app_js.md`.
 - **SIGUIENTE PENDIENTE PRIORITARIO (sección 6.3):** Refactor de `inc/eligibilidad.php` — separar lógica de negocio de consultas SQL. Prioridad baja, estimación **1-2 horas**.
+- **CRÍTICO (auditoría 2026-08-25):** Credenciales hardcodeadas — ✅ **RESUELTO** (2026-08-25). `AUTH_KEY` del dashboard, tokens de runners y `CSRF_SECRET` movidos a `inc/secret.php` (gitignored + .htaccess). API keys de IA cifradas `FP1:` en BD (config) y descifradas al uso. Además: **la contraseña del panel y el email de recuperación se gestionan desde la UI** (bloque "Seguridad del Panel" en Configuración) con **recuperación por email mediante token de un solo uso** (`request_reset`/`reset_password`). Ver `docs/CONFIGURACION_SEGURIDAD.md`.
+- **MEDIO (auditoría 2026-08-25):** Colisiones de funciones sin `function_exists` en `inc/mime.php`, `inc/abc.php`, `inc/eligibilidad.php`, `inc/helpers.php`, `inc/pop3_respuestas.php` (hoy latentes porque `enviar_smtp_random.php` está bloqueado). Envolver en guardas. Ver informe de auditoría.
+- **MEDIO-BAJO (auditoría 2026-08-25):** Dividir monolitos — `inc/imap_respuestas.php` (1553 líneas) es el principal candidato; también `api/leads.php` (1186), `cli/init_db.php` (806). Ver informe de auditoría.
+- **LIMPIEZA:** Eliminar `inspect_db.php` y `tmp_schema_check2/3/4.txt` (residuos de diagnóstico en la raíz).
 
 
 ---
@@ -348,6 +352,7 @@ Lógica de negocio mezclada con consultas SQL.
 - `docs/checkpoint_deploy_fases_fg_siteground.md` — deploy F/G completado
 - `docs/checkpoint_faseFG_imap_respuestas_kanban.md` — módulo IMAP
 - `docs/checkpoint_faseFG_bandeja_conversaciones.md` — bandeja de respuestas
+- `docs/informe_auditoria_bugs_20260825.md` — auditoría de bugs y deuda técnica (2026-08-25)
 - `docs/checkpoint_faseG_notificaciones_globales.md` — notificaciones
 - `scripts/verify_remote_fg_deploy.py` — verificación de deploy
 - `scripts/verify_remote_respuestas_readonly.py` — verificación de BD remota

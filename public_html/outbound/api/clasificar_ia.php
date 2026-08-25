@@ -22,6 +22,9 @@ declare(strict_types=1);
 
 header('Content-Type: application/json');
 
+// Helper de cifrado AES-256-GCM (descifra la API key almacenada en config).
+require_once __DIR__ . '/../inc/crypto.php';
+
 // ─── Bootstrap BD ────────────────────────────────────────────────────────────
 $DB_PATH = __DIR__ . '/../data/stats.db';
 if (!file_exists($DB_PATH)) {
@@ -53,7 +56,7 @@ $proveedor = $config['ia_proveedor'] ?? 'deepseek';
 if (!isset($PROVEEDORES[$proveedor])) {
     $proveedor = 'deepseek';
 }
-$apiKey = $config[$PROVEEDORES[$proveedor]['api']] ?? '';
+$apiKey = futprotec_descifrarPassword($config[$PROVEEDORES[$proveedor]['api']] ?? '');
 $modelo = $config[$PROVEEDORES[$proveedor]['modelo']] ?? '';
 
 // Modelo por defecto según proveedor si no está configurado.
