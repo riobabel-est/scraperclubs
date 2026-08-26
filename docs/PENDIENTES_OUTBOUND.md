@@ -5,6 +5,10 @@
 **Propósito:** Único documento que consolida TODO lo pendiente (refactors, mejoras, seguridad, auditoría y plan activo).
 **Estado verificado contra el código y la BD en la fecha indicada.**
 
+> **⚠️ ACTUALIZADO 2026-08-26:** el documento vivo de prioridades es
+> **`docs/ROADMAP_OUTBOUND_GLOBAL.md`**. Este compendio se conserva como histórico
+> y registro de cotejo.
+>
 > Los documentos de origen se conservan (`docs/REFACTORIZACIONES_PENDIENTES.md`,
 > `docs/FUTURE_IMPROVEMENTS.md`, `docs/informe_auditoria_bugs_20260825.md`,
 > `docs/CONFIGURACION_SEGURIDAD.md`) pero **este es el compendio de referencia**.
@@ -47,7 +51,7 @@
 | ID | Ítem | Estado |
 |---|---|---|
 | A-1 | Monolitos (imap_respuestas/leads/init_db) | 🔴 Duplicado con R-3 (ver §1) |
-| A-2 | Basura temporal en la raíz: `inspect_db.php`, `tmp_schema_check2/3/4.txt` | 🔴 Pendiente (limpiar) |
+| A-2 | Basura temporal en la raíz: `inspect_db.php`, `tmp_schema_check2/3/4.txt` | ✅ **RESUELTO de facto** (2026-08-26): verificado, los archivos ya no existen |
 | A-3 | `$CSRF_SECRET` débil (derivado de ruta) | ✅ RESUELTO (movido a secret.php) |
 | A-4 | SQL injection / XSS | ✅ No detectado en flujos revisados |
 
@@ -60,7 +64,7 @@
 | P-3 | **Reorganización de tabs del panel** (informe `docs/INFORME_REORGANIZACION_TABS.md`) | ✅ **IMPLEMENTADO** (2026-08-26): Configurador de Campañas movido de Ajustes → **Plantillas y Campañas** (bloque HTML a `tabs/editor.php`, `campanasConfig()` a `js/app.js`); tabs renombrados (Pipeline, Leads, Plantillas y Campañas, Ajustes, Bandeja). `php -l` + `node --check` OK. Pendiente deploy/commit si se aprueba. Ver `docs/checkpoint_reorganizacion_tabs.md` |
 | P-4 | **Módulo "Seguimiento"** (ex Follow-ups huérfano, plan `docs/PLAN_FOLLOWUPS_SEGUIMIENTO_UIUX.md`) | ✅ **IMPLEMENTADO** (2026-08-26): tab "Seguimiento" con scorecards (6 KPIs), embudo 5 etapas, cola priorizada Perseguir/Avanzar, filtros, scoring de prioridad. Backend `get_seguimiento` + funciones puras (test 16/16). `followups.php` eliminado. Pendiente deploy/commit si se aprueba. Ver `docs/checkpoint_modulo_seguimiento.md` |
 | P-5 | **CRM a nivel HubSpot (2026-08-26)**: analítica global conectada + agenda de próximas acciones + smart view | ✅ **IMPLEMENTADO**: (1) Analytics con 2ª pestaña **"Efectividad Global"** (`analyticsApp` conectado: embudo 12 niveles + cuello de botella, KPIs €/100 contactos, objetivo/proyección, A/B/C ampliado). (2) **`fecha_proxima_accion`** (migración init_db + whitelist + columna agenda con vencidos en cola Avanzar + guardar desde UI). (3) **Smart View "Calentar"** (nuevos sin actividad en 7d). (4) **Poda** de `get_followups` + `getFollowups*` legacy. Test **21/21** + smoke real. Ver `docs/checkpoint_crm_efectividad_20260826.md` |
-| P-6 | **Contexto de campaña global** (unificación Pipeline/Seguimiento/Analytics) | ✅ **IMPLEMENTADO** (2026-08-26): selector de campaña en el topbar (persistente en sesión, endpoint `set_campana_actual`) que filtra: **Kanban** (server-side vía `lead_pipelines`), **Seguimiento** (`get_seguimiento` con `campaign_id`: colas + KPIs + embudo por campaña), **Analytics** (Piloto preselecciona la campaña, Global usa el filtro pipeline). Bandeja/Lanzadera siguen globales (Fase 2 pendiente). Ver `docs/checkpoint_crm_efectividad_20260826.md` |
+| P-6 | **Contexto de campaña global** (unificación Pipeline/Seguimiento/Analytics) | ✅ **IMPLEMENTADO** (2026-08-26): selector de campaña en el topbar (persistente en sesión, endpoint `set_campana_actual`) que filtra: **Kanban** (server-side vía `lead_pipelines` + `envios.campaign_id`), **Seguimiento**, **Analytics**, **Bandeja y Gestor** (Fase 2 completada en el P0 navegación) y **Lanzadera** (hereda la campaña). Ver `docs/checkpoint_crm_efectividad_20260826.md` |
 
 ---
 
@@ -82,3 +86,4 @@
 - `docs/CONFIGURACION_SEGURIDAD.md` — deuda y gestión de secretos
 - `docs/PLAN_CONFIGURADOR_CAMPANAS_PLANTILLAS.md` — plan de ejecución activo
 - `docs/INFORME_REORGANIZACION_TABS.md` — análisis, viabilidad e implementación de la reorganización de tabs
+- `docs/ROADMAP_OUTBOUND_GLOBAL.md` — **roadmap vivo de prioridades operativas (referencia actual)**
