@@ -2025,6 +2025,9 @@ function campanasConfig() {
         async cargarPlantillas() {
             try { const r = await fetch('?action=get_templates'); const j = await r.json(); if (j.ok) this.plantillas = j.templates || []; } catch (e) {}
         },
+        seleccionarTodasFed() {
+            this.form.federaciones = this.federaciones.slice();
+        },
         nueva() {
             this.form = { id: 0, nombre: '', identificador: '', entorno: 'test', estado: 'PILOT', activo: 1, todas: false, federaciones: [], estado_lead: '', plantillas: [] };
             this.msg = '';

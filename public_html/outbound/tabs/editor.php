@@ -78,7 +78,7 @@ class="w-full py-2 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounde
 
 <!-- ═══════════ COLUMNA DER: EDITOR ═══════════ -->
 <div class="lg:col-span-3 space-y-3" x-show="et || en" x-cloak x-transition>
-<div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-4 min-h-[520px] flex flex-col">
 <div class="flex items-center justify-between mb-3">
 <div class="flex items-center gap-2">
 <span class="text-sm font-bold text-amber-400 uppercase tracking-wider">Editor</span>
@@ -223,7 +223,7 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
 </div>
 
 <!-- PLACEHOLDER VACÍO -->
-<div class="lg:col-span-3 flex items-center justify-center" x-show="!et && !en" x-cloak>
+<div class="lg:col-span-3 flex items-center justify-center min-h-[520px]" x-show="!et && !en" x-cloak>
 <div class="text-center text-slate-400">
 <i data-lucide="file-text" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
 <p class="text-sm">Selecciona una plantilla del listado<br>o crea una nueva para empezar.</p>
@@ -271,7 +271,7 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
 </div>
 </div>
 
-    <!-- ═══════════ CONFIGURADOR DE CAMPAÑAS (movido desde Configuración — reorganización 2026-08-26) ═══════════ -->
+    <!-- ═══════════ CONFIGURADOR DE CAMPAÑAS ═══════════ -->
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="campanasConfig()" x-init="cargarTodo()">
         <div class="flex items-center gap-3 mb-4">
             <i data-lucide="target" class="w-5 h-5 text-amber-400"></i>
@@ -279,25 +279,27 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
             <span class="text-xs text-slate-400 ml-auto">Público + plantillas por campaña</span>
         </div>
 
-        <div class="mb-4 space-y-2" x-show="campanas.length > 0">
+        <!-- Lista de campañas (tarjetas horizontales compactas) -->
+        <div class="space-y-1.5 mb-4" x-show="campanas.length > 0">
             <template x-for="c in campanas" :key="c.id">
-                <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-3 flex items-center justify-between gap-2">
+                <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
                     <div class="min-w-0">
-                        <div class="text-sm font-semibold text-slate-200" x-text="c.nombre"></div>
+                        <div class="text-sm font-semibold text-slate-200 truncate" x-text="c.nombre"></div>
                         <div class="text-xs text-slate-400 truncate"
                             x-text="c.identificador + ' · ' + c.entorno + ' · ' + (c.segmento && c.segmento.todas ? 'Todas las federaciones' : ((c.segmento && c.segmento.federaciones.length) || 0) + ' federaciones') + ' · ' + ((c.plantillas_id && c.plantillas_id.length) || 0) + ' plantillas'"></div>
                     </div>
                     <div class="flex gap-1.5 shrink-0">
-                        <button @click="editar(c)" class="px-2.5 py-1.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-semibold hover:bg-blue-500/20 transition">Editar</button>
-                        <button @click="eliminar(c)" class="px-2.5 py-1.5 bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold hover:bg-rose-500/20 transition">Eliminar</button>
+                        <button @click="editar(c)" class="px-2 py-1 bg-slate-800 text-slate-400 border border-slate-700/60 rounded-md text-xs font-medium hover:text-slate-200 transition">Editar</button>
+                        <button @click="eliminar(c)" class="px-2 py-1 bg-slate-800 text-slate-400 border border-slate-700/60 rounded-md text-xs font-medium hover:text-rose-400 transition">Eliminar</button>
                     </div>
                 </div>
             </template>
         </div>
 
-        <div class="space-y-3 pt-3 border-t border-slate-800">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
+        <!-- Formulario compacto (1 fila en lg) -->
+        <div class="space-y-4 pt-4 border-t border-slate-800">
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div class="col-span-2">
                     <label class="block text-sm font-semibold text-slate-300 mb-1.5">Nombre</label>
                     <input type="text" x-model="form.nombre" placeholder="Ej: Campaña 3 — Clasificación"
                         class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
@@ -307,8 +309,6 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
                     <input type="text" x-model="form.identificador" placeholder="Ej: CAMPA3"
                         class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
                 </div>
-            </div>
-            <div class="grid grid-cols-3 gap-3">
                 <div>
                     <label class="block text-sm font-semibold text-slate-300 mb-1.5">Entorno</label>
                     <select x-model="form.entorno" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
@@ -334,16 +334,24 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
                 </div>
             </div>
 
+            <!-- Federaciones del público (pill-tags con :checked) -->
             <div>
-                <label class="block text-sm font-semibold text-slate-300 mb-1.5">Federaciones del público</label>
+                <div class="flex items-center justify-between mb-1.5">
+                    <label class="block text-sm font-semibold text-slate-300">Federaciones del público</label>
+                    <div class="flex gap-3 text-xs" x-show="!form.todas && federaciones.length > 0">
+                        <button type="button" @click="seleccionarTodasFed()" class="text-amber-400 hover:text-amber-300 font-medium">Seleccionar todas</button>
+                        <button type="button" @click="form.federaciones = []" class="text-slate-400 hover:text-slate-200 font-medium">Deseleccionar</button>
+                    </div>
+                </div>
                 <div class="flex items-center gap-2 mb-2">
                     <input type="checkbox" x-model="form.todas" id="todasFed" class="accent-amber-500">
                     <label for="todasFed" class="text-sm text-slate-300">Todas las federaciones</label>
                 </div>
-                <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto" x-show="!form.todas">
+                <div class="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto" x-show="!form.todas">
                     <template x-for="fed in federaciones" :key="fed">
-                        <label class="flex items-center gap-1.5 text-sm text-slate-300 bg-slate-800/40 border border-slate-700/60 rounded px-2 py-1.5 cursor-pointer">
-                            <input type="checkbox" :value="fed" x-model="form.federaciones" class="accent-amber-500">
+                        <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-sm cursor-pointer transition"
+                            :class="form.federaciones.includes(fed) ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-slate-800/60 text-slate-400 border-slate-700/60 hover:text-slate-200'">
+                            <input type="checkbox" :value="fed" x-model="form.federaciones" class="accent-amber-500 hidden">
                             <span class="truncate" x-text="fed"></span>
                         </label>
                     </template>
@@ -351,11 +359,20 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
                 </div>
             </div>
 
+            <!-- Plantillas asignadas (chips removibles + selector) -->
             <div>
                 <label class="block text-sm font-semibold text-slate-300 mb-1.5">Plantillas asignadas (banco central)</label>
-                <div class="max-h-36 overflow-y-auto space-y-1 border border-slate-700/60 rounded-lg p-2 bg-slate-950/40">
+                <div class="flex flex-wrap gap-1.5 mb-2" x-show="form.plantillas.length > 0">
+                    <template x-for="t in plantillas.filter(x => form.plantillas.map(id => String(id)).includes(String(x.id)))" :key="t.id">
+                        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300">
+                            <span class="truncate max-w-[180px]" x-text="(t.categoria ? t.categoria + ' · ' : 'Sin pipeline · ') + t.nombre"></span>
+                            <button type="button" @click="form.plantillas = form.plantillas.filter(id => String(id) !== String(t.id))" class="text-slate-500 hover:text-rose-400 transition">✕</button>
+                        </span>
+                    </template>
+                </div>
+                <div class="max-h-32 overflow-y-auto space-y-0.5 border border-slate-700/60 rounded-lg p-2 bg-slate-950/40">
                     <template x-for="t in plantillas" :key="t.id">
-                        <label class="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer">
+                        <label class="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer hover:bg-slate-800/40 rounded px-1.5 py-1">
                             <input type="checkbox" :value="t.id" x-model="form.plantillas" class="accent-amber-500">
                             <span class="truncate" x-text="(t.categoria ? t.categoria + ' · ' : 'Sin pipeline · ') + t.nombre"></span>
                         </label>
@@ -364,13 +381,16 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
                 </div>
             </div>
 
-            <div class="flex items-center justify-end gap-3 pt-1">
-                <button @click="nueva()" class="px-3 py-2 text-xs text-slate-400 hover:text-slate-200 transition">Limpiar</button>
-                <button @click="guardar()" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition flex items-center gap-1.5">
-                    <i data-lucide="save" class="w-4 h-4"></i> Guardar campaña
-                </button>
+            <!-- Barra de acciones separada -->
+            <div class="flex items-center justify-between gap-3 pt-4 border-t border-slate-800">
+                <p x-show="msg" class="text-sm" :class="msgOk ? 'text-emerald-400' : 'text-rose-400'" x-text="msg"></p>
+                <div class="flex items-center gap-3 ml-auto">
+                    <button @click="nueva()" class="px-3 py-2 text-sm text-slate-400 hover:text-slate-200 transition">Limpiar</button>
+                    <button @click="guardar()" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition flex items-center gap-1.5">
+                        <i data-lucide="save" class="w-4 h-4"></i> Guardar campaña
+                    </button>
+                </div>
             </div>
-            <p x-show="msg" class="text-sm" :class="msgOk ? 'text-emerald-400' : 'text-rose-400'" x-text="msg"></p>
         </div>
     </div>
 
