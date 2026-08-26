@@ -263,6 +263,7 @@ require __DIR__ . '/api/plantillas.php';
 require __DIR__ . '/api/analytics.php';
 require __DIR__ . '/api/config.php';
 require __DIR__ . '/api/pruebas.php';
+require __DIR__ . '/api/campanas.php';
 
 // ─── Funciones puras de dashboard ────────────────────────────────────────────
 // Refactor: se extrae la lógica de negocio de los handlers AJAX a funciones
@@ -296,7 +297,7 @@ const CAMPOS_EDITABLES_LEAD = [
     'telefono_movil', 'telefono_fijo', 'tiene_whatsapp', 'observaciones',
     'federacion', 'volumen_estimado', 'num_jugadores', 'categorias',
     'fecha_decision_prevista', 'objeciones', 'proxima_accion',
-    'canal_interaccion', 'motivo_perdida',
+    'fecha_proxima_accion', 'canal_interaccion', 'motivo_perdida',
 ];
 
 /**
@@ -957,16 +958,16 @@ $db->close();
     <nav class="flex gap-1 border-b border-slate-800 overflow-x-auto">
         <button @click="tab='kanban'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'kanban' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Kanban CRM</button>
+            :class="tab === 'kanban' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Pipeline</button>
         <button @click="tab='gestor'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'gestor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Gestor de Datos</button>
+            :class="tab === 'gestor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Leads</button>
         <button @click="tab='editor'; loadCategorias()"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'editor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Editor Plantilla</button>
+            :class="tab === 'editor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Plantillas y Campañas</button>
         <button @click="tab='smtp'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'smtp' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Configuración</button>
+            :class="tab === 'smtp' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Ajustes</button>
         <button @click="tab='lanza'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'lanza' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Lanzadera</button>
@@ -976,7 +977,10 @@ $db->close();
         <button @click="tab='respuestas'; loadRespuestas()"
 
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'respuestas' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Respuestas</button>
+            :class="tab === 'respuestas' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Bandeja</button>
+        <button @click="tab='seguimiento'"
+            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'seguimiento' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Seguimiento</button>
         <button @click="tab='lista_negra'; blCargar()"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'lista_negra' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Lista Negra</button>
@@ -1004,6 +1008,9 @@ $db->close();
 </div>
 <div x-show="tab === 'respuestas'" x-cloak class="max-w-full mx-auto px-4 pt-4 pb-8">
     <?php include __DIR__ . '/tabs/respuestas.php'; ?>
+</div>
+<div x-show="tab === 'seguimiento'" x-cloak class="max-w-full mx-auto px-4 py-4">
+    <?php include __DIR__ . '/tabs/seguimiento.php'; ?>
 </div>
 <div x-show="tab === 'lista_negra'" x-cloak class="max-w-full mx-auto px-4 py-4">
     <?php include __DIR__ . '/tabs/lista_negra.php'; ?>

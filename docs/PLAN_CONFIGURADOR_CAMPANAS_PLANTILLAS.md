@@ -56,6 +56,16 @@ Lo que FALTA:
 | 1.4 | `get_categorias` sigue devolviendo `DISTINCT categoria` (incluye las gestionadas) | `api/plantillas.php` |
 | 1.5 | En el listado, plantilla sin categoría se muestra como "Sin pipeline"; en la Lanzadera se ofrecen como **genéricas** | `tabs/editor.php`, `js/app.js` |
 
+#### ✅ ESTADO: COMPLETADO (2026-08-26)
+
+- 1.1 ✅ Quitado `:disabled="!ec"` en "Nueva plantilla"; `save_template` permite categoría vacía (default '').
+- 1.2 ✅ Campo "Categoría (Pipeline)" editable en el editor (input + `<datalist>` de categorías existentes), modelo `edCategoria`; `guardarPlantilla` envía `edCategoria`.
+- 1.3 ✅ Endpoints `rename_categoria` y `delete_categoria` en `api/plantillas.php` (delete reasigna a sin-categoría, no borra plantillas).
+- 1.4 ✅ `get_categorias` excluye la categoría vacía.
+- 1.5 ✅ `get_templates` con `incluir_genericas=1` (Lanzadera) devuelve categoría + genéricas; el Editor filtra solo la categoría; `lzOnEstadoChange` pasa `incluir_genericas=1`.
+
+**Validación:** `scripts/test_f1_categorias.php` → 9/9 PASS (sobre copia de BD). `php -l` OK · `node --check` OK · sin regresión (eligibilidad 20/20, app_js 38/38). Ver `docs/checkpoint_f1_categorias_plantillas.md`.
+
 **Validación:**
 - Crear categoría nueva, renombrar (afecta a sus plantillas), eliminar (con confirmación).
 - Crear/editar plantilla sin categoría.
@@ -71,6 +81,13 @@ Lo que FALTA:
 
 **Objetivo:** persistir el segmento y las plantillas asignadas a cada campaña.
 
+#### ✅ ESTADO: COMPLETADO (2026-08-26)
+
+- 2.1 ✅ Tablas idempotentes `campaign_segmentos` y `campaign_plantillas` creadas en `api/campanas.php` (sin tocar `pipelines`).
+- 2.2 ✅ Endpoints `save_campaign` (upsert + segmento + plantillas), `get_campanas`, `delete_campaign` en `api/campanas.php` (conectado vía `require` en `dashboard.php`).
+- 2.3 ✅ `get_federaciones` (listado de federaciones reales para el checklist).
+- Validación: `scripts/test_f2_campanas.php` → 12/12 PASS (crear/editar/eliminar, segmento federaciones/todas/estado, plantillas).
+
 ---
 
 ## FASE 3 — UI del configurador de campañas (1-1.5 h)
@@ -83,6 +100,14 @@ Lo que FALTA:
 | 3.2 | **Checklist de federaciones** (checkbox "Todas" + lista de federaciones reales de `clubes_crm`) | mismo archivo + helper `obtenerFederacionesUnicas` |
 | 3.3 | **Selector de plantillas** (multi-checkbox del banco central, con búsqueda) | mismo archivo |
 | 3.4 | Función Alpine `campanasConfig()` (cargar/guardar/editar/eliminar) | mismo archivo (script inline) |
+
+#### ✅ ESTADO: COMPLETADO (2026-08-26)
+
+- 3.1 ✅ Bloque "Configurador de Campañas" en la columna derecha de Configuración (`tabs/smtp.php`).
+- 3.2 ✅ Checklist de federaciones (checkbox "Todas" + lista real de `clubes_crm`).
+- 3.3 ✅ Selector de plantillas del banco central (multi-checkbox).
+- 3.4 ✅ Función Alpine `campanasConfig()` (cargar/guardar/editar/eliminar + lista de campañas).
+- Validación: render autenticado del panel OK (HTTP 200, bloque presente) · `php -l` OK · `node --check` OK · sin regresión (f1 9/9, f2 12/12, eligibilidad 20/20).
 
 **Validación:** crear campaña marcando 3 federaciones y 2 plantillas; recargar y verlas.
 

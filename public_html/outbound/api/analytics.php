@@ -81,106 +81,269 @@ if ($action === 'get_last_envios') {
     exit;
 }
 
-// ─── Funciones puras de follow-ups ───────────────────────────────────────────
-// Refactor: se extrae la lógica de get_followups (F4.1, F4.2, F4.3) a funciones
-// puras para que sean testables de forma aislada.
+
+// ─── Módulo Seguimiento (P-3/PLAN_FOLLOWUPS_SEGUIMIENTO_UIUX) ────────────────
+// Funciones puras de la cola de trabajo priorizada + KPIs + embudo.
 
 /**
- * getFollowupsNoRespondedores — F4.1: Leads en estado Contactado, con envíos,
- * sin respuesta, no rebotados y no baja.
+ * calcularPrioridadLead — Scoring de prioridad comercial de un lead.
+ * Reglas (espejo del plan): apertura +30 · ≥7 días +25 · 3-6 días +10 ·
+ * volumen ≥50 +15 · volumen 20-49 +10 · presupuesto creado +25 ·
+ * estado '04 Propuesta' sin próxima acción +15.
+ * Nivel: score ≥50 Alta · ≥25 Media · resto Baja.
  */
-function getFollowupsNoRespondedores($db, string $whereCommercial): array {
-    $noRespondedores = [];
-    $sqlNR = "SELECT c.id, c.nombre_club, c.email, c.persona_contacto, c.estado_lead,
-        (SELECT MAX(e.fecha_envio) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) as ultimo_envio,
-        (SELECT e.asunto FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0 ORDER BY e.id DESC LIMIT 1) as ultimo_asunto,
-        (SELECT MAX(a.fecha_apertura) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) as ultima_apertura,
-        (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) as num_envios,
-        (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) as num_aperturas,
-        c.proxima_accion, c.ultimo_contacto
-    FROM clubes_crm c
-    WHERE c.estado_lead = '02 Contactado'
-    {$whereCommercial}
-    AND c.estado_lead NOT IN ('Baja / Opt-Out','Opt-Out','Unsubscribed','Lista Negra')
-    AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0)
-    AND NOT EXISTS (SELECT 1 FROM comunicaciones_log cl WHERE cl.lead_id = c.id AND cl.tipo_evento = 'cambio_estado' AND cl.detalles LIKE '%En Conversación%')
-    ORDER BY c.ultimo_contacto DESC";
-    $resNR = $db->query($sqlNR);
-    while ($r = $resNR->fetchArray(SQLITE3_ASSOC)) {
-        // Calcular dias desde ultimo contacto
-        $r['dias_desde_contacto'] = $r['ultimo_contacto'] ? (int)round((time() - strtotime($r['ultimo_contacto'])) / 86400) : null;
-        $r['dias_desde_envio'] = $r['ultimo_envio'] ? (int)round((time() - strtotime($r['ultimo_envio'])) / 86400) : null;
-        $r['tiene_apertura'] = $r['ultima_apertura'] ? true : false;
-        $noRespondedores[] = $r;
-    }
-    return $noRespondedores;
+function calcularPrioridadLead(array $lead): array {
+    $score = 0;
+    $dias  = (int)($lead['dias_desde_envio'] ?? $lead['dias_desde_contacto'] ?? -1);
+    $volumen = (int)($lead['volumen_estimado'] ?? 0);
+    $estado  = (string)($lead['estado_lead'] ?? '');
+    $sinProx = empty($lead['proxima_accion']);
+
+    if (!empty($lead['tiene_apertura'])) $score += 30;
+    if ($dias >= 7) $score += 25;
+    elseif ($dias >= 3) $score += 10;
+    if ($volumen >= 50) $score += 15;
+    elseif ($volumen >= 20) $score += 10;
+    if (!empty($lead['presupuesto_importe'])) $score += 25;
+    if ($estado === '04 Propuesta' && $sinProx) $score += 15;
+    if (!empty($lead['vencida'])) $score += 15;
+
+    $nivel = $score >= 50 ? 'Alta' : ($score >= 25 ? 'Media' : 'Baja');
+    return ['score' => $score, 'nivel' => $nivel];
 }
 
 /**
- * getFollowupsSinProximaAccion — F4.2: Leads en estados avanzados sin próxima
- * acción definida.
+ * getSeguimientoNoRespondedores — Cola "Perseguir": leads '02 Contactado' con
+ * envíos reales, sin respuesta, sin baja. Aplica filtros y scoring de prioridad.
  */
-function getFollowupsSinProximaAccion($db, string $whereCommercial): array {
-    $sinProximaAccion = [];
-    $sqlSPA = "SELECT c.id, c.nombre_club, c.email, c.estado_lead, c.volumen_estimado,
-        c.proxima_accion, c.ultimo_contacto
-    FROM clubes_crm c
-    WHERE (c.proxima_accion IS NULL OR c.proxima_accion = '')
-    {$whereCommercial}
-    AND c.estado_lead IN ('03 En Conversación','04 Propuesta')
-    ORDER BY c.ultimo_contacto DESC";
-    $resSPA = $db->query($sqlSPA);
-    while ($r = $resSPA->fetchArray(SQLITE3_ASSOC)) {
-        $r['dias_desde_contacto'] = $r['ultimo_contacto'] ? (int)round((time() - strtotime($r['ultimo_contacto'])) / 86400) : null;
-        $pres = $db->querySingle("SELECT importe_total FROM presupuestos WHERE lead_id = {$r['id']} ORDER BY version DESC LIMIT 1", true);
-        $r['presupuesto_importe'] = $pres ? $pres['importe_total'] : null;
-        $sinProximaAccion[] = $r;
+function getSeguimientoNoRespondedores($db, string $whereCommercial, array $filtros): array {
+    $lista = [];
+    $w = "c.estado_lead = '02 Contactado'"
+        . " AND c.estado_lead NOT IN ('Baja / Opt-Out','Opt-Out','Unsubscribed','Lista Negra')"
+        . " AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0)"
+        . " AND NOT EXISTS (SELECT 1 FROM comunicaciones_log cl WHERE cl.lead_id = c.id AND cl.tipo_evento = 'cambio_estado' AND cl.detalles LIKE '%En Conversación%')"
+        . $whereCommercial;
+    if (!empty($filtros['busqueda'])) {
+        $q = $db->escapeString($filtros['busqueda']);
+        $w .= " AND (c.nombre_club LIKE '%{$q}%' OR LOWER(c.email) LIKE '%" . strtolower($q) . "%')";
     }
-    return $sinProximaAccion;
+    if (!empty($filtros['federacion'])) {
+        $w .= " AND c.federacion = '" . $db->escapeString($filtros['federacion']) . "'";
+    }
+    if ((int)$filtros['dias_min'] > 0) {
+        $w .= " AND c.ultimo_contacto IS NOT NULL AND c.ultimo_contacto <= datetime('now','-" . (int)$filtros['dias_min'] . " days')";
+    }
+
+    $sql = "SELECT c.id, c.nombre_club, c.email, c.persona_contacto, c.estado_lead, c.federacion,
+        c.proxima_accion, c.ultimo_contacto, c.volumen_estimado,
+        (SELECT MAX(e.fecha_envio) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS ultimo_envio,
+        (SELECT e.asunto FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0 ORDER BY e.id DESC LIMIT 1) AS ultimo_asunto,
+        (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS num_envios,
+        (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS num_aperturas
+        FROM clubes_crm c WHERE {$w} ORDER BY c.ultimo_contacto DESC";
+    $res = $db->query($sql);
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
+        $r['dias_desde_contacto'] = $r['ultimo_contacto'] ? (int)round((time() - strtotime($r['ultimo_contacto'])) / 86400) : null;
+        $r['dias_desde_envio']    = $r['ultimo_envio'] ? (int)round((time() - strtotime($r['ultimo_envio'])) / 86400) : null;
+        $r['tiene_apertura']      = (bool)(int)$r['num_aperturas'];
+        $p = calcularPrioridadLead($r);
+        $r['score'] = $p['score'];
+        $r['prioridad'] = $p['nivel'];
+        if (!empty($filtros['solo_alta']) && $p['nivel'] !== 'Alta') continue;
+        $lista[] = $r;
+    }
+    usort($lista, static function ($a, $b) {
+        $ord = ['Alta' => 0, 'Media' => 1, 'Baja' => 2];
+        $oa = $ord[$a['prioridad']] ?? 3;
+        $ob = $ord[$b['prioridad']] ?? 3;
+        if ($oa !== $ob) return $oa <=> $ob;
+        return ($b['dias_desde_envio'] ?? 0) <=> ($a['dias_desde_envio'] ?? 0);
+    });
+    return $lista;
 }
 
 /**
- * getFollowupsKpis — F4.3: KPIs operativos (mockups y presupuestos pendientes,
- * más los contadores de no respondedores y sin próxima acción).
+ * getSeguimientoSinProximaAccion — Cola "Avanzar": leads en conversación o
+ * propuesta sin próxima acción definida. Aplica filtros y scoring de prioridad.
  */
-function getFollowupsKpis($db, array $noRespondedores, array $sinProximaAccion): array {
-    // Mockups pendientes
-    $mockupsPendientes = (int)$db->querySingle("SELECT COUNT(*) FROM mockups WHERE estado IN ('solicitado','en_produccion')");
-    // Presupuestos pendientes (asumiendo estado = 'creado')
-    $presupuestosPendientes = (int)$db->querySingle("SELECT COUNT(*) FROM presupuestos WHERE estado = 'creado'");
+function getSeguimientoSinProximaAccion($db, string $whereCommercial, array $filtros): array {
+    $lista = [];
+    // Incluye leads sin próxima acción O con próxima acción vencida (agenda).
+    $w = "c.estado_lead IN ('03 En Conversación','04 Propuesta')"
+        . " AND (c.proxima_accion IS NULL OR c.proxima_accion = ''"
+        . "      OR c.fecha_proxima_accion IS NULL OR c.fecha_proxima_accion <= datetime('now'))"
+        . $whereCommercial;
+    if (!empty($filtros['busqueda'])) {
+        $q = $db->escapeString($filtros['busqueda']);
+        $w .= " AND (c.nombre_club LIKE '%{$q}%' OR LOWER(c.email) LIKE '%" . strtolower($q) . "%')";
+    }
+    if (!empty($filtros['federacion'])) {
+        $w .= " AND c.federacion = '" . $db->escapeString($filtros['federacion']) . "'";
+    }
+    if ((int)$filtros['dias_min'] > 0) {
+        $w .= " AND c.ultimo_contacto IS NOT NULL AND c.ultimo_contacto <= datetime('now','-" . (int)$filtros['dias_min'] . " days')";
+    }
+
+    $sql = "SELECT c.id, c.nombre_club, c.email, c.estado_lead, c.federacion, c.volumen_estimado,
+        c.proxima_accion, c.fecha_proxima_accion, c.ultimo_contacto
+        FROM clubes_crm c WHERE {$w} ORDER BY c.ultimo_contacto DESC";
+    $res = $db->query($sql);
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
+        $r['dias_desde_contacto'] = $r['ultimo_contacto'] ? (int)round((time() - strtotime($r['ultimo_contacto'])) / 86400) : null;
+        if (!empty($r['fecha_proxima_accion'])) {
+            $ts = strtotime($r['fecha_proxima_accion']);
+            $r['dias_vencida'] = (int)round((time() - $ts) / 86400);
+            $r['vencida'] = $ts <= time();
+        } else {
+            $r['dias_vencida'] = null;
+            $r['vencida'] = false;
+        }
+        $pres = $db->querySingle("SELECT importe_total FROM presupuestos WHERE lead_id = " . (int)$r['id'] . " ORDER BY version DESC LIMIT 1", true);
+        $r['presupuesto_importe'] = $pres ? (float)$pres['importe_total'] : null;
+        $p = calcularPrioridadLead($r);
+        $r['score'] = $p['score'];
+        $r['prioridad'] = $p['nivel'];
+        if (!empty($filtros['solo_alta']) && $p['nivel'] !== 'Alta') continue;
+        $lista[] = $r;
+    }
+    // Orden: prioridad → vencidos primero → días desc.
+    usort($lista, static function ($a, $b) {
+        $ord = ['Alta' => 0, 'Media' => 1, 'Baja' => 2];
+        $oa = $ord[$a['prioridad']] ?? 3;
+        $ob = $ord[$b['prioridad']] ?? 3;
+        if ($oa !== $ob) return $oa <=> $ob;
+        $va = !empty($a['vencida']) ? 0 : 1;
+        $vb = !empty($b['vencida']) ? 0 : 1;
+        if ($va !== $vb) return $va <=> $vb;
+        return ($b['dias_desde_contacto'] ?? 0) <=> ($a['dias_desde_contacto'] ?? 0);
+    });
+    return $lista;
+}
+
+/**
+ * getSeguimientoNuevosSinActividad — Smart View "Calentar": leads nuevos
+ * (creados en los últimos 7 días) sin ningún envío todavía. Patrón Close:
+ * "build a list of new leads created in the past week without logged activity".
+ */
+function getSeguimientoNuevosSinActividad($db, string $whereCommercial, array $filtros): array {
+    $lista = [];
+    $w = "c.estado_lead IN ('01 Sin Contactar','02 Contactado')"
+        . " AND c.creado_el >= datetime('now','-7 days')"
+        . " AND NOT EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0)"
+        . $whereCommercial;
+    if (!empty($filtros['busqueda'])) {
+        $q = $db->escapeString($filtros['busqueda']);
+        $w .= " AND (c.nombre_club LIKE '%{$q}%' OR LOWER(c.email) LIKE '%" . strtolower($q) . "%')";
+    }
+    if (!empty($filtros['federacion'])) {
+        $w .= " AND c.federacion = '" . $db->escapeString($filtros['federacion']) . "'";
+    }
+
+    $sql = "SELECT c.id, c.nombre_club, c.email, c.estado_lead, c.federacion, c.volumen_estimado,
+        c.creado_el, c.ultimo_contacto
+        FROM clubes_crm c WHERE {$w} ORDER BY c.creado_el DESC";
+    $res = $db->query($sql);
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
+        $r['dias_desde_creado'] = $r['creado_el'] ? (int)round((time() - strtotime($r['creado_el'])) / 86400) : null;
+        $r['dias_desde_contacto'] = $r['ultimo_contacto'] ? (int)round((time() - strtotime($r['ultimo_contacto'])) / 86400) : null;
+        $p = calcularPrioridadLead($r);
+        $r['score'] = $p['score'];
+        $r['prioridad'] = $p['nivel'];
+        if (!empty($filtros['solo_alta']) && $p['nivel'] !== 'Alta') continue;
+        $lista[] = $r;
+    }
+    usort($lista, static function ($a, $b) {
+        $ord = ['Alta' => 0, 'Media' => 1, 'Baja' => 2];
+        $oa = $ord[$a['prioridad']] ?? 3;
+        $ob = $ord[$b['prioridad']] ?? 3;
+        if ($oa !== $ob) return $oa <=> $ob;
+        return ($b['dias_desde_creado'] ?? 0) <=> ($a['dias_desde_creado'] ?? 0);
+    });
+    return $lista;
+}
+
+/**
+ * getSeguimientoKpis — KPIs inteligibles del módulo: colas + tasas reales de
+ * apertura/respuesta + trabajo operativo + pipeline en juego (€).
+ */
+function getSeguimientoKpis($db, string $whereCommercial, array $noRespondedores, array $sinProximaAccion, array $nuevos): array {
+    $stageOrder = "CASE c.estado_lead WHEN '01 Sin Contactar' THEN 1 WHEN '02 Contactado' THEN 2"
+        . " WHEN '03 En Conversación' THEN 3 WHEN '04 Propuesta' THEN 4 WHEN '05 Ganado' THEN 5"
+        . " WHEN '06 Perdido' THEN 6 WHEN '07 Baja' THEN 7 ELSE 0 END";
+    $cntContactados = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 2 {$whereCommercial}");
+    $cntRespondio   = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 3 {$whereCommercial}");
+    $cntAbrieron    = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email)=LOWER(c.email) JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE COALESCE(e.es_test,0)=0 {$whereCommercial}");
+    $cntRebotes     = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN rebotes r ON LOWER(r.email)=LOWER(c.email) JOIN envios e ON LOWER(e.email)=LOWER(r.email) WHERE COALESCE(e.es_test,0)=0 AND {$stageOrder} >= 2 {$whereCommercial}");
+    $entregados     = max($cntContactados - $cntRebotes, 0);
+
+    $mockupsPend  = (int)$db->querySingle("SELECT COUNT(*) FROM mockups WHERE estado IN ('solicitado','en_produccion')");
+    $presPend     = (int)$db->querySingle("SELECT COUNT(*) FROM presupuestos WHERE estado = 'creado'");
+    $pipelineVal  = (float)$db->querySingle("SELECT COALESCE(SUM(p.importe_total),0) FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id WHERE p.estado NOT IN ('perdido','rechazado') {$whereCommercial}");
 
     return [
-        'mockups_pendientes' => $mockupsPendientes,
-        'presupuestos_pendientes' => $presupuestosPendientes,
-        'no_respondedores' => count($noRespondedores),
-        'sin_proxima_accion' => count($sinProximaAccion),
+        'no_respondedores'       => count($noRespondedores),
+        'sin_proxima_accion'     => count($sinProximaAccion),
+        'nuevos_sin_actividad'   => count($nuevos),
+        'tasa_apertura'          => $entregados > 0 ? round($cntAbrieron / $entregados * 100, 1) : 0.0,
+        'tasa_respuesta'         => $cntContactados > 0 ? round($cntRespondio / $cntContactados * 100, 1) : 0.0,
+        'mockups_pendientes'     => $mockupsPend,
+        'presupuestos_pendientes'=> $presPend,
+        'pipeline_value'         => round($pipelineVal, 2),
     ];
 }
 
-// ─── get_followups (orquestador F4.1 + F4.2 + F4.3) ───────────────────────
-if ($action === 'get_followups') {
+/**
+ * getSeguimientoFunnel — Embudo por las 5 etapas principales del pipeline con %
+ * de conversión de etapa → siguiente (mismo patrón que getAnalyticsDashboard).
+ */
+function getSeguimientoFunnel($db, string $whereCommercial): array {
+    $nombres = ['01 Sin Contactar', '02 Contactado', '03 En Conversación', '04 Propuesta', '05 Ganado'];
+    $counts = [];
+    foreach ($nombres as $nombre) {
+        $counts[] = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE c.estado_lead = '" . $db->escapeString($nombre) . "' {$whereCommercial}");
+    }
+    $funnel = [];
+    for ($i = 0; $i < count($nombres); $i++) {
+        $siguiente = $i + 1 < count($nombres) ? $counts[$i + 1] : null;
+        $pct = ($siguiente !== null && $counts[$i] > 0) ? round($siguiente / $counts[$i] * 100, 1) : null;
+        $funnel[] = ['etapa' => $nombres[$i], 'cnt' => $counts[$i], 'pct' => $pct];
+    }
+    return $funnel;
+}
+
+
+
+
+// ─── get_seguimiento (módulo Seguimiento — cola de trabajo + KPIs + embudo) ──
+if ($action === 'get_seguimiento') {
     header('Content-Type: application/json');
     $excluirTest = ($_GET['excluir_test'] ?? '1') !== '0';
-    // Regla central de exclusión de leads TEST (espejo de esLeadTest()).
     $whereCommercial = $excluirTest ? "AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" : '';
+    $filtros = [
+        'busqueda'    => trim((string)($_GET['busqueda'] ?? '')),
+        'federacion'  => trim((string)($_GET['federacion'] ?? '')),
+        'dias_min'    => max(0, (int)($_GET['dias_min'] ?? 0)),
+        'solo_alta'   => (($_GET['solo_alta'] ?? '0') === '1'),
+        'excluir_test'=> $excluirTest,
+    ];
 
-    // F4.1: No respondedores
-    $noRespondedores = getFollowupsNoRespondedores($db, $whereCommercial);
-
-    // F4.2: Leads sin próxima acción
-    $sinProximaAccion = getFollowupsSinProximaAccion($db, $whereCommercial);
-
-    // F4.3: KPIs operativos
-    $kpisOperativos = getFollowupsKpis($db, $noRespondedores, $sinProximaAccion);
+    $noRespondedores    = getSeguimientoNoRespondedores($db, $whereCommercial, $filtros);
+    $sinProximaAccion   = getSeguimientoSinProximaAccion($db, $whereCommercial, $filtros);
+    $nuevosSinActividad = getSeguimientoNuevosSinActividad($db, $whereCommercial, $filtros);
+    $kpis               = getSeguimientoKpis($db, $whereCommercial, $noRespondedores, $sinProximaAccion, $nuevosSinActividad);
+    $funnel             = getSeguimientoFunnel($db, $whereCommercial);
 
     echo json_encode([
         'ok' => true,
         'no_respondedores' => $noRespondedores,
         'sin_proxima_accion' => $sinProximaAccion,
-        'kpis' => $kpisOperativos
+        'nuevos_sin_actividad' => $nuevosSinActividad,
+        'kpis' => $kpis,
+        'funnel' => $funnel,
     ]);
     exit;
 }
+
 
 
 // ─── sync_respuestas ─────────────────────────────────────────────────────────

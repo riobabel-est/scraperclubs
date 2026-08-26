@@ -172,6 +172,7 @@ var app = function() {
          categorias: [], templates: [],
          edNombre: '', edAsunto: '', edAsuntoB: '', edAsuntoC: '', edTestAb: 0,
          edCuerpo: '', edCuerpoB: '', edCuerpoC: '', edTipo: 'html', edFocus: 'edCuerpo',
+         edCategoria: '',
          previewClubId: '', debounceTimer: null,
          pvLive: false, pvLiveA: '', pvLiveB: '', pvLiveC: '', previewClubCache: {}, senderCache: null,
 
@@ -256,7 +257,7 @@ var app = function() {
              this.edCuerpoC = t.cuerpo_c || '';
              this.edTipo = t.tipo || 'html';
              this.edPlataforma = (t.tipo === 'whatsapp') ? 'whatsapp' : 'email';
-            this.ec = t.categoria || this.ec;
+            this.edCategoria = t.categoria || '';
             this.en = false;
             this.autoPreview();
             setTimeout(() => lucide.createIcons(), 50);
@@ -760,8 +761,8 @@ var app = function() {
         },
         async onCategoriaChange() {
             this.et = ''; this.en = false;
-            if (!this.ec) return;
-            const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.ec));
+            // 'Todas las categorías' (ec vacío) → cargar todas las plantillas.
+            const r = await fetch('?action=get_templates' + (this.ec ? '&categoria=' + encodeURIComponent(this.ec) : ''));
             const j = await r.json();
             if (j.ok) this.templates = j.templates;
             setTimeout(() => lucide.createIcons(), 50);
@@ -770,6 +771,7 @@ var app = function() {
             this.et = ''; this.en = true;
             this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edAsuntoB = ''; this.edAsuntoC = ''; this.edTestAb = 0;
             this.edCuerpo = ''; this.edCuerpoB = ''; this.edCuerpoC = ''; this.edTipo = this.edPlataforma === 'whatsapp' ? 'whatsapp' : 'html';
+            this.edCategoria = this.ec || '';
             setTimeout(() => lucide.createIcons(), 50);
         },
         async eliminarPlantilla() {
@@ -787,7 +789,7 @@ var app = function() {
             f.append('test_ab', this.edTestAb); f.append('cuerpo', this.edCuerpo);
             f.append('cuerpo_b', this.edCuerpoB); f.append('cuerpo_c', this.edCuerpoC);
             f.append('tipo', this.edPlataforma === 'whatsapp' ? 'whatsapp' : (this.edTipo || 'html'));
-            f.append('categoria', this.ec); f.append('activo', '1');
+            f.append('categoria', (this.edCategoria || '').trim()); f.append('activo', '1');
             const r = await fetch('', { method: 'POST', body: f }); const j = await r.json();
             if (j.ok) { this.en = false; this.et = j.id; this.onCategoriaChange(); alert('Plantilla guardada'); }
             else { alert('Error: ' + (j.error || 'Desconocido')); }
@@ -1011,7 +1013,9 @@ var app = function() {
         },
         async lzOnEstadoChange() {
             this.lzIdPlantillaEmail = ''; this.lzTemplatesEmail = []; if (!this.lzEstadoLead) return;
-            try { const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.lzEstadoLead)); const j = await r.json();
+            // incluir_genericas=1: además de las de la categoría (estado), se ofrecen
+            // las plantillas sin categoría (genéricas) para cualquier estado.
+            try { const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.lzEstadoLead) + '&incluir_genericas=1'); const j = await r.json();
                 if (j.ok && j.templates) { this.lzTemplatesEmail = j.templates.filter(t => t.tipo !== 'whatsapp'); this.lzTemplatesWa = j.templates.filter(t => t.tipo === 'whatsapp'); }
             } catch (e) {}
         },
@@ -1911,10 +1915,10 @@ var app = function() {
         // Métodos de Kanban
         toggleColapsar: function () {},
         setFiltro: function () {},
-        // Métodos de Gestor de Datos
+        // Métodos de Leads
         gCargar: function () {},
         gBuscar: function () {},
-        // Métodos de Editor Plantilla
+        // Métodos de Plantillas y Campañas
         edCargar: function () {},
         edGuardar: function () {}
         };
@@ -1970,4 +1974,137 @@ document.addEventListener('click', function (e) {
 });
 
 
+
+
+// ─── Configurador de Campañas (P-1 F2-F3). Movido de tabs/smtp.php (reorganización 2026-08-26).
+function campanasConfig() {
+    return {
+        campanas: [], federaciones: [], plantillas: [],
+        form: { id: 0, nombre: '', identificador: '', entorno: 'test', estado: 'PILOT', activo: 1, todas: false, federaciones: [], estado_lead: '', plantillas: [] },
+        msg: '', msgOk: false,
+        async cargarTodo() {
+            await Promise.all([this.cargarCampanas(), this.cargarFederaciones(), this.cargarPlantillas()]);
+            if (window.lucide) lucide.createIcons();
+        },
+        async cargarCampanas() {
+            try { const r = await fetch('?action=get_campanas'); const j = await r.json(); if (j.ok) this.campanas = j.campanas || []; } catch (e) {}
+        },
+        async cargarFederaciones() {
+            try { const r = await fetch('?action=get_federaciones'); const j = await r.json(); if (j.ok) this.federaciones = j.federaciones || []; } catch (e) {}
+        },
+        async cargarPlantillas() {
+            try { const r = await fetch('?action=get_templates'); const j = await r.json(); if (j.ok) this.plantillas = j.templates || []; } catch (e) {}
+        },
+        nueva() {
+            this.form = { id: 0, nombre: '', identificador: '', entorno: 'test', estado: 'PILOT', activo: 1, todas: false, federaciones: [], estado_lead: '', plantillas: [] };
+            this.msg = '';
+        },
+        editar(c) {
+            this.form = {
+                id: c.id, nombre: c.nombre, identificador: c.identificador, entorno: c.entorno, estado: c.estado, activo: c.activo,
+                todas: !!(c.segmento && c.segmento.todas),
+                federaciones: (c.segmento && c.segmento.federaciones) || [],
+                estado_lead: (c.segmento && c.segmento.estado) || '',
+                plantillas: (c.plantillas_id || []).map(x => String(x)),
+            };
+            this.msg = '';
+        },
+        async guardar() {
+            this.msg = '';
+            if (!this.form.nombre.trim() || !this.form.identificador.trim()) { this.msg = 'Nombre e identificador son obligatorios.'; this.msgOk = false; return; }
+            const f = new FormData();
+            f.append('action', 'save_campaign');
+            f.append('id', this.form.id);
+            f.append('nombre', this.form.nombre.trim());
+            f.append('identificador', this.form.identificador.trim());
+            f.append('entorno', this.form.entorno);
+            f.append('estado', this.form.estado);
+            f.append('activo', this.form.activo);
+            f.append('todas_federaciones', this.form.todas ? '1' : '0');
+            f.append('federaciones', JSON.stringify(this.form.federaciones));
+            f.append('estado_lead', this.form.estado_lead);
+            f.append('plantillas', JSON.stringify(this.form.plantillas));
+            try {
+                const r = await fetch('?action=save_campaign', { method: 'POST', body: f });
+                const j = await r.json();
+                this.msg = j.message || (j.ok ? 'Campaña guardada.' : (j.error || 'Error al guardar.'));
+                this.msgOk = !!j.ok;
+                if (j.ok) { await this.cargarCampanas(); this.nueva(); }
+            } catch (e) { this.msg = 'Error de conexión.'; this.msgOk = false; }
+        },
+        async eliminar(c) {
+            if (!confirm('¿Eliminar la campaña "' + c.nombre + '"? Se quitarán su segmento y plantillas asignadas.')) return;
+            const f = new FormData(); f.append('action', 'delete_campaign'); f.append('id', c.id);
+            try { const r = await fetch('?action=delete_campaign', { method: 'POST', body: f }); const j = await r.json();
+                if (j.ok) await this.cargarCampanas(); else alert(j.error || 'Error al eliminar.');
+            } catch (e) { alert('Error de conexión.'); }
+        }
+    };
+}
+
+
+// ─── Seguimiento (módulo rediseñado ex-followups). Plan: docs/PLAN_FOLLOWUPS_SEGUIMIENTO_UIUX.md
+function seguimientoApp() {
+    return {
+        noRespondedores: [], sinProximaAccion: [], nuevosSinActividad: [], funnel: [],
+        kpis: { no_respondedores: 0, sin_proxima_accion: 0, tasa_apertura: 0, tasa_respuesta: 0, mockups_pendientes: 0, presupuestos_pendientes: 0, pipeline_value: 0 },
+        federaciones: [],
+        f: { busqueda: '', federacion: '', dias_min: 0, solo_alta: false },
+        cola: 'perseguir', cargando: false, error: '',
+        async load() {
+            if (window.app && Array.isArray(window.app.federaciones)) this.federaciones = window.app.federaciones;
+            this.cargando = true; this.error = '';
+            try {
+                const params = new URLSearchParams();
+                if (this.f.busqueda) params.append('busqueda', this.f.busqueda);
+                if (this.f.federacion) params.append('federacion', this.f.federacion);
+                if (this.f.dias_min > 0) params.append('dias_min', this.f.dias_min);
+                if (this.f.solo_alta) params.append('solo_alta', '1');
+                const r = await fetch('?action=get_seguimiento&' + params.toString());
+                const j = await r.json();
+                if (j.ok) {
+                    this.noRespondedores = j.no_respondedores || [];
+                    this.sinProximaAccion = j.sin_proxima_accion || [];
+                    this.nuevosSinActividad = j.nuevos_sin_actividad || [];
+                    this.funnel = j.funnel || [];
+                    this.kpis = Object.assign(this.kpis, j.kpis || {});
+                } else {
+                    this.error = (j.error || 'Error al cargar el seguimiento.');
+                }
+            } catch (e) {
+                this.error = 'Error de conexión al cargar el seguimiento.';
+            }
+            this.cargando = false;
+            if (window.lucide) lucide.createIcons();
+        },
+        openFicha(id) {
+            if (window.app && window.app.openLead) window.app.openLead(id);
+        },
+        perseguir(lead) {
+            // Prepara el lead en la Lanzadera (F4 del plan) y cambia de tab.
+            if (!window.app) return;
+            window.app.lzSelectLead(lead);
+            window.app.tab = 'lanza';
+        },
+        async guardarFecha(l) {
+            // Agenda la próxima acción del lead (columna "Próx. acción" de Avanzar).
+            if (!l.nuevaFecha) return;
+            try {
+                const f = new FormData();
+                f.append('action', 'update_lead');
+                f.append('id', l.id);
+                f.append('field', 'fecha_proxima_accion');
+                f.append('value', l.nuevaFecha + ' 00:00:00');
+                const r = await fetch('?action=update_lead', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) {
+                    l.programando = false;
+                    await this.load();
+                } else {
+                    alert(j.error || 'No se pudo guardar la fecha.');
+                }
+            } catch (e) { alert('Error de conexión al guardar la fecha.'); }
+        }
+    };
+}
 

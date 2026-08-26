@@ -1,0 +1,42 @@
+# Checkpoint — CRM a nivel HubSpot (P-5): Analítica Global + Agenda + Smart View
+
+**Fecha:** 2026-08-26
+**Estado:** ✅ IMPLEMENTADO y validado (test 21/21 + smoke real + render autenticado)
+**Referencias:** `docs/ESTUDIO_OPERACION_CRM_MODERNO.md` (marco) · `docs/PENDIENTES_OUTBOUND.md` (P-5)
+
+---
+
+## 1. Objetivo
+
+Llevar el CRM outbound a nivel de las plataformas modernas: conectar la analítica global construida, añadir agenda de próximas acciones y smart views, y podar el código muerto.
+
+## 2. Cambios realizados
+
+| Bloque | Cambio | Archivos |
+|---|---|---|
+| **Poda** | Eliminados `get_followups` + `getFollowupsNoRespondedores/SinProximaAccion/Kpis` (dead code sustituido por `get_seguimiento`) | `api/analytics.php` |
+| **Analítica Global conectada** | Tab Analytics con 2 vistas: **"Piloto A/B/C"** (actual) y **"Efectividad Global"** (`analyticsApp` + `get_analytics&tab=dashboard`): embudo 12 niveles con cuello de botella, KPIs €/100 contactos, objetivo/proyección (20 clubes), comparativa A/B/C ampliada con ganadora | `tabs/analytics.php` |
+| **Agenda de próxima acción** | Nueva columna `fecha_proxima_accion` (migración idempotente), en whitelist `CAMPOS_EDITABLES_LEAD`, cola **Avanzar** muestra vencidos (`vencida`/`dias_vencida`) y permite programar fecha desde la UI | `cli/init_db.php`, `dashboard.php`, `api/analytics.php`, `tabs/seguimiento.php`, `js/app.js` |
+| **Smart View "Calentar"** | 3ª cola: leads nuevos (7 días) sin envíos (patrón Close) con prioridad y acciones | `api/analytics.php`, `tabs/seguimiento.php`, `js/app.js` |
+| **Scoring ampliado** | +15 si la próxima acción está vencida | `api/analytics.php` |
+
+## 3. Validaciones
+
+- **Test funciones puras**: `php scripts/test_seguimiento.php` → **21/21 PASS** (incluye smart view y agenda)
+- `php -l` ✅ (api/analytics, dashboard, tabs/seguimiento, tabs/analytics, cli/init_db)
+- `node --check js/app.js` ✅
+- Balance `<div>`: seguimiento **50/50** · analytics **71/71** ✅
+- **Smoke endpoint real** (`stats.db`): ok=true · NR=156 · SPA=2 · KPIs y campos `fecha_proxima_accion`/`vencida`/`score` correctos
+- **Render autenticado simulado**: RENDER OK, sin errores, nav completo
+
+## 4. Notas
+
+- La columna `fecha_proxima_accion` se aplicó a `data/stats.db` local; en producción la crea `init_db.php` al re-ejecutarse (migración idempotente).
+- `analyticsApp()` estaba construido desde fases anteriores sin UI; ahora queda conectado en Analytics → "Efectividad Global".
+- Pendiente: deploy SiteGround y commit (solo con OK explícito).
+
+## 5. Siguientes mejoras (roadmap del estudio)
+
+- Secuencias de follow-up automáticas (2º toque con plantilla) — F4 del plan P-1.
+- Mostrar próxima acción en la tarjeta del Kanban.
+- Persistencia de filtros y snooze/posponer.

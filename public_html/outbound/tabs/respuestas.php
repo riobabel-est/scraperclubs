@@ -28,7 +28,7 @@
   <!-- Barra superior global de la pestaña -->
   <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap shrink-0">
     <i data-lucide="inbox" class="w-5 h-5 text-amber-400"></i>
-    <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Unibox de Respuestas</h5>
+    <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Bandeja de Respuestas</h5>
     <span class="text-xs text-slate-400" x-text="rsFiltradas.length + ' conversaciones'"></span>
     <div class="flex items-center gap-2 ml-auto flex-wrap">
       <button @click="syncRespuestas()" :disabled="rsSyncing" class="px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-sm font-semibold hover:bg-amber-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed">

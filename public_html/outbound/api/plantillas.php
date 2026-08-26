@@ -14,7 +14,7 @@ if ($action === 'save_template') {
     try {
         $id = (int)($_POST['id'] ?? 0);
         $nombre = trim($_POST['nombre'] ?? '');
-        $categoria = trim($_POST['categoria'] ?? 'General');
+        $categoria = trim($_POST['categoria'] ?? '');
         $asunto = trim($_POST['asunto'] ?? '');
         $cuerpo = $_POST['cuerpo'] ?? '';
         $tipo = $_POST['tipo'] ?? 'comercial';
@@ -79,9 +79,24 @@ if ($action === 'delete_template') {
 // ─── get_templates ───────────────────────────────────────────────────────────
 if ($action === 'get_templates') {
     header('Content-Type: application/json');
-    $cat = $_GET['categoria'] ?? '';
-    $where = $cat !== '' ? "WHERE categoria = '" . $db->escapeString($cat) . "'" : '';
-    $res = $db->query("SELECT id, nombre, categoria, asunto, cuerpo, tipo, asunto_b, asunto_c, cuerpo_b, cuerpo_c, test_ab, fecha_creacion AS updated_at FROM plantillas {$where} ORDER BY fecha_creacion DESC");
+    $cat = trim($_GET['categoria'] ?? '');
+    $incluirGenericas = (($_GET['incluir_genericas'] ?? '') === '1');
+    $sql = "SELECT id, nombre, categoria, asunto, cuerpo, tipo, asunto_b, asunto_c, cuerpo_b, cuerpo_c, test_ab, fecha_creacion AS updated_at FROM plantillas";
+    $params = [];
+    if ($cat !== '') {
+        if ($incluirGenericas) {
+            // Lanzadera: plantillas de la categoría (estado) + genéricas (sin categoría).
+            $sql .= " WHERE categoria = :cat OR categoria = ''";
+        } else {
+            // Editor: solo la categoría seleccionada.
+            $sql .= " WHERE categoria = :cat";
+        }
+        $params[':cat'] = $cat;
+    }
+    $sql .= " ORDER BY fecha_creacion DESC";
+    $stmt = $db->prepare($sql);
+    foreach ($params as $k => $v) { $stmt->bindValue($k, $v, SQLITE3_TEXT); }
+    $res = $stmt->execute();
     $items = [];
     while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $items[] = $r; }
     // El frontend (app.js) consume la clave 'templates' en la Lanzadera y el Editor.
@@ -93,10 +108,42 @@ if ($action === 'get_templates') {
 // ─── get_categorias ──────────────────────────────────────────────────────────
 if ($action === 'get_categorias') {
     header('Content-Type: application/json');
-    $res = $db->query("SELECT DISTINCT categoria FROM plantillas ORDER BY categoria ASC");
+    $res = $db->query("SELECT DISTINCT categoria FROM plantillas WHERE categoria != '' ORDER BY categoria ASC");
     $cats = [];
     while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $cats[] = $r['categoria']; }
     echo json_encode(['ok' => true, 'categorias' => $cats]);
+    exit;
+}
+
+// ─── rename_categoria ─────────────────────────────────────────────────────────
+// Renombra una categoría en todas las plantillas que la usan ('' = quitar categoría).
+if ($action === 'rename_categoria') {
+    header('Content-Type: application/json');
+    try {
+        $old = trim($_POST['old_categoria'] ?? '');
+        $new = trim($_POST['new_categoria'] ?? '');
+        if ($old === '') { echo json_encode(['ok' => false, 'error' => 'Categoría origen requerida']); exit; }
+        $stmt = $db->prepare("UPDATE plantillas SET categoria = :new WHERE categoria = :old");
+        $stmt->bindValue(':new', $new, SQLITE3_TEXT);
+        $stmt->bindValue(':old', $old, SQLITE3_TEXT);
+        $stmt->execute();
+        echo json_encode(['ok' => true, 'afectadas' => $db->changes()]);
+    } catch (\Exception $e) { echo json_encode(['ok' => false, 'error' => $e->getMessage()]); }
+    exit;
+}
+
+// ─── delete_categoria ─────────────────────────────────────────────────────────
+// Elimina una categoría: sus plantillas pasan a "Sin pipeline" (no se borran).
+if ($action === 'delete_categoria') {
+    header('Content-Type: application/json');
+    try {
+        $cat = trim($_POST['categoria'] ?? '');
+        if ($cat === '') { echo json_encode(['ok' => false, 'error' => 'Categoría requerida']); exit; }
+        $stmt = $db->prepare("UPDATE plantillas SET categoria = '' WHERE categoria = :cat");
+        $stmt->bindValue(':cat', $cat, SQLITE3_TEXT);
+        $stmt->execute();
+        echo json_encode(['ok' => true, 'afectadas' => $db->changes()]);
+    } catch (\Exception $e) { echo json_encode(['ok' => false, 'error' => $e->getMessage()]); }
     exit;
 }
 

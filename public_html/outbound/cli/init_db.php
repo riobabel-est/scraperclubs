@@ -138,6 +138,13 @@ try {
         }
     }
 
+    // Migracion: agenda de proxima accion (P1 del estudio CRM moderno).
+    // Fecha limite para la proxima accion del lead; alimenta la cola "Avanzar".
+    if (!in_array('fecha_proxima_accion', $colsCrm, true)) {
+        $db->exec("ALTER TABLE clubes_crm ADD COLUMN fecha_proxima_accion DATETIME DEFAULT NULL");
+        echo "   Migracion CRM: columna 'fecha_proxima_accion' anadida\n";
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // 2b. TABLAS ESCALABLES: CONTACTOS Y TELEFONOS DEL CLUB
     // Modelo empresa-contacto: un club (clubes_crm) puede tener N contactos

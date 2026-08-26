@@ -55,8 +55,11 @@
 
 | ID | Ítem | Estado |
 |---|---|---|
-| P-1 | **Configurador de Campañas + Categorías de Plantillas** (Fases F0-F6 en `docs/PLAN_CONFIGURADOR_CAMPANAS_PLANTILLAS.md`) | ⏸️ Pendiente de OK del usuario (~6-8h) |
+| P-1 | **Configurador de Campañas + Categorías de Plantillas** (Fases F0-F6 en `docs/PLAN_CONFIGURADOR_CAMPANAS_PLANTILLAS.md`) | ⏸️ **F1 ✅ y F2-F3 ✅ hechas** (2026-08-26). Pendiente **F4** (integración Lanzadera) y F5-F6 |
 | P-2 | Actualizar `FUTURE_IMPROVEMENTS.md` (eliminar FI-003/FI-004 resueltos) o dejar de mantenerlo (este compendio lo sustituye) | 🔴 Pendiente menor |
+| P-3 | **Reorganización de tabs del panel** (informe `docs/INFORME_REORGANIZACION_TABS.md`) | ✅ **IMPLEMENTADO** (2026-08-26): Configurador de Campañas movido de Ajustes → **Plantillas y Campañas** (bloque HTML a `tabs/editor.php`, `campanasConfig()` a `js/app.js`); tabs renombrados (Pipeline, Leads, Plantillas y Campañas, Ajustes, Bandeja). `php -l` + `node --check` OK. Pendiente deploy/commit si se aprueba. Ver `docs/checkpoint_reorganizacion_tabs.md` |
+| P-4 | **Módulo "Seguimiento"** (ex Follow-ups huérfano, plan `docs/PLAN_FOLLOWUPS_SEGUIMIENTO_UIUX.md`) | ✅ **IMPLEMENTADO** (2026-08-26): tab "Seguimiento" con scorecards (6 KPIs), embudo 5 etapas, cola priorizada Perseguir/Avanzar, filtros, scoring de prioridad. Backend `get_seguimiento` + funciones puras (test 16/16). `followups.php` eliminado. Pendiente deploy/commit si se aprueba. Ver `docs/checkpoint_modulo_seguimiento.md` |
+| P-5 | **CRM a nivel HubSpot (2026-08-26)**: analítica global conectada + agenda de próximas acciones + smart view | ✅ **IMPLEMENTADO**: (1) Analytics con 2ª pestaña **"Efectividad Global"** (`analyticsApp` conectado: embudo 12 niveles + cuello de botella, KPIs €/100 contactos, objetivo/proyección, A/B/C ampliado). (2) **`fecha_proxima_accion`** (migración init_db + whitelist + columna agenda con vencidos en cola Avanzar + guardar desde UI). (3) **Smart View "Calentar"** (nuevos sin actividad en 7d). (4) **Poda** de `get_followups` + `getFollowups*` legacy. Test **21/21** + smoke real. Ver `docs/checkpoint_crm_efectividad_20260826.md` |
 
 ---
 
@@ -77,3 +80,4 @@
 - `docs/informe_auditoria_bugs_20260825.md` — auditoría de bugs
 - `docs/CONFIGURACION_SEGURIDAD.md` — deuda y gestión de secretos
 - `docs/PLAN_CONFIGURADOR_CAMPANAS_PLANTILLAS.md` — plan de ejecución activo
+- `docs/INFORME_REORGANIZACION_TABS.md` — análisis, viabilidad e implementación de la reorganización de tabs

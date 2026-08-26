@@ -60,8 +60,8 @@ class="w-full text-left px-3 py-2.5 rounded-lg transition-all border flex items-
 
 <!-- Botón NUEVA al pie -->
 <div class="mt-3 pt-3 border-t border-slate-800">
-<button @click="nuevaPlantilla()" :disabled="!ec"
-class="w-full py-2 bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-lg text-sm font-semibold hover:bg-blue-500/25 transition disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+<button @click="nuevaPlantilla()"
+class="w-full py-2 bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-lg text-sm font-semibold hover:bg-blue-500/25 transition flex items-center justify-center gap-1.5">
 <i data-lucide="plus" class="w-4 h-4"></i> Nueva Plantilla
 </button>
 </div>
@@ -104,10 +104,13 @@ x-text="edPlataforma==='whatsapp'?'💬 WhatsApp':'📧 Email'"></span>
 <input type="text" x-model="edNombre" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
 </div>
 <div>
-<label class="text-xs text-slate-400 uppercase tracking-wider">Pipeline</label>
-<select x-model="ec" class="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-400 cursor-not-allowed" disabled>
-<template x-for="e in estadosLead" :key="e"><option :value="e" x-text="e"></option></template>
-</select>
+<label class="text-xs text-slate-400 uppercase tracking-wider">Categoría (Pipeline)</label>
+<input type="text" x-model="edCategoria" list="categoriasList"
+class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50"
+placeholder="Sin pipeline (genérica)">
+<datalist id="categoriasList">
+<template x-for="c in categorias" :key="c"><option :value="c"></option></template>
+</datalist>
 </div>
 <div class="col-span-2">
 <label class="text-xs text-slate-400 uppercase tracking-wider">Plataforma</label>
@@ -267,3 +270,107 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
 </div>
 </div>
 </div>
+
+    <!-- ═══════════ CONFIGURADOR DE CAMPAÑAS (movido desde Configuración — reorganización 2026-08-26) ═══════════ -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="campanasConfig()" x-init="cargarTodo()">
+        <div class="flex items-center gap-3 mb-4">
+            <i data-lucide="target" class="w-5 h-5 text-amber-400"></i>
+            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Configurador de Campañas</h5>
+            <span class="text-xs text-slate-400 ml-auto">Público + plantillas por campaña</span>
+        </div>
+
+        <div class="mb-4 space-y-2" x-show="campanas.length > 0">
+            <template x-for="c in campanas" :key="c.id">
+                <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-3 flex items-center justify-between gap-2">
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold text-slate-200" x-text="c.nombre"></div>
+                        <div class="text-xs text-slate-400 truncate"
+                            x-text="c.identificador + ' · ' + c.entorno + ' · ' + (c.segmento && c.segmento.todas ? 'Todas las federaciones' : ((c.segmento && c.segmento.federaciones.length) || 0) + ' federaciones') + ' · ' + ((c.plantillas_id && c.plantillas_id.length) || 0) + ' plantillas'"></div>
+                    </div>
+                    <div class="flex gap-1.5 shrink-0">
+                        <button @click="editar(c)" class="px-2.5 py-1.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-semibold hover:bg-blue-500/20 transition">Editar</button>
+                        <button @click="eliminar(c)" class="px-2.5 py-1.5 bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold hover:bg-rose-500/20 transition">Eliminar</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <div class="space-y-3 pt-3 border-t border-slate-800">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-300 mb-1.5">Nombre</label>
+                    <input type="text" x-model="form.nombre" placeholder="Ej: Campaña 3 — Clasificación"
+                        class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-slate-300 mb-1.5">Identificador</label>
+                    <input type="text" x-model="form.identificador" placeholder="Ej: CAMPA3"
+                        class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-300 mb-1.5">Entorno</label>
+                    <select x-model="form.entorno" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+                        <option value="test">TEST</option>
+                        <option value="pilot">PILOT</option>
+                        <option value="produccion">Producción</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-slate-300 mb-1.5">Estado</label>
+                    <select x-model="form.estado" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+                        <option value="PILOT">PILOT</option>
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="DRAFT">DRAFT</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-slate-300 mb-1.5">Activa</label>
+                    <select x-model="form.activo" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+                        <option :value="1">Sí</option>
+                        <option :value="0">No</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-semibold text-slate-300 mb-1.5">Federaciones del público</label>
+                <div class="flex items-center gap-2 mb-2">
+                    <input type="checkbox" x-model="form.todas" id="todasFed" class="accent-amber-500">
+                    <label for="todasFed" class="text-sm text-slate-300">Todas las federaciones</label>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto" x-show="!form.todas">
+                    <template x-for="fed in federaciones" :key="fed">
+                        <label class="flex items-center gap-1.5 text-sm text-slate-300 bg-slate-800/40 border border-slate-700/60 rounded px-2 py-1.5 cursor-pointer">
+                            <input type="checkbox" :value="fed" x-model="form.federaciones" class="accent-amber-500">
+                            <span class="truncate" x-text="fed"></span>
+                        </label>
+                    </template>
+                    <p x-show="federaciones.length === 0" class="text-xs text-slate-400 col-span-full">Sin federaciones en la BD</p>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-semibold text-slate-300 mb-1.5">Plantillas asignadas (banco central)</label>
+                <div class="max-h-36 overflow-y-auto space-y-1 border border-slate-700/60 rounded-lg p-2 bg-slate-950/40">
+                    <template x-for="t in plantillas" :key="t.id">
+                        <label class="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer">
+                            <input type="checkbox" :value="t.id" x-model="form.plantillas" class="accent-amber-500">
+                            <span class="truncate" x-text="(t.categoria ? t.categoria + ' · ' : 'Sin pipeline · ') + t.nombre"></span>
+                        </label>
+                    </template>
+                    <p x-show="plantillas.length === 0" class="text-xs text-slate-400">No hay plantillas en el banco</p>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-1">
+                <button @click="nueva()" class="px-3 py-2 text-xs text-slate-400 hover:text-slate-200 transition">Limpiar</button>
+                <button @click="guardar()" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition flex items-center gap-1.5">
+                    <i data-lucide="save" class="w-4 h-4"></i> Guardar campaña
+                </button>
+            </div>
+            <p x-show="msg" class="text-sm" :class="msgOk ? 'text-emerald-400' : 'text-rose-400'" x-text="msg"></p>
+        </div>
+    </div>
+
