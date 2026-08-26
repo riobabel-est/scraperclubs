@@ -976,6 +976,8 @@ function getAnalyticsDashboard($db, string $pipeline = '', string $variante = ''
     $whereCommercial = $excluirTest ? "AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" : '';
     $wherePipeline = $pipeline ? "AND lp.pipeline_id = " . (int)$pipeline : '';
     $whereVariante = $variante ? "AND lp.variante_ab = '" . $db->escapeString($variante) . "'" : '';
+    // Pertenencia real a la campaña: lead_pipelines UNION envios.campaign_id.
+    $whereCampDash = $pipeline ? whereCampañaLead((int)$pipeline) : '';
 
     // Helper: stage_order (pipeline canónico unificado de 7 columnas)
     $stageOrder = "CASE c.estado_lead
@@ -986,31 +988,31 @@ function getAnalyticsDashboard($db, string $pipeline = '', string $variante = ''
 
     // F3.1 — Funnel 12 niveles (spec V4.3)
     // 1. Contactados
-    $cntTotal = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE 1=1 {$whereCommercial}");
-    $cntContactados = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 2 {$whereCommercial}");
+    $cntTotal = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE 1=1 {$whereCommercial}{$whereCampDash}");
+    $cntContactados = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 2 {$whereCommercial}{$whereCampDash}");
     // 2. Entregados = Contactados - Rebotes (solo envíos REALES). rebotes se une por email.
-    $cntRebotesContactados = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN rebotes r ON LOWER(r.email) = LOWER(c.email) JOIN envios e ON LOWER(e.email) = LOWER(r.email) WHERE COALESCE(e.es_test,0)=0 AND {$stageOrder} >= 2 {$whereCommercial}");
+    $cntRebotesContactados = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN rebotes r ON LOWER(r.email) = LOWER(c.email) JOIN envios e ON LOWER(e.email) = LOWER(r.email) WHERE COALESCE(e.es_test,0)=0 AND {$stageOrder} >= 2 {$whereCommercial}{$whereCampDash}");
     $cntEntregados = max($cntContactados - $cntRebotesContactados, 0);
     // 3. Abrieron (leads con al menos una apertura de envío REAL)
-    $cntAbrieron = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email) = LOWER(c.email) JOIN aperturas a ON a.tracking_id = e.tracking_id WHERE COALESCE(e.es_test,0)=0 {$whereCommercial}");
+    $cntAbrieron = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email) = LOWER(c.email) JOIN aperturas a ON a.tracking_id = e.tracking_id WHERE COALESCE(e.es_test,0)=0 {$whereCommercial}{$whereCampDash}");
     // 4. En Conversación (respondieron)
-    $cntRespondio = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 3 {$whereCommercial}");
+    $cntRespondio = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 3 {$whereCommercial}{$whereCampDash}");
     // 5. Propuestas (respuestas positivas / cualificados / oportunidades / negociaciones)
-    $cntInteresado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 4 {$whereCommercial}");
+    $cntInteresado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 4 {$whereCommercial}{$whereCampDash}");
     // 6. Cualificados (con volumen estimado)
-    $cntCualificado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE volumen_estimado >= 50 AND {$stageOrder} >= 4 {$whereCommercial}");
+    $cntCualificado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE volumen_estimado >= 50 AND {$stageOrder} >= 4 {$whereCommercial}{$whereCampDash}");
     // 7. Oportunidades (en Propuesta)
-    $cntPropuesta = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 4 {$whereCommercial}");
+    $cntPropuesta = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 4 {$whereCommercial}{$whereCampDash}");
     // 8. Mockups enviados (DISTINCT lead_id)
-    $cntMockups = (int)$db->querySingle("SELECT COUNT(DISTINCT m.lead_id) FROM mockups m JOIN clubes_crm c ON m.lead_id=c.id WHERE m.estado='enviado' {$whereCommercial}");
+    $cntMockups = (int)$db->querySingle("SELECT COUNT(DISTINCT m.lead_id) FROM mockups m JOIN clubes_crm c ON m.lead_id=c.id WHERE m.estado='enviado' {$whereCommercial}{$whereCampDash}");
     // 9. Presupuestos (DISTINCT lead_id)
-    $cntPresupuestos = (int)$db->querySingle("SELECT COUNT(DISTINCT p.lead_id) FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id WHERE 1=1 {$whereCommercial}");
+    $cntPresupuestos = (int)$db->querySingle("SELECT COUNT(DISTINCT p.lead_id) FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id WHERE 1=1 {$whereCommercial}{$whereCampDash}");
     // 10. Negociaciones (en Propuesta)
-    $cntNegociacion = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 4 {$whereCommercial}");
+    $cntNegociacion = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 4 {$whereCommercial}{$whereCampDash}");
     // 11. Ganados
-    $cntGanado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} = 5 {$whereCommercial}");
+    $cntGanado = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} = 5 {$whereCommercial}{$whereCampDash}");
     // 12. Perdidos
-    $cntPerdido = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} = 6 {$whereCommercial}");
+    $cntPerdido = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} = 6 {$whereCommercial}{$whereCampDash}");
 
     $data['funnel'] = [
         ['nivel'=>'1. Contactados','cnt'=>$cntContactados,'pct'=>100],
@@ -1029,12 +1031,12 @@ function getAnalyticsDashboard($db, string $pipeline = '', string $variante = ''
 
     // KPIs económicos (F3.3) — Solo versión más reciente de presupuesto por lead
     $data['kpi'] = [];
-    $ganadosEco = $db->query("SELECT COALESCE(SUM(p.unidades),0) as pares, COALESCE(SUM(p.importe_total),0) as fact, COALESCE(SUM(p.margen_potencial_club),0) as margen FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id JOIN (SELECT lead_id, MAX(version) as max_ver FROM presupuestos GROUP BY lead_id) pmax ON p.lead_id = pmax.lead_id AND p.version = pmax.max_ver WHERE c.estado_lead='05 Ganado' {$whereCommercial}");
+    $ganadosEco = $db->query("SELECT COALESCE(SUM(p.unidades),0) as pares, COALESCE(SUM(p.importe_total),0) as fact, COALESCE(SUM(p.margen_potencial_club),0) as margen FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id JOIN (SELECT lead_id, MAX(version) as max_ver FROM presupuestos GROUP BY lead_id) pmax ON p.lead_id = pmax.lead_id AND p.version = pmax.max_ver WHERE c.estado_lead='05 Ganado' {$whereCommercial}{$whereCampDash}");
     $eco = $ganadosEco->fetchArray(SQLITE3_ASSOC);
     $paresGanados = (int)$eco['pares'];
     $factGanada = (float)$eco['fact'];
     $margenGanado = (float)$eco['margen'];
-    $nGanados = max((int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder}=5 {$whereCommercial}"),1);
+    $nGanados = max((int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder}=5 {$whereCommercial}{$whereCampDash}"),1);
 
     $data['kpi'] = [
         'ganados_100' => $cntTotal>0 ? round($cntGanado/$cntTotal*100,2) : 0,
@@ -1050,38 +1052,47 @@ function getAnalyticsDashboard($db, string $pipeline = '', string $variante = ''
     $data['abc'] = [];
     $variantes = ['A','B','C'];
     foreach ($variantes as $v) {
-        $vWhere = "AND lp.variante_ab='{$v}'";
+        $vCamp = $pipeline ? " AND e.campaign_id = " . (int)$pipeline : '';
+        $vLpCamp = $pipeline ? " AND lp.pipeline_id = " . (int)$pipeline : '';
+        // Pertenencia real a la variante: lead_pipelines.variante_ab UNION envios.variant.
+        // (La subquery del UNION usa alias e2, por lo que su condición de campaña es e2.campaign_id.)
+        $vWhere = " AND c.id IN ("
+            . "SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.variante_ab='{$v}'{$vLpCamp}"
+            . " UNION "
+            . "SELECT c2.id FROM clubes_crm c2 JOIN envios e2 ON LOWER(e2.email)=LOWER(c2.email)"
+            . " WHERE e2.variant='{$v}' AND COALESCE(e2.es_test,0)=0" . ($pipeline ? " AND e2.campaign_id = " . (int)$pipeline : "")
+            . ")";
         $cv = [];
         $cv['variante'] = $v;
-        // Leads asignados
-        $cv['leads'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE 1=1 {$whereCommercial} {$vWhere}");
-        // Entregados (con envío REAL, sin rebote)
-        $cv['entregados'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN envios e ON LOWER(e.email)=LOWER(c.email) WHERE e.estado='enviado' AND COALESCE(e.es_test,0)=0 {$whereCommercial} {$vWhere}");
-        $cv['rebotes'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN rebotes r ON LOWER(r.email)=LOWER(c.email) JOIN envios e ON LOWER(e.email)=LOWER(r.email) WHERE COALESCE(e.es_test,0)=0 {$whereCommercial} {$vWhere}");
-        // Aperturas (solo de envíos REALES)
-        $cv['aperturas'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN envios e ON LOWER(e.email)=LOWER(c.email) JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE COALESCE(e.es_test,0)=0 {$whereCommercial} {$vWhere}");
+        // Leads asignados (pertenencia real a la variante)
+        $cv['leads'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c WHERE 1=1 {$whereCommercial} {$vWhere}");
+        // Entregados (con envío REAL de la variante, sin rebote)
+        $cv['entregados'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email)=LOWER(c.email) WHERE e.estado='enviado' AND COALESCE(e.es_test,0)=0 AND e.variant='{$v}'{$vCamp} {$whereCommercial}");
+        $cv['rebotes'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN rebotes r ON LOWER(r.email)=LOWER(c.email) JOIN envios e ON LOWER(e.email)=LOWER(r.email) WHERE COALESCE(e.es_test,0)=0 AND e.variant='{$v}'{$vCamp} {$whereCommercial}");
+        // Aperturas (solo de envíos REALES de la variante)
+        $cv['aperturas'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email)=LOWER(c.email) JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE COALESCE(e.es_test,0)=0 AND e.variant='{$v}'{$vCamp} {$whereCommercial}");
         $cv['tasa_apertura'] = $cv['entregados']>0 ? round($cv['aperturas']/$cv['entregados']*100,1) : 0;
         // Respuestas
-        $cv['respondio'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}>=3 {$whereCommercial} {$vWhere}");
+        $cv['respondio'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c WHERE {$stageOrder}>=3 {$whereCommercial} {$vWhere}");
         $cv['tasa_resp'] = $cv['aperturas']>0 ? round($cv['respondio']/$cv['aperturas']*100,1) : 0;
         // Resp. Positivas
-        $cv['interesado'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
+        $cv['interesado'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c WHERE {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
         // Cualificados
-        $cv['cualificado'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE volumen_estimado>=50 AND {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
+        $cv['cualificado'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c WHERE volumen_estimado>=50 AND {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
         // Propuestas
-        $cv['propuesta'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
+        $cv['propuesta'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c WHERE {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
         // Mockups enviados (DISTINCT)
-        $cv['mockups'] = (int)$db->querySingle("SELECT COUNT(DISTINCT m.lead_id) FROM mockups m JOIN clubes_crm c ON m.lead_id=c.id JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE m.estado='enviado' {$whereCommercial} {$vWhere}");
+        $cv['mockups'] = (int)$db->querySingle("SELECT COUNT(DISTINCT m.lead_id) FROM mockups m JOIN clubes_crm c ON m.lead_id=c.id WHERE m.estado='enviado' {$whereCommercial} {$vWhere}");
         // Presupuestos (DISTINCT)
-        $cv['presupuestos'] = (int)$db->querySingle("SELECT COUNT(DISTINCT p.lead_id) FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE 1=1 {$whereCommercial} {$vWhere}");
+        $cv['presupuestos'] = (int)$db->querySingle("SELECT COUNT(DISTINCT p.lead_id) FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id WHERE 1=1 {$whereCommercial} {$vWhere}");
         // Negociaciones
-        $cv['negociacion'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
+        $cv['negociacion'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c WHERE {$stageOrder}>=4 {$whereCommercial} {$vWhere}");
         // Ganados / Perdidos
-        $cv['ganado'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}=5 {$whereCommercial} {$vWhere}");
-        $cv['perdido'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN lead_pipelines lp ON lp.lead_id=c.id WHERE {$stageOrder}=6 {$whereCommercial} {$vWhere}");
+        $cv['ganado'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c WHERE {$stageOrder}=5 {$whereCommercial} {$vWhere}");
+        $cv['perdido'] = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c WHERE {$stageOrder}=6 {$whereCommercial} {$vWhere}");
         $cv['conversion'] = $cv['leads']>0 ? round($cv['ganado']/$cv['leads']*100,1) : 0;
         // Económicos por variante — Solo versión más reciente de presupuesto por lead
-        $ecoV = $db->querySingle("SELECT COALESCE(SUM(p.importe_total),0) as fact, COALESCE(SUM(p.unidades),0) as pares FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id JOIN lead_pipelines lp ON lp.lead_id=c.id JOIN (SELECT lead_id, MAX(version) as max_ver FROM presupuestos GROUP BY lead_id) pmax ON p.lead_id = pmax.lead_id AND p.version = pmax.max_ver WHERE c.estado_lead='05 Ganado' {$whereCommercial} {$vWhere}", true);
+        $ecoV = $db->querySingle("SELECT COALESCE(SUM(p.importe_total),0) as fact, COALESCE(SUM(p.unidades),0) as pares FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id JOIN (SELECT lead_id, MAX(version) as max_ver FROM presupuestos GROUP BY lead_id) pmax ON p.lead_id = pmax.lead_id AND p.version = pmax.max_ver WHERE c.estado_lead='05 Ganado' {$whereCommercial} {$vWhere}", true);
         $cv['facturacion'] = (int)$ecoV['fact'];
         $cv['pares'] = (int)$ecoV['pares'];
         $cv['ticket_medio'] = $cv['ganado']>0 ? round($cv['facturacion']/$cv['ganado'],0) : 0;
