@@ -40,3 +40,29 @@ Llevar el CRM outbound a nivel de las plataformas modernas: conectar la analíti
 - Secuencias de follow-up automáticas (2º toque con plantilla) — F4 del plan P-1.
 - Mostrar próxima acción en la tarjeta del Kanban.
 - Persistencia de filtros y snooze/posponer.
+
+---
+
+## 6. AÑADIDO — Contexto de campaña global (P-6, unificación de tabs)
+
+**Problema detectado por el usuario:** Pipeline, Seguimiento y Analytics parecían islas (datos globales vs por campaña).
+
+**Solución implementada (Fase 1):** selector de campaña en el topbar que actúa como **contexto compartido**:
+
+| Tab | Comportamiento con campaña seleccionada |
+|---|---|
+| **Pipeline (Kanban)** | Filtrado server-side: leads con `lead_pipelines.pipeline_id = X` |
+| **Seguimiento** | `get_seguimiento` con `campaign_id`: colas (Perseguir/Avanzar/Calentar) + KPIs + embudo acotados a la campaña (incluye envíos `envios.campaign_id`) |
+| **Analytics → Piloto** | Preselecciona la campaña del contexto |
+| **Analytics → Efectividad Global** | Inicia con el filtro pipeline = campaña activa |
+
+**Implementación:**
+- `dashboard.php`: endpoint `set_campana_actual` (sesión) + `$campanaActual` + `$campanasSelect` + filtro en la query del Kanban + selector en topbar + `window._campanaActual`.
+- `js/app.js`: `campanaActual` en estado, `setCampana()` (guarda sesión + recarga + restaura tab), propaga a `seguimientoApp` y a `analyticsApp.fPipeline`.
+- `api/analytics.php`: `get_seguimiento` acepta `campaign_id`; todas las colas/KPIs/embudo filtran por `lead_pipelines` y `envios.campaign_id`.
+- `tabs/analytics.php`: `pilotoAnalyticsApp.loadCampanas()` preselecciona el contexto.
+
+**Validaciones:** php -l ✅ · node --check ✅ · test 21/21 ✅ · smoke con `campaign_id=1` (test→0 leads) y `campaign_id=2` ✅ · render autenticado OK (selector + `_campanaActual` + `setCampana` presentes).
+
+**Pendiente Fase 2:** filtrar Bandeja (respuestas) y Lanzadera por la campaña del contexto.
+

@@ -118,11 +118,16 @@ function calcularPrioridadLead(array $lead): array {
  */
 function getSeguimientoNoRespondedores($db, string $whereCommercial, array $filtros): array {
     $lista = [];
+    $cid = (int)($filtros['campaign_id'] ?? 0);
+    $enviosCamp = $cid > 0 ? " AND e.campaign_id = {$cid}" : '';
     $w = "c.estado_lead = '02 Contactado'"
         . " AND c.estado_lead NOT IN ('Baja / Opt-Out','Opt-Out','Unsubscribed','Lista Negra')"
-        . " AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0)"
+        . " AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0{$enviosCamp})"
         . " AND NOT EXISTS (SELECT 1 FROM comunicaciones_log cl WHERE cl.lead_id = c.id AND cl.tipo_evento = 'cambio_estado' AND cl.detalles LIKE '%En Conversación%')"
         . $whereCommercial;
+    if ($cid > 0) {
+        $w .= " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})";
+    }
     if (!empty($filtros['busqueda'])) {
         $q = $db->escapeString($filtros['busqueda']);
         $w .= " AND (c.nombre_club LIKE '%{$q}%' OR LOWER(c.email) LIKE '%" . strtolower($q) . "%')";
@@ -136,10 +141,10 @@ function getSeguimientoNoRespondedores($db, string $whereCommercial, array $filt
 
     $sql = "SELECT c.id, c.nombre_club, c.email, c.persona_contacto, c.estado_lead, c.federacion,
         c.proxima_accion, c.ultimo_contacto, c.volumen_estimado,
-        (SELECT MAX(e.fecha_envio) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS ultimo_envio,
-        (SELECT e.asunto FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0 ORDER BY e.id DESC LIMIT 1) AS ultimo_asunto,
-        (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS num_envios,
-        (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0) AS num_aperturas
+        (SELECT MAX(e.fecha_envio) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0{$enviosCamp}) AS ultimo_envio,
+        (SELECT e.asunto FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0{$enviosCamp} ORDER BY e.id DESC LIMIT 1) AS ultimo_asunto,
+        (SELECT COUNT(*) FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0{$enviosCamp}) AS num_envios,
+        (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0{$enviosCamp}) AS num_aperturas
         FROM clubes_crm c WHERE {$w} ORDER BY c.ultimo_contacto DESC";
     $res = $db->query($sql);
     while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
@@ -173,6 +178,10 @@ function getSeguimientoSinProximaAccion($db, string $whereCommercial, array $fil
         . " AND (c.proxima_accion IS NULL OR c.proxima_accion = ''"
         . "      OR c.fecha_proxima_accion IS NULL OR c.fecha_proxima_accion <= datetime('now'))"
         . $whereCommercial;
+    $cid = (int)($filtros['campaign_id'] ?? 0);
+    if ($cid > 0) {
+        $w .= " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})";
+    }
     if (!empty($filtros['busqueda'])) {
         $q = $db->escapeString($filtros['busqueda']);
         $w .= " AND (c.nombre_club LIKE '%{$q}%' OR LOWER(c.email) LIKE '%" . strtolower($q) . "%')";
@@ -231,6 +240,10 @@ function getSeguimientoNuevosSinActividad($db, string $whereCommercial, array $f
         . " AND c.creado_el >= datetime('now','-7 days')"
         . " AND NOT EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0)"
         . $whereCommercial;
+    $cid = (int)($filtros['campaign_id'] ?? 0);
+    if ($cid > 0) {
+        $w .= " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})";
+    }
     if (!empty($filtros['busqueda'])) {
         $q = $db->escapeString($filtros['busqueda']);
         $w .= " AND (c.nombre_club LIKE '%{$q}%' OR LOWER(c.email) LIKE '%" . strtolower($q) . "%')";
@@ -266,19 +279,21 @@ function getSeguimientoNuevosSinActividad($db, string $whereCommercial, array $f
  * getSeguimientoKpis — KPIs inteligibles del módulo: colas + tasas reales de
  * apertura/respuesta + trabajo operativo + pipeline en juego (€).
  */
-function getSeguimientoKpis($db, string $whereCommercial, array $noRespondedores, array $sinProximaAccion, array $nuevos): array {
+function getSeguimientoKpis($db, string $whereCommercial, array $noRespondedores, array $sinProximaAccion, array $nuevos, int $cid = 0): array {
     $stageOrder = "CASE c.estado_lead WHEN '01 Sin Contactar' THEN 1 WHEN '02 Contactado' THEN 2"
         . " WHEN '03 En Conversación' THEN 3 WHEN '04 Propuesta' THEN 4 WHEN '05 Ganado' THEN 5"
         . " WHEN '06 Perdido' THEN 6 WHEN '07 Baja' THEN 7 ELSE 0 END";
-    $cntContactados = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 2 {$whereCommercial}");
-    $cntRespondio   = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 3 {$whereCommercial}");
-    $cntAbrieron    = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email)=LOWER(c.email) JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE COALESCE(e.es_test,0)=0 {$whereCommercial}");
-    $cntRebotes     = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN rebotes r ON LOWER(r.email)=LOWER(c.email) JOIN envios e ON LOWER(e.email)=LOWER(r.email) WHERE COALESCE(e.es_test,0)=0 AND {$stageOrder} >= 2 {$whereCommercial}");
+    $whereCamp  = $cid > 0 ? " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})" : '';
+    $enviosCamp = $cid > 0 ? " AND e.campaign_id = {$cid}" : '';
+    $cntContactados = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 2 {$whereCommercial}{$whereCamp}");
+    $cntRespondio   = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 3 {$whereCommercial}{$whereCamp}");
+    $cntAbrieron    = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email)=LOWER(c.email) JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE COALESCE(e.es_test,0)=0 {$enviosCamp}{$whereCamp}");
+    $cntRebotes     = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN rebotes r ON LOWER(r.email)=LOWER(c.email) JOIN envios e ON LOWER(e.email)=LOWER(r.email) WHERE COALESCE(e.es_test,0)=0 AND {$stageOrder} >= 2 {$enviosCamp}{$whereCamp}");
     $entregados     = max($cntContactados - $cntRebotes, 0);
 
     $mockupsPend  = (int)$db->querySingle("SELECT COUNT(*) FROM mockups WHERE estado IN ('solicitado','en_produccion')");
     $presPend     = (int)$db->querySingle("SELECT COUNT(*) FROM presupuestos WHERE estado = 'creado'");
-    $pipelineVal  = (float)$db->querySingle("SELECT COALESCE(SUM(p.importe_total),0) FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id WHERE p.estado NOT IN ('perdido','rechazado') {$whereCommercial}");
+    $pipelineVal  = (float)$db->querySingle("SELECT COALESCE(SUM(p.importe_total),0) FROM presupuestos p JOIN clubes_crm c ON p.lead_id=c.id WHERE p.estado NOT IN ('perdido','rechazado') {$whereCommercial}{$whereCamp}");
 
     return [
         'no_respondedores'       => count($noRespondedores),
@@ -296,11 +311,12 @@ function getSeguimientoKpis($db, string $whereCommercial, array $noRespondedores
  * getSeguimientoFunnel — Embudo por las 5 etapas principales del pipeline con %
  * de conversión de etapa → siguiente (mismo patrón que getAnalyticsDashboard).
  */
-function getSeguimientoFunnel($db, string $whereCommercial): array {
+function getSeguimientoFunnel($db, string $whereCommercial, int $cid = 0): array {
     $nombres = ['01 Sin Contactar', '02 Contactado', '03 En Conversación', '04 Propuesta', '05 Ganado'];
+    $whereCamp = $cid > 0 ? " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})" : '';
     $counts = [];
     foreach ($nombres as $nombre) {
-        $counts[] = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE c.estado_lead = '" . $db->escapeString($nombre) . "' {$whereCommercial}");
+        $counts[] = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE c.estado_lead = '" . $db->escapeString($nombre) . "' {$whereCommercial}{$whereCamp}");
     }
     $funnel = [];
     for ($i = 0; $i < count($nombres); $i++) {
@@ -324,14 +340,15 @@ if ($action === 'get_seguimiento') {
         'federacion'  => trim((string)($_GET['federacion'] ?? '')),
         'dias_min'    => max(0, (int)($_GET['dias_min'] ?? 0)),
         'solo_alta'   => (($_GET['solo_alta'] ?? '0') === '1'),
+        'campaign_id' => max(0, (int)($_GET['campaign_id'] ?? 0)),
         'excluir_test'=> $excluirTest,
     ];
 
     $noRespondedores    = getSeguimientoNoRespondedores($db, $whereCommercial, $filtros);
     $sinProximaAccion   = getSeguimientoSinProximaAccion($db, $whereCommercial, $filtros);
     $nuevosSinActividad = getSeguimientoNuevosSinActividad($db, $whereCommercial, $filtros);
-    $kpis               = getSeguimientoKpis($db, $whereCommercial, $noRespondedores, $sinProximaAccion, $nuevosSinActividad);
-    $funnel             = getSeguimientoFunnel($db, $whereCommercial);
+    $kpis               = getSeguimientoKpis($db, $whereCommercial, $noRespondedores, $sinProximaAccion, $nuevosSinActividad, (int)$filtros['campaign_id']);
+    $funnel             = getSeguimientoFunnel($db, $whereCommercial, (int)$filtros['campaign_id']);
 
     echo json_encode([
         'ok' => true,

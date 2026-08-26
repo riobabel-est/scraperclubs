@@ -137,6 +137,7 @@ var app = function() {
         // Alpine. Una variable ausente aquí rompería el scope global y provocaría
         // errores tipo "rsSyncing is not defined" en directivas de otros tabs.
         kanbanLeads: (typeof window._kanbanLeads === 'object' && window._kanbanLeads !== null) ? window._kanbanLeads : [],
+        campanaActual: (typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? window._campanaActual : 0,
         chipCounters: (typeof window._chipCounters === 'object' && window._chipCounters !== null) ? window._chipCounters : { calientes: 0, leidos: 0, pendiente_wa: 0, federaciones: {} },
 
         // Filtro activo: '' (todos) | 'calientes' | 'pendiente_wa' | 'federacion:<nombre>'
@@ -313,6 +314,11 @@ var app = function() {
         async boot() {
             window.app = this;
             lucide.createIcons();
+            // Restaura el tab activo tras un cambio de campaña (recarga).
+            const tabGuardado = sessionStorage.getItem('futprotec_tab');
+            if (tabGuardado && ['kanban','gestor','editor','smtp','lanza','analytics','respuestas','seguimiento','lista_negra'].includes(tabGuardado)) {
+                this.tab = tabGuardado;
+            }
             // Inicializa el desplegable de federaciones de los chips del Kanban.
             this.initFederacionesFiltro();
 
@@ -1246,6 +1252,23 @@ var app = function() {
         },
 
         // ─── Analytics ──────────────────────────────────────────────────────────
+        async setCampana(id) {
+            // Guarda la campaña de trabajo en sesión y recarga el panel
+            // (el Kanban se renderiza server-side con el filtro aplicado).
+            try {
+                const f = new FormData();
+                f.append('action', 'set_campana_actual');
+                f.append('campaign_id', id);
+                const r = await fetch('?action=set_campana_actual', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) {
+                    sessionStorage.setItem('futprotec_tab', this.tab);
+                    location.reload();
+                } else {
+                    alert('No se pudo cambiar la campaña.');
+                }
+            } catch (e) { alert('Error de conexión al cambiar de campaña.'); }
+        },
         async abrirAnalytics(tab) {
             this.aqTab = tab; this.aq = true; this.aqLoading = true; this.aqData = { total: 0, ultimos: [] };
             try { const r = await fetch('?action=get_analytics&tab=' + tab); const j = await r.json(); if (j && j.ok) this.aqData = j; } catch(e) {}
@@ -1931,7 +1954,7 @@ var app = function() {
 
 // ─── analyticsApp — Alpine component for Analytics tab ──────────────────────
 
-function analyticsApp(){return{funnel:[],kpi:null,abc:[],abcGanadora:null,obj:{ganados:0,pct:0,restantes:20,tasa_cierre:0,contactos_necesarios:'-',contactados:0,facturacion:0,pares:0,margen:0,proyeccion:null},pipelines:[],tiempos:[],fPipeline:'',fVariante:'',fExcluirTest:true,
+function analyticsApp(){return{funnel:[],kpi:null,abc:[],abcGanadora:null,obj:{ganados:0,pct:0,restantes:20,tasa_cierre:0,contactos_necesarios:'-',contactados:0,facturacion:0,pares:0,margen:0,proyeccion:null},pipelines:[],tiempos:[],fPipeline:((typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? String(window._campanaActual) : ''),fVariante:'',fExcluirTest:true,
 get funnelMax(){return Math.max.apply(null,this.funnel.map(function(f){return f.cnt}).concat([1]))},
 get kpiCards(){if(!this.kpi)return[];return[{label:'Ganados/100 contactos',value:this.kpi.ganados_100,sub:'clubes',color:'text-emerald-400',border:'border-emerald-500/30'},{label:'Facturacion/100 contactos',value:this.kpi.fact_100+'\u20AC',sub:'estimado',color:'text-blue-400',border:'border-blue-500/30'},{label:'Pares/100 contactos',value:this.kpi.pares_100,sub:'unidades',color:'text-amber-400',border:'border-amber-500/30'},{label:'Margen Club/100 contactos',value:this.kpi.margen_100+'\u20AC',sub:'potencial',color:'text-purple-400',border:'border-purple-500/30'}]},
 get conversiones(){if(!this.funnel||this.funnel.length<2)return[];var r=[];for(var i=0;i<this.funnel.length-1;i++){var a=this.funnel[i];var b=this.funnel[i+1];if(a.cnt>0&&b.pct!==undefined){var pct=b.pct;r.push({origen:a.nivel.replace(/^\d+\.\s*/,''),destino:b.nivel.replace(/^\d+\.\s*/,''),pct:pct,perdida:(100-pct)+'%'})}}return r},
@@ -2056,6 +2079,7 @@ function seguimientoApp() {
             this.cargando = true; this.error = '';
             try {
                 const params = new URLSearchParams();
+                if (window.app && window.app.campanaActual > 0) params.append('campaign_id', window.app.campanaActual);
                 if (this.f.busqueda) params.append('busqueda', this.f.busqueda);
                 if (this.f.federacion) params.append('federacion', this.f.federacion);
                 if (this.f.dias_min > 0) params.append('dias_min', this.f.dias_min);

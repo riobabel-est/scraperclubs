@@ -280,6 +280,11 @@ function pilotoAnalyticsApp(){
         const r = await fetch('?action=get_piloto_campanas');
         const j = await r.json();
         if (j.ok) this.campanas = j.campanas || [];
+        // Contexto global: preselecciona la campaña activa del panel.
+        if (window.app && window.app.campanaActual > 0) {
+          const c = (this.campanas || []).find(x => x.id == window.app.campanaActual);
+          if (c) this.campaignId = c.id;
+        }
       } catch(e) { console.error('loadCampanas:', e); }
     },
 

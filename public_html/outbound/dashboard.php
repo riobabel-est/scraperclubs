@@ -209,6 +209,17 @@ if (!empty($action) && empty($_SESSION['auth_outbound'])) {
     exit;
 }
 
+// ═══════════════ CONTEXTO DE CAMPAÑA (unificación de tabs, Fase 1) ═══════════
+// Guarda en sesión la campaña activa para filtrar Kanban + Seguimiento + Analytics.
+if ($action === 'set_campana_actual') {
+    header('Content-Type: application/json; charset=utf-8');
+    $cid = (int)($_POST['campaign_id'] ?? $_GET['campaign_id'] ?? 0);
+    $_SESSION['campana_actual'] = max(0, $cid);
+    echo json_encode(['ok' => true, 'campana_actual' => $_SESSION['campana_actual']]);
+    exit;
+}
+
+
 // ═══════════════ GESTIÓN DE CREDENCIALES DEL PANEL (autenticado) ══════════════
 // change_password: cambia la contraseña del panel (cifrada FP1: en config).
 if ($action === 'change_password') {
@@ -660,6 +671,12 @@ $chipCounters = [
     'leidos' => 0,             // leads con >= 1 apertura (num_opens >= 1)
     'federaciones' => [],      // contador por federación
 ];
+// ── Contexto de campaña (Fase 1: unificación Pipeline/Seguimiento/Analytics) ──
+$campanaActual = (int)($_SESSION['campana_actual'] ?? 0);
+$campanasSelect = [];
+$resC = $db->query("SELECT id, nombre, identificador FROM pipelines WHERE activo = 1 ORDER BY id ASC");
+while ($rC = $resC->fetchArray(SQLITE3_ASSOC)) { $campanasSelect[] = $rC; }
+
 $kanbanLeads = [];             // array plano para filtros en cliente (Alpine)
 
 // Agregación única de aperturas por email (solo envíos REALES, es_test=0).
@@ -687,6 +704,7 @@ foreach ($estadosKanban as $est) {
                 LIMIT 1) AS clasificacion_ia
         FROM clubes_crm c
         WHERE c.estado_lead = :estado
+        " . ($campanaActual > 0 ? "AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = " . (int)$campanaActual . ")" : "") . "
         ORDER BY c.nombre_club ASC
     ");
     $stmt->bindValue(':estado', $est, SQLITE3_TEXT);
@@ -896,6 +914,16 @@ $db->close();
             <span class="font-bold text-slate-100 text-sm tracking-tight">FutProtec Outbound CRM</span>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
+            <div class="flex items-center gap-2 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5">
+                <i data-lucide="folder-kanban" class="w-4 h-4 text-amber-400"></i>
+                <select x-model="campanaActual" @change="setCampana($event.target.value)"
+                    class="bg-transparent text-sm text-slate-200 focus:outline-none cursor-pointer" title="Campaña de trabajo (unifica Pipeline, Seguimiento y Analytics)">
+                    <option value="0">Todas las campañas</option>
+                    <?php foreach ($campanasSelect as $cs): ?>
+                    <option value="<?= (int)$cs['id'] ?>"><?= escHtml($cs['identificador'] ?: $cs['nombre']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
             <button @click="irARespuestas()" class="relative text-slate-300 hover:text-amber-400 transition p-1.5 rounded-lg hover:bg-slate-800/60" title="Respuestas nuevas">
                 <i data-lucide="bell" class="w-4 h-4"></i>
                 <span x-show="rsNuevas > 0" x-cloak x-text="rsNuevas" class="absolute -top-1 -right-1 bg-orange-500 text-white text-xs font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1.5 border-2 border-slate-900 shadow-[0_0_10px_rgba(249,115,22,0.5)]"></span>
@@ -1046,6 +1074,7 @@ window._cfg = {motorActivo:<?= $motorActivo?'true':'false' ?>,modeTest:<?= $modo
 // _chipCounters: contadores dinámicos calculados en el servidor (sin consultas extra).
 window._kanbanLeads = <?= json_encode($kanbanLeads, JSON_UNESCAPED_UNICODE) ?>;
 window._chipCounters = <?= json_encode($chipCounters, JSON_UNESCAPED_UNICODE) ?>;
+window._campanaActual = <?= (int)$campanaActual ?>;
 </script>
 <!-- app.js se carga con defer en el <head> (ANTES de Alpine.js) para garantizar
      que 'app' se registre como componente antes de que Alpine procese el DOM.
