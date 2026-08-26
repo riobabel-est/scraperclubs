@@ -493,6 +493,7 @@ $perPage = min(250, max(10, (int)($_GET['per_page'] ?? 50)));
     $filterEstado = trim($_GET['estado'] ?? '');
     $filterFed    = trim($_GET['federacion'] ?? '');
     $filterDup    = trim($_GET['duplicado'] ?? '');
+    $filterCamp   = max(0, (int)($_GET['campaign_id'] ?? 0));
 
 
     $allowedSorts = ['nombre_club', 'email', 'estado_lead', 'federacion', 'creado_el', 'telefono_movil'];
@@ -512,6 +513,11 @@ $perPage = min(250, max(10, (int)($_GET['per_page'] ?? 50)));
     if ($filterEstado !== '') {
         $where[] = "estado_lead = :estado";
         $params[':estado'] = $filterEstado;
+    }
+    if ($filterCamp > 0) {
+        $where[] = "id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$filterCamp}"
+            . " UNION SELECT c2.id FROM clubes_crm c2 JOIN envios e ON LOWER(e.email) = LOWER(c2.email)"
+            . " WHERE e.campaign_id = {$filterCamp} AND COALESCE(e.es_test,0)=0)";
     }
     if ($filterFed !== '') {
         $where[] = "federacion = :fed";

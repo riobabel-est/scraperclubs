@@ -196,7 +196,7 @@
         </div>
         <div class="space-y-1.5">
           <template x-for="f in funnel" :key="f.nivel">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 cursor-pointer hover:bg-slate-800/40 rounded px-1" @click="irAEstado(f.nivel)" :title="'Ver leads: ' + f.nivel">
               <div class="w-40 text-xs text-slate-300 truncate" x-text="f.nivel"></div>
               <div class="flex-1 bg-slate-800 rounded h-5 overflow-hidden">
                 <div class="h-full bg-amber-500/80" :style="'width:' + Math.max(2, Math.round(f.cnt / funnelMax * 100)) + '%'"></div>

@@ -549,6 +549,12 @@ if ($action === 'get_respuestas') {
             $where = "AND r.clasificacion IN (" . implode(',', $esc) . ")";
         }
 
+        // Filtro por campaña (contexto global del panel — P0 navegación).
+        $cidResp = max(0, (int)($_GET['campaign_id'] ?? 0));
+        if ($cidResp > 0) {
+            $where .= " AND (e.campaign_id = {$cidResp} OR r.campaign_id = {$cidResp})";
+        }
+
         // LEFT JOIN: muestra TODAS las respuestas, incluidas las sin envío asociado.
         // Consulta validada contra el esquema real de la BD (INFORME_UNIBOX):
         //   - `respuestas` NO tiene columna `email` → se usa `remitente`/`destinatario`.

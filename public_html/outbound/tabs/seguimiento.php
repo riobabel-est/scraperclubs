@@ -3,16 +3,21 @@
 <div x-data="seguimientoApp()" x-init="load()" class="space-y-6">
 
     <!-- 1. SCORECARDS (KPIs inteligibles) -->
-    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <div class="bg-slate-900 border border-rose-500/20 rounded-xl p-4">
+    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-3">
+        <div class="bg-slate-900 border border-rose-500/20 rounded-xl p-4 cursor-pointer hover:bg-slate-800/60 transition" @click="cola = 'perseguir'" title="Ver cola Perseguir">
             <div class="flex items-center justify-between"><span class="text-xs text-slate-400 uppercase tracking-wider">No Respondedores</span><i data-lucide="mail-question" class="w-4 h-4 text-rose-400"></i></div>
             <div class="text-2xl font-bold text-rose-400 mt-1" x-text="kpis.no_respondedores"></div>
             <div class="text-xs text-slate-400 mt-1">Perseguir 2º toque</div>
         </div>
-        <div class="bg-slate-900 border border-amber-500/20 rounded-xl p-4">
+        <div class="bg-slate-900 border border-amber-500/20 rounded-xl p-4 cursor-pointer hover:bg-slate-800/60 transition" @click="cola = 'avanzar'" title="Ver cola Avanzar">
             <div class="flex items-center justify-between"><span class="text-xs text-slate-400 uppercase tracking-wider">Sin Prox. Acción</span><i data-lucide="alarm-clock" class="w-4 h-4 text-amber-400"></i></div>
             <div class="text-2xl font-bold text-amber-400 mt-1" x-text="kpis.sin_proxima_accion"></div>
             <div class="text-xs text-slate-400 mt-1">Calientes parados</div>
+        </div>
+        <div class="bg-slate-900 border border-indigo-500/20 rounded-xl p-4 cursor-pointer hover:bg-slate-800/60 transition" @click="cola = 'calentar'" title="Ver cola Calentar">
+            <div class="flex items-center justify-between"><span class="text-xs text-slate-400 uppercase tracking-wider">Nuevos sin Actividad</span><i data-lucide="flame" class="w-4 h-4 text-indigo-400"></i></div>
+            <div class="text-2xl font-bold text-indigo-400 mt-1" x-text="kpis.nuevos_sin_actividad"></div>
+            <div class="text-xs text-slate-400 mt-1">1er toque pendiente</div>
         </div>
         <div class="bg-slate-900 border border-cyan-500/20 rounded-xl p-4">
             <div class="flex items-center justify-between"><span class="text-xs text-slate-400 uppercase tracking-wider">Tasa Apertura</span><i data-lucide="eye" class="w-4 h-4 text-cyan-400"></i></div>
@@ -45,7 +50,8 @@
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
             <template x-for="(et, i) in funnel" :key="et.etapa">
-                <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-2.5 text-center">
+                <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-2.5 text-center cursor-pointer hover:border-amber-500/40 hover:bg-slate-800/60 transition"
+                    @click="irAEstado(et.etapa)" :title="'Ver leads: ' + et.etapa">
                     <div class="text-lg font-bold text-slate-100" x-text="et.cnt"></div>
                     <div class="text-xs text-slate-400 truncate" x-text="et.etapa.replace(/^\d+\s/, '')"></div>
                     <div class="text-sm font-semibold mt-0.5" x-show="et.pct !== null"

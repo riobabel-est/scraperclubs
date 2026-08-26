@@ -718,6 +718,7 @@ var app = function() {
                 search: this.gs, estado: this.ge, federacion: this.gf, duplicado: this.gd
 
             });
+            if (window.app && window.app.campanaActual > 0) p.append('campaign_id', window.app.campanaActual);
             const r = await fetch('api/leads.php?' + p.toString());
             const j = await r.json();
             if (!j.ok) return;
@@ -881,6 +882,10 @@ var app = function() {
             try { const r = await fetch('api/leads.php?action=get_config&key=lanzadera_delay'); const j = await r.json(); if (j.ok && j.valor) this.lzDelay = parseInt(j.valor) || 5; } catch (e) { this.lzDelay = 5; }
             try { const r = await fetch('api/leads.php?action=get_config&key=test_emails'); const j = await r.json(); if (j.ok && j.valor) this.testEmails = j.valor; } catch (e) {}
             try { const r = await fetch('?action=get_piloto_campanas'); const j = await r.json(); if (j.ok) this.lzCampanas = j.campanas || []; } catch (e) {}
+            // Hereda la campaña del contexto global del panel (P0 navegación).
+            if (window.app && window.app.campanaActual > 0 && !this.lzCampaignId) {
+                this.lzCampaignId = String(window.app.campanaActual);
+            }
             try { const r = await fetch('api/get_cola.php'); const j = await r.json();
                 if (j.ok) { this.lzFederaciones = j.federaciones || []; this.lzCuentasSmtp = j.cuentas_smtp || []; this.lzKpiClubes = j.kpi_clubes || 0; this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0; this.lzKpiEnviosHoy = j.kpi_envios_hoy || 0; }
             } catch (e) {}
@@ -1353,6 +1358,7 @@ var app = function() {
                 const p = new URLSearchParams({ action: 'get_respuestas' });
                 if (this.respuestasFiltro) p.append('clasificacion', this.respuestasFiltro);
                 if (this.respuestasPrioridad) p.append('prioridad', this.respuestasPrioridad);
+                if (window.app && window.app.campanaActual > 0) p.append('campaign_id', window.app.campanaActual);
                 const r = await fetch('?' + p.toString());
                 const j = await r.json();
                 if (j && j.ok) this.respuestas = j.conversaciones || [];
@@ -1959,6 +1965,7 @@ get funnelMax(){return Math.max.apply(null,this.funnel.map(function(f){return f.
 get kpiCards(){if(!this.kpi)return[];return[{label:'Ganados/100 contactos',value:this.kpi.ganados_100,sub:'clubes',color:'text-emerald-400',border:'border-emerald-500/30'},{label:'Facturacion/100 contactos',value:this.kpi.fact_100+'\u20AC',sub:'estimado',color:'text-blue-400',border:'border-blue-500/30'},{label:'Pares/100 contactos',value:this.kpi.pares_100,sub:'unidades',color:'text-amber-400',border:'border-amber-500/30'},{label:'Margen Club/100 contactos',value:this.kpi.margen_100+'\u20AC',sub:'potencial',color:'text-purple-400',border:'border-purple-500/30'}]},
 get conversiones(){if(!this.funnel||this.funnel.length<2)return[];var r=[];for(var i=0;i<this.funnel.length-1;i++){var a=this.funnel[i];var b=this.funnel[i+1];if(a.cnt>0&&b.pct!==undefined){var pct=b.pct;r.push({origen:a.nivel.replace(/^\d+\.\s*/,''),destino:b.nivel.replace(/^\d+\.\s*/,''),pct:pct,perdida:(100-pct)+'%'})}}return r},
 get cuelloPrincipal(){var c=this.conversiones;if(!c||c.length===0)return null;var min=c[0];for(var i=1;i<c.length;i++){if(c[i].pct<min.pct)min=c[i]}return min},
+irAEstado(nivel){if(!window.app)return;var mapa={'1. Contactados':'02 Contactado','2. Entregados':'02 Contactado','3. Abrieron':'02 Contactado','4. Respondieron':'03 En Conversación','5. Resp. Positivas':'03 En Conversación','6. Cualificados':'04 Propuesta','7. Oportunidades':'04 Propuesta','8. Mockups':'04 Propuesta','9. Presupuestos':'04 Propuesta','10. Negociaciones':'04 Propuesta','11. Ganados':'05 Ganado','12. Perdidos':'06 Perdido'};var est=mapa[nivel]||'';window.app.tab='gestor';window.app.ge=est;window.app.gp=1;window.app.loadGestor();},
 get abcFilas(){if(!this.abc||this.abc.length===0)return[];var rows=[];var labels=['Leads','Entregados','Aperturas','Tasa Apertura','Respuestas','Tasa Respuesta','Resp. Positiva','Cualificados','Mockups','Presupuestos','Negociaciones','Ganados','Perdidos','Conversion','Facturacion','Pares','Fact/100','Pares/100'];var keys=['leads','entregados','aperturas','tasa_apertura','respondio','tasa_resp','interesado','cualificado','mockups','presupuestos','negociacion','ganado','perdido','conversion','facturacion','pares','fact_100','pares_100'];var sufs=['','','','%','','%','','','','','','','','%','','','',''];for(var ri=0;ri<labels.length;ri++){var row={label:labels[ri],a:'0',b:'0',c:'0',bestIndex:-1};var vals=[];for(var vi=0;vi<this.abc.length;vi++){var v=this.abc[vi][keys[ri]];var sv=v;if(typeof v==='number'){sv=v.toLocaleString()+(sufs[ri]||'')}else{sv=v||'0'}if(vi===0)row.a=sv;if(vi===1)row.b=sv;if(vi===2)row.c=sv;if(typeof v==='number')vals.push({v:v,i:vi})}if(vals.length>0){var best=vals[0];for(var bi=1;bi<vals.length;bi++){if(vals[bi].v>best.v)best=vals[bi]}row.bestIndex=best.i}rows.push(row)}return rows},
 async load(){var p=new URLSearchParams({action:'get_analytics',tab:'dashboard'});if(this.fPipeline)p.append('pipeline',this.fPipeline);if(this.fVariante)p.append('variante',this.fVariante);if(!this.fExcluirTest)p.append('excluir_test','0');try{var r=await fetch('?'+p.toString());var j=await r.json();if(j.ok){this.funnel=j.funnel||[];this.kpi=j.kpi||null;this.abc=j.abc||[];this.abcGanadora=j.abc_ganadora||null;if(j.objetivo){this.obj=j.objetivo;this.obj.proyeccion=j.objetivo.tasa_cierre>0&&j.objetivo.ganados>0?Math.round(j.objetivo.ganados/j.objetivo.tasa_cierre*100/100):null}if(j.pipelines)this.pipelines=j.pipelines;if(j.tiempos)this.tiempos=j.tiempos}}catch(e){console.error('Analytics:',e)}}}}
 
@@ -2103,6 +2110,14 @@ function seguimientoApp() {
         },
         openFicha(id) {
             if (window.app && window.app.openLead) window.app.openLead(id);
+        },
+        irAEstado(estado) {
+            // Drill-down: embudo → Gestor (Leads) con ese estado (respeta campaña).
+            if (!window.app) return;
+            window.app.tab = 'gestor';
+            window.app.ge = estado;
+            window.app.gp = 1;
+            window.app.loadGestor();
         },
         perseguir(lead) {
             // Prepara el lead en la Lanzadera (F4 del plan) y cambia de tab.
