@@ -704,7 +704,7 @@ foreach ($estadosKanban as $est) {
                 LIMIT 1) AS clasificacion_ia
         FROM clubes_crm c
         WHERE c.estado_lead = :estado
-        " . ($campanaActual > 0 ? "AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = " . (int)$campanaActual . ")" : "") . "
+        " . ($campanaActual > 0 ? "AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = " . (int)$campanaActual . " UNION SELECT c2.id FROM clubes_crm c2 JOIN envios e ON LOWER(e.email) = LOWER(c2.email) WHERE e.campaign_id = " . (int)$campanaActual . " AND COALESCE(e.es_test,0)=0)" : "") . "
         ORDER BY c.nombre_club ASC
     ");
     $stmt->bindValue(':estado', $est, SQLITE3_TEXT);
@@ -917,10 +917,10 @@ $db->close();
             <div class="flex items-center gap-2 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5">
                 <i data-lucide="folder-kanban" class="w-4 h-4 text-amber-400"></i>
                 <select x-model="campanaActual" @change="setCampana($event.target.value)"
-                    class="bg-transparent text-sm text-slate-200 focus:outline-none cursor-pointer" title="Campaña de trabajo (unifica Pipeline, Seguimiento y Analytics)">
-                    <option value="0">Todas las campañas</option>
+                    class="bg-slate-950 text-slate-200 text-sm border-0 focus:outline-none cursor-pointer max-w-[220px] [color-scheme:dark]" title="Campaña de trabajo (unifica Pipeline, Seguimiento y Analytics)">
+                    <option value="0" class="bg-slate-950 text-slate-200">Todas las campañas</option>
                     <?php foreach ($campanasSelect as $cs): ?>
-                    <option value="<?= (int)$cs['id'] ?>"><?= escHtml($cs['identificador'] ?: $cs['nombre']) ?></option>
+                    <option value="<?= (int)$cs['id'] ?>" class="bg-slate-950 text-slate-200"><?= escHtml($cs['identificador'] ?: $cs['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>

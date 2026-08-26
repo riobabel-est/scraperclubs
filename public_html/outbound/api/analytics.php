@@ -113,6 +113,21 @@ function calcularPrioridadLead(array $lead): array {
 }
 
 /**
+ * whereCampañaLead — Condición SQL de pertenencia de un lead a una campaña.
+ * Fuente real de asignación: `lead_pipelines` (asignación explícita) UNION
+ * `envios.campaign_id` (asignación por envío real, que es la que puebla el piloto).
+ */
+function whereCampañaLead(int $cid): string {
+    if ($cid <= 0) return '';
+    return " AND c.id IN ("
+        . "SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid}"
+        . " UNION "
+        . "SELECT c2.id FROM clubes_crm c2 JOIN envios e ON LOWER(e.email) = LOWER(c2.email)"
+        . " WHERE e.campaign_id = {$cid} AND COALESCE(e.es_test,0)=0"
+        . ")";
+}
+
+/**
  * getSeguimientoNoRespondedores — Cola "Perseguir": leads '02 Contactado' con
  * envíos reales, sin respuesta, sin baja. Aplica filtros y scoring de prioridad.
  */
@@ -126,7 +141,7 @@ function getSeguimientoNoRespondedores($db, string $whereCommercial, array $filt
         . " AND NOT EXISTS (SELECT 1 FROM comunicaciones_log cl WHERE cl.lead_id = c.id AND cl.tipo_evento = 'cambio_estado' AND cl.detalles LIKE '%En Conversación%')"
         . $whereCommercial;
     if ($cid > 0) {
-        $w .= " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})";
+        $w .= whereCampañaLead($cid);
     }
     if (!empty($filtros['busqueda'])) {
         $q = $db->escapeString($filtros['busqueda']);
@@ -180,7 +195,7 @@ function getSeguimientoSinProximaAccion($db, string $whereCommercial, array $fil
         . $whereCommercial;
     $cid = (int)($filtros['campaign_id'] ?? 0);
     if ($cid > 0) {
-        $w .= " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})";
+        $w .= whereCampañaLead($cid);
     }
     if (!empty($filtros['busqueda'])) {
         $q = $db->escapeString($filtros['busqueda']);
@@ -242,7 +257,7 @@ function getSeguimientoNuevosSinActividad($db, string $whereCommercial, array $f
         . $whereCommercial;
     $cid = (int)($filtros['campaign_id'] ?? 0);
     if ($cid > 0) {
-        $w .= " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})";
+        $w .= whereCampañaLead($cid);
     }
     if (!empty($filtros['busqueda'])) {
         $q = $db->escapeString($filtros['busqueda']);
@@ -283,7 +298,7 @@ function getSeguimientoKpis($db, string $whereCommercial, array $noRespondedores
     $stageOrder = "CASE c.estado_lead WHEN '01 Sin Contactar' THEN 1 WHEN '02 Contactado' THEN 2"
         . " WHEN '03 En Conversación' THEN 3 WHEN '04 Propuesta' THEN 4 WHEN '05 Ganado' THEN 5"
         . " WHEN '06 Perdido' THEN 6 WHEN '07 Baja' THEN 7 ELSE 0 END";
-    $whereCamp  = $cid > 0 ? " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})" : '';
+    $whereCamp  = whereCampañaLead($cid);
     $enviosCamp = $cid > 0 ? " AND e.campaign_id = {$cid}" : '';
     $cntContactados = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 2 {$whereCommercial}{$whereCamp}");
     $cntRespondio   = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE {$stageOrder} >= 3 {$whereCommercial}{$whereCamp}");
@@ -313,7 +328,7 @@ function getSeguimientoKpis($db, string $whereCommercial, array $noRespondedores
  */
 function getSeguimientoFunnel($db, string $whereCommercial, int $cid = 0): array {
     $nombres = ['01 Sin Contactar', '02 Contactado', '03 En Conversación', '04 Propuesta', '05 Ganado'];
-    $whereCamp = $cid > 0 ? " AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid})" : '';
+    $whereCamp = whereCampañaLead($cid);
     $counts = [];
     foreach ($nombres as $nombre) {
         $counts[] = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm c WHERE c.estado_lead = '" . $db->escapeString($nombre) . "' {$whereCommercial}{$whereCamp}");
