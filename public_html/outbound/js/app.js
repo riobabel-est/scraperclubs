@@ -4,7 +4,7 @@ var app = function() {
     var _cfg = (typeof window._cfg === 'object' && window._cfg !== null) ? window._cfg : {};
     var i = {
 
-        tab: 'kanban',
+        tab: 'inicio',
         killSwitch: _cfg.motorActivo,
         modeTest: _cfg.modeTest,
 
@@ -13,6 +13,31 @@ var app = function() {
         lm: false, mm: false, sm: false, al: false,
         ln: '', mn: true, mk: 0, md: 0,
         ld: { presupuesto: null },
+
+        // Atención a medida (modal global)
+        modalAtencion: false,
+        atencionLead: null,
+        charla: { ok: true, lead: {}, envios: [], respuestas: [], mockup: { estado: '', solicitado_en: null }, presupuesto: { version: 0, importe_total: 0, estado: '' }, aperturas_total: 0, primera_apertura: null, contacto_real: '', plantillas: [], cuentas_smtp: [], smtp_heredada: 0 },
+        cargandoCharla: false,
+        emailAsunto: '',
+        emailCuerpo: '',
+        plantillaSel: 0,
+        smtpSel: 0,
+        incluirMockup: false,
+        incluirProforma: false,
+        generandoIA: false,
+        enviandoAtencion: false,
+        atencionMsg: '',
+        atencionMsgTipo: 'ok',
+
+        // Tab Inicio
+        inicio: { kpis: { pendientes_hoy: 0, respuestas_sin_atender: 0, mockups_pendientes: 0, proformas_por_presentar: 0, acciones_vencidas: 0 }, acciones: [], conseguir: [], bandeja: [], vencidas: [], horas: [] },
+        inicioCargando: false,
+        inicioError: '',
+        resumenDia: '',
+        resumenFresco: null,
+        resumenError: '',
+        generandoResumen: false,
         ldOriginal: {},
         ldChanged: false,
         ldCalcPrecio: {},
@@ -314,11 +339,9 @@ var app = function() {
         async boot() {
             window.app = this;
             lucide.createIcons();
-            // Restaura el tab activo tras un cambio de campaña (recarga).
-            const tabGuardado = sessionStorage.getItem('futprotec_tab');
-            if (tabGuardado && ['kanban','gestor','editor','smtp','lanza','analytics','respuestas','seguimiento','lista_negra'].includes(tabGuardado)) {
-                this.tab = tabGuardado;
-            }
+            // El tab Inicio es la vista de entrada por defecto (no se restaura
+            // la pestaña previa de sessionStorage para que cada visita empiece en Inicio).
+            this.tab = 'inicio';
             // Inicializa el desplegable de federaciones de los chips del Kanban.
             this.initFederacionesFiltro();
 
@@ -552,6 +575,184 @@ var app = function() {
             this.ldLoading = false;
             setTimeout(() => lucide.createIcons(), 100);
         },
+        // ─── Atención a medida (modal global, usado por Inicio y Seguimiento) ───
+        async abrirAtencion(lead) {
+            if (!lead || !lead.id) return;
+            this.atencionLead = lead;
+            this.modalAtencion = true;
+            this.emailAsunto = ''; this.emailCuerpo = '';
+            this.plantillaSel = 0; this.smtpSel = 0;
+            this.incluirMockup = false; this.incluirProforma = false;
+            this.atencionMsg = '';
+            await this.cargarCharla();
+        },
+        async cargarCharla() {
+            this.cargandoCharla = true;
+            try {
+                const cid = (typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? window._campanaActual : 0;
+                const r = await fetch('?action=get_charla_lead&lead_id=' + this.atencionLead.id + '&campaign_id=' + cid);
+                const j = await r.json();
+                this.charla = j || { ok: false, error: 'Error de conexión' };
+                if (this.charla.smtp_heredada) this.smtpSel = this.charla.smtp_heredada;
+                if (this.charla.mockup && ['solicitado', 'en_produccion'].includes(this.charla.mockup.estado)) this.incluirMockup = true;
+                if (this.charla.presupuesto && this.charla.presupuesto.estado === 'creado') this.incluirProforma = true;
+            } catch (e) {
+                this.charla = { ok: false, error: 'Error de conexión al cargar la charla.' };
+            } finally {
+                this.cargandoCharla = false;
+            }
+        },
+        async generarEmailIA() {
+            if (!this.atencionLead) return;
+            this.generandoIA = true;
+            this.atencionMsg = '';
+            try {
+                const f = new FormData();
+                f.append('action', 'generar_email_ia');
+                f.append('lead_id', this.atencionLead.id);
+                f.append('plantilla_id', this.plantillaSel || 0);
+                const r = await fetch('?action=generar_email_ia', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) {
+                    this.emailAsunto = j.asunto || '';
+                    this.emailCuerpo = j.cuerpo || '';
+                    this.atencionMsg = '✨ Email generado — revísalo y edítalo antes de enviar.';
+                    this.atencionMsgTipo = 'ok';
+                } else {
+                    this.atencionMsg = j.error || 'No se pudo generar.';
+                    this.atencionMsgTipo = 'error';
+                }
+            } catch (e) {
+                this.atencionMsg = 'Error de conexión al generar.';
+                this.atencionMsgTipo = 'error';
+            } finally {
+                this.generandoIA = false;
+            }
+        },
+        elegirPlantilla() {
+            if (!this.charla || !this.plantillaSel) return;
+            const p = (this.charla.plantillas || []).find(x => Number(x.id) === Number(this.plantillaSel));
+            if (!p) return;
+            const lead = this.charla.lead || {};
+            const rep = (t) => String(t || '')
+                .replace(/\{\{CLUB\}\}/g, lead.nombre_club || '')
+                .replace(/\{\{CONTACTO\}\}/g, this.charla.contacto_real || 'responsable')
+                .replace(/\{\{FEDERACION\}\}/g, lead.federacion || '')
+                .replace(/\{\{ANIO\}\}/g, String(new Date().getFullYear()));
+            this.emailAsunto = rep(p.asunto);
+            this.emailCuerpo = rep(p.cuerpo);
+        },
+        async enviarAtencion() {
+            if (!this.smtpSel || !this.emailCuerpo) return;
+            const cid = (typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? window._campanaActual : 0;
+            if (!cid) {
+                // No usar nunca campaign_id=1 como fallback (puede ser DRAFT).
+                this.atencionMsg = '❌ No hay campaña activa seleccionada. Elige la campaña «Piloto Comercial» en el selector superior antes de enviar.';
+                this.atencionMsgTipo = 'error';
+                return;
+            }
+            this.enviandoAtencion = true;
+            this.atencionMsg = '';
+            try {
+                const tplId = this.plantillaSel || (this.charla && this.charla.plantillas && this.charla.plantillas.length ? this.charla.plantillas[0].id : 1);
+                const f = new FormData();
+                f.append('id_club', this.atencionLead.id);
+                f.append('id_plantilla', tplId);
+                f.append('id_cuenta_smtp', this.smtpSel);
+                f.append('campaign_id', cid);
+                f.append('asunto', this.emailAsunto);
+                f.append('cuerpo', this.emailCuerpo);
+                f.append('marcar_mockup_enviado', this.incluirMockup ? '1' : '0');
+                const r = await fetch('api/enviar_lote.php', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) {
+                    this.atencionMsg = '✅ Enviado a medida' + (this.incluirMockup ? ' · mockup marcado como enviado' : '');
+                    this.atencionMsgTipo = 'ok';
+                    this.modalAtencion = false;
+                    await this.resolverPropuestasLead();
+                    if (window._segApp) window._segApp.cargarPropuestas();
+                    if (window._segApp) window._segApp.load();
+                } else {
+                    this.atencionMsg = '❌ ' + (j.error || 'Error al enviar');
+                    this.atencionMsgTipo = 'error';
+                }
+            } catch (e) {
+                this.atencionMsg = 'Error de conexión al enviar.';
+                this.atencionMsgTipo = 'error';
+            } finally {
+                this.enviandoAtencion = false;
+            }
+        },
+        async resolverPropuestasLead() {
+            if (!this.atencionLead) return;
+            try {
+                const f = new FormData(); f.append('action', 'resolver_propuestas_lead'); f.append('lead_id', this.atencionLead.id);
+                const r = await fetch('?action=resolver_propuestas_lead', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok && window._segApp) window._segApp.cargarPropuestas();
+            } catch (e) {}
+        },
+        async posponerPropuesta(pr, dias = 1) {
+            const fecha = new Date();
+            fecha.setDate(fecha.getDate() + dias);
+            const iso = fecha.toISOString().slice(0, 10);
+            try {
+                const f = new FormData(); f.append('action', 'posponer_propuesta'); f.append('id', pr.id); f.append('fecha', iso);
+                const r = await fetch('?action=posponer_propuesta', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok && window._segApp) window._segApp.cargarPropuestas();
+            } catch (e) {}
+        },
+
+        // ─── Tab Inicio ─────────────────────────────────────────────────────
+        async loadInicio() {
+            this.inicioCargando = true;
+            this.inicioError = '';
+            try {
+                const cid = (typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? window._campanaActual : 0;
+                const r = await fetch('?action=get_inicio&campaign_id=' + cid);
+                const j = await r.json();
+                this.inicio = j && j.ok ? j : null;
+            } catch (e) {
+                this.inicio = null;
+                this.inicioError = 'Error de conexión al cargar el inicio.';
+            } finally {
+                this.inicioCargando = false;
+            }
+        },
+        async generarResumenDia() {
+            this.generandoResumen = true;
+            this.resumenError = '';
+            try {
+                const cid = (typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? window._campanaActual : 0;
+                const f = new FormData(); f.append('action', 'generar_resumen_dia'); f.append('campaign_id', cid);
+                const r = await fetch('?action=generar_resumen_dia', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) {
+                    this.resumenDia = j.resumen || '';
+                    this.resumenFresco = new Date();
+                } else {
+                    this.resumenError = j.error || 'No se pudo generar el resumen.';
+                }
+            } catch (e) {
+                this.resumenError = 'Error de conexión al generar el resumen.';
+            } finally {
+                this.generandoResumen = false;
+            }
+        },
+        irAAtender(lead) {
+            // Desde el tab Inicio: navega a Seguimiento y abre el modal de atención
+            // global (el modal y sus métodos viven ahora en app()).
+            this.tab = 'seguimiento';
+            setTimeout(() => { this.abrirAtencion(lead); }, 120);
+        },
+        tipoAccionLabel(t) {
+            return ({ responder_2toque: '🎯 2º toque', enviar_1toque: '🌱 1er toque', enviar_mockup: '🎨 Mockup', presentar_proforma: '🧾 Proforma', responder: '📥 Responder' }[t] || t);
+        },
+        tipoAccionClase(t) {
+            return ({ responder_2toque: 'bg-amber-500/15 text-amber-400 border border-amber-500/30', enviar_1toque: 'bg-sky-500/15 text-sky-400 border border-sky-500/30', enviar_mockup: 'bg-purple-500/15 text-purple-400 border border-purple-500/30', presentar_proforma: 'bg-violet-500/15 text-violet-400 border border-violet-500/30' }[t] || 'bg-slate-700 text-slate-400');
+        },
+
         onWaPlantillaChange() {
             if (!this.ldPlantillaWaId || !this.waLink) { this.ldWaUrl = this.waLink || ''; return; }
             const tpl = this.ldPlantillasWa.find(x => x.id == this.ldPlantillaWaId);
@@ -1915,7 +2116,7 @@ var app = function() {
             kanbanLeads: [],
             chipCounters: { calientes: 0, leidos: 0, pendiente_wa: 0, federaciones: {} },
         // Tab activo
-        tab: 'kanban',
+        tab: 'inicio',
         // ── Métodos críticos (stubs no-op) ──────────────────────────────────
         // Si app() lanza una excepción, el fallback devuelto debe incluir TAMBIÉN
         // los métodos que los botones de los tabs invocan (loadRespuestas,
@@ -1958,16 +2159,6 @@ var app = function() {
 };
 
 
-// ─── analyticsApp — Alpine component for Analytics tab ──────────────────────
-
-function analyticsApp(){return{funnel:[],kpi:null,abc:[],abcGanadora:null,obj:{ganados:0,pct:0,restantes:20,tasa_cierre:0,contactos_necesarios:'-',contactados:0,facturacion:0,pares:0,margen:0,proyeccion:null},pipelines:[],tiempos:[],fPipeline:((typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? String(window._campanaActual) : ''),fVariante:'',fExcluirTest:true,
-get funnelMax(){return Math.max.apply(null,this.funnel.map(function(f){return f.cnt}).concat([1]))},
-get kpiCards(){if(!this.kpi)return[];return[{label:'Ganados/100 contactos',value:this.kpi.ganados_100,sub:'clubes',color:'text-emerald-400',border:'border-emerald-500/30'},{label:'Facturacion/100 contactos',value:this.kpi.fact_100+'\u20AC',sub:'estimado',color:'text-blue-400',border:'border-blue-500/30'},{label:'Pares/100 contactos',value:this.kpi.pares_100,sub:'unidades',color:'text-amber-400',border:'border-amber-500/30'},{label:'Margen Club/100 contactos',value:this.kpi.margen_100+'\u20AC',sub:'potencial',color:'text-purple-400',border:'border-purple-500/30'}]},
-get conversiones(){if(!this.funnel||this.funnel.length<2)return[];var r=[];for(var i=0;i<this.funnel.length-1;i++){var a=this.funnel[i];var b=this.funnel[i+1];if(a.cnt>0&&b.pct!==undefined){var pct=b.pct;r.push({origen:a.nivel.replace(/^\d+\.\s*/,''),destino:b.nivel.replace(/^\d+\.\s*/,''),pct:pct,perdida:(100-pct)+'%'})}}return r},
-get cuelloPrincipal(){var c=this.conversiones;if(!c||c.length===0)return null;var min=c[0];for(var i=1;i<c.length;i++){if(c[i].pct<min.pct)min=c[i]}return min},
-irAEstado(nivel){if(!window.app)return;var mapa={'1. Contactados':'02 Contactado','2. Entregados':'02 Contactado','3. Abrieron':'02 Contactado','4. Respondieron':'03 En Conversación','5. Resp. Positivas':'03 En Conversación','6. Cualificados':'04 Propuesta','7. Oportunidades':'04 Propuesta','8. Mockups':'04 Propuesta','9. Presupuestos':'04 Propuesta','10. Negociaciones':'04 Propuesta','11. Ganados':'05 Ganado','12. Perdidos':'06 Perdido'};var est=mapa[nivel]||'';window.app.tab='gestor';window.app.ge=est;window.app.gp=1;window.app.loadGestor();},
-get abcFilas(){if(!this.abc||this.abc.length===0)return[];var rows=[];var labels=['Leads','Entregados','Aperturas','Tasa Apertura','Respuestas','Tasa Respuesta','Resp. Positiva','Cualificados','Mockups','Presupuestos','Negociaciones','Ganados','Perdidos','Conversion','Facturacion','Pares','Fact/100','Pares/100'];var keys=['leads','entregados','aperturas','tasa_apertura','respondio','tasa_resp','interesado','cualificado','mockups','presupuestos','negociacion','ganado','perdido','conversion','facturacion','pares','fact_100','pares_100'];var sufs=['','','','%','','%','','','','','','','','%','','','',''];for(var ri=0;ri<labels.length;ri++){var row={label:labels[ri],a:'0',b:'0',c:'0',bestIndex:-1};var vals=[];for(var vi=0;vi<this.abc.length;vi++){var v=this.abc[vi][keys[ri]];var sv=v;if(typeof v==='number'){sv=v.toLocaleString()+(sufs[ri]||'')}else{sv=v||'0'}if(vi===0)row.a=sv;if(vi===1)row.b=sv;if(vi===2)row.c=sv;if(typeof v==='number')vals.push({v:v,i:vi})}if(vals.length>0){var best=vals[0];for(var bi=1;bi<vals.length;bi++){if(vals[bi].v>best.v)best=vals[bi]}row.bestIndex=best.i}rows.push(row)}return rows},
-async load(){var p=new URLSearchParams({action:'get_analytics',tab:'dashboard'});if(this.fPipeline)p.append('pipeline',this.fPipeline);if(this.fVariante)p.append('variante',this.fVariante);if(!this.fExcluirTest)p.append('excluir_test','0');try{var r=await fetch('?'+p.toString());var j=await r.json();if(j.ok){this.funnel=j.funnel||[];this.kpi=j.kpi||null;this.abc=j.abc||[];this.abcGanadora=j.abc_ganadora||null;if(j.objetivo){this.obj=j.objetivo;this.obj.proyeccion=j.objetivo.tasa_cierre>0&&j.objetivo.ganados>0?Math.round(j.objetivo.ganados/j.objetivo.tasa_cierre*100/100):null}if(j.pipelines)this.pipelines=j.pipelines;if(j.tiempos)this.tiempos=j.tiempos}}catch(e){console.error('Analytics:',e)}}}}
 
 // ─── Componentes Alpine (FIX SCOPE rsSyncing) ────────────────────────────────
 // Todos los componentes se usan con paréntesis en el HTML (x-data="app()",
@@ -2006,147 +2197,5 @@ document.addEventListener('click', function (e) {
 
 
 
-// ─── Configurador de Campañas (P-1 F2-F3). Movido de tabs/smtp.php (reorganización 2026-08-26).
-function campanasConfig() {
-    return {
-        campanas: [], federaciones: [], plantillas: [],
-        form: { id: 0, nombre: '', identificador: '', entorno: 'test', estado: 'PILOT', activo: 1, todas: false, federaciones: [], estado_lead: '', plantillas: [] },
-        msg: '', msgOk: false,
-        async cargarTodo() {
-            await Promise.all([this.cargarCampanas(), this.cargarFederaciones(), this.cargarPlantillas()]);
-            if (window.lucide) lucide.createIcons();
-        },
-        async cargarCampanas() {
-            try { const r = await fetch('?action=get_campanas'); const j = await r.json(); if (j.ok) this.campanas = j.campanas || []; } catch (e) {}
-        },
-        async cargarFederaciones() {
-            try { const r = await fetch('?action=get_federaciones'); const j = await r.json(); if (j.ok) this.federaciones = j.federaciones || []; } catch (e) {}
-        },
-        async cargarPlantillas() {
-            try { const r = await fetch('?action=get_templates'); const j = await r.json(); if (j.ok) this.plantillas = j.templates || []; } catch (e) {}
-        },
-        seleccionarTodasFed() {
-            this.form.federaciones = this.federaciones.slice();
-        },
-        nueva() {
-            this.form = { id: 0, nombre: '', identificador: '', entorno: 'test', estado: 'PILOT', activo: 1, todas: false, federaciones: [], estado_lead: '', plantillas: [] };
-            this.msg = '';
-        },
-        editar(c) {
-            this.form = {
-                id: c.id, nombre: c.nombre, identificador: c.identificador, entorno: c.entorno, estado: c.estado, activo: c.activo,
-                todas: !!(c.segmento && c.segmento.todas),
-                federaciones: (c.segmento && c.segmento.federaciones) || [],
-                estado_lead: (c.segmento && c.segmento.estado) || '',
-                plantillas: (c.plantillas_id || []).map(x => String(x)),
-            };
-            this.msg = '';
-        },
-        async guardar() {
-            this.msg = '';
-            if (!this.form.nombre.trim() || !this.form.identificador.trim()) { this.msg = 'Nombre e identificador son obligatorios.'; this.msgOk = false; return; }
-            const f = new FormData();
-            f.append('action', 'save_campaign');
-            f.append('id', this.form.id);
-            f.append('nombre', this.form.nombre.trim());
-            f.append('identificador', this.form.identificador.trim());
-            f.append('entorno', this.form.entorno);
-            f.append('estado', this.form.estado);
-            f.append('activo', this.form.activo);
-            f.append('todas_federaciones', this.form.todas ? '1' : '0');
-            f.append('federaciones', JSON.stringify(this.form.federaciones));
-            f.append('estado_lead', this.form.estado_lead);
-            f.append('plantillas', JSON.stringify(this.form.plantillas));
-            try {
-                const r = await fetch('?action=save_campaign', { method: 'POST', body: f });
-                const j = await r.json();
-                this.msg = j.message || (j.ok ? 'Campaña guardada.' : (j.error || 'Error al guardar.'));
-                this.msgOk = !!j.ok;
-                if (j.ok) { await this.cargarCampanas(); this.nueva(); }
-            } catch (e) { this.msg = 'Error de conexión.'; this.msgOk = false; }
-        },
-        async eliminar(c) {
-            if (!confirm('¿Eliminar la campaña "' + c.nombre + '"? Se quitarán su segmento y plantillas asignadas.')) return;
-            const f = new FormData(); f.append('action', 'delete_campaign'); f.append('id', c.id);
-            try { const r = await fetch('?action=delete_campaign', { method: 'POST', body: f }); const j = await r.json();
-                if (j.ok) await this.cargarCampanas(); else alert(j.error || 'Error al eliminar.');
-            } catch (e) { alert('Error de conexión.'); }
-        }
-    };
-}
 
-
-// ─── Seguimiento (módulo rediseñado ex-followups). Plan: docs/PLAN_FOLLOWUPS_SEGUIMIENTO_UIUX.md
-function seguimientoApp() {
-    return {
-        noRespondedores: [], sinProximaAccion: [], nuevosSinActividad: [], funnel: [],
-        kpis: { no_respondedores: 0, sin_proxima_accion: 0, tasa_apertura: 0, tasa_respuesta: 0, mockups_pendientes: 0, presupuestos_pendientes: 0, pipeline_value: 0 },
-        federaciones: [],
-        f: { busqueda: '', federacion: '', dias_min: 0, solo_alta: false },
-        cola: 'perseguir', cargando: false, error: '',
-        async load() {
-            if (window.app && Array.isArray(window.app.federaciones)) this.federaciones = window.app.federaciones;
-            this.cargando = true; this.error = '';
-            try {
-                const params = new URLSearchParams();
-                if (window.app && window.app.campanaActual > 0) params.append('campaign_id', window.app.campanaActual);
-                if (this.f.busqueda) params.append('busqueda', this.f.busqueda);
-                if (this.f.federacion) params.append('federacion', this.f.federacion);
-                if (this.f.dias_min > 0) params.append('dias_min', this.f.dias_min);
-                if (this.f.solo_alta) params.append('solo_alta', '1');
-                const r = await fetch('?action=get_seguimiento&' + params.toString());
-                const j = await r.json();
-                if (j.ok) {
-                    this.noRespondedores = j.no_respondedores || [];
-                    this.sinProximaAccion = j.sin_proxima_accion || [];
-                    this.nuevosSinActividad = j.nuevos_sin_actividad || [];
-                    this.funnel = j.funnel || [];
-                    this.kpis = Object.assign(this.kpis, j.kpis || {});
-                } else {
-                    this.error = (j.error || 'Error al cargar el seguimiento.');
-                }
-            } catch (e) {
-                this.error = 'Error de conexión al cargar el seguimiento.';
-            }
-            this.cargando = false;
-            if (window.lucide) lucide.createIcons();
-        },
-        openFicha(id) {
-            if (window.app && window.app.openLead) window.app.openLead(id);
-        },
-        irAEstado(estado) {
-            // Drill-down: embudo → Gestor (Leads) con ese estado (respeta campaña).
-            if (!window.app) return;
-            window.app.tab = 'gestor';
-            window.app.ge = estado;
-            window.app.gp = 1;
-            window.app.loadGestor();
-        },
-        perseguir(lead) {
-            // Prepara el lead en la Lanzadera (F4 del plan) y cambia de tab.
-            if (!window.app) return;
-            window.app.lzSelectLead(lead);
-            window.app.tab = 'lanza';
-        },
-        async guardarFecha(l) {
-            // Agenda la próxima acción del lead (columna "Próx. acción" de Avanzar).
-            if (!l.nuevaFecha) return;
-            try {
-                const f = new FormData();
-                f.append('action', 'update_lead');
-                f.append('id', l.id);
-                f.append('field', 'fecha_proxima_accion');
-                f.append('value', l.nuevaFecha + ' 00:00:00');
-                const r = await fetch('?action=update_lead', { method: 'POST', body: f });
-                const j = await r.json();
-                if (j.ok) {
-                    l.programando = false;
-                    await this.load();
-                } else {
-                    alert(j.error || 'No se pudo guardar la fecha.');
-                }
-            } catch (e) { alert('Error de conexión al guardar la fecha.'); }
-        }
-    };
-}
 

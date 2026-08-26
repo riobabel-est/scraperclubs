@@ -135,6 +135,14 @@ try {
     $asuntoTpl = $contenido['asunto'];
     $cuerpoTpl = $contenido['cuerpo'];
 
+    // OVERRIDE A MEDIDA (modal de atención): si llega asunto/cuerpo personalizados
+    // se usan en lugar del contenido de la plantilla. Los placeholders ({{CLUB}}…)
+    // se resuelven igual en el paso 4, así que el texto a medida puede usarlos.
+    $asuntoOverride = trim((string)($_POST['asunto'] ?? ''));
+    $cuerpoOverride = trim((string)($_POST['cuerpo'] ?? ''));
+    if ($asuntoOverride !== '') $asuntoTpl = $asuntoOverride;
+    if ($cuerpoOverride !== '') $cuerpoTpl = $cuerpoOverride;
+
     // ─── 3. Obtener cuenta SMTP ──────────────────────────────────────────────
     $cuenta = $db->querySingle("
         SELECT id, email, usuario, password, host, puerto, seguridad, enviados_hoy, limite_diario, activa, nombre_emisor, cargo_emisor
@@ -339,6 +347,11 @@ try {
     $stmtUpd->bindValue(':res', $resultadoEnvio, SQLITE3_TEXT);
     $stmtUpd->bindValue(':id', (int)$envioRow['id'], SQLITE3_INTEGER);
     $stmtUpd->execute();
+
+    // Envío a medida: si el modal marcó "Incluir mockup", pasa a enviado al éxito.
+    if ($estadoEnvio === 'enviado' && ($_POST['marcar_mockup_enviado'] ?? '0') === '1') {
+        $db->exec("UPDATE mockups SET estado = 'enviado', enviado_en = CURRENT_TIMESTAMP WHERE lead_id = {$idClub} AND estado IN ('solicitado','en_produccion')");
+    }
 
     // Insertar en comunicaciones_log
     $stmtLog = $db->prepare(

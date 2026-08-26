@@ -145,6 +145,32 @@ try {
         echo "   Migracion CRM: columna 'fecha_proxima_accion' anadida\n";
     }
 
+    // Tabla: propuestas del Asistente IA (human-in-the-loop).
+    $db->exec("CREATE TABLE IF NOT EXISTS propuestas_ia (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lead_id INTEGER NOT NULL,
+        campaign_id INTEGER,
+        tipo TEXT NOT NULL,
+        titulo TEXT DEFAULT '',
+        razon TEXT DEFAULT '',
+        mensaje_sugerido TEXT DEFAULT '',
+        prioridad TEXT DEFAULT 'Media',
+        estado TEXT DEFAULT 'pendiente',
+        creado_el DATETIME DEFAULT CURRENT_TIMESTAMP,
+        aprobado_el DATETIME,
+        voto TEXT DEFAULT ''
+    )");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_propuestas_estado ON propuestas_ia(estado)");
+    // Ciclo de vida: fecha prevista de cada recomendación (posponer/vencer).
+    $colsProp = [];
+    $r = $db->query("PRAGMA table_info(propuestas_ia)");
+    if ($r) { while ($x = $r->fetchArray(SQLITE3_ASSOC)) $colsProp[] = $x['name']; }
+    if (!in_array('fecha_prevista', $colsProp, true)) {
+        // SQLite solo admite DEFAULT constante en ALTER ADD COLUMN.
+        $db->exec("ALTER TABLE propuestas_ia ADD COLUMN fecha_prevista DATETIME DEFAULT '2000-01-01 00:00:00'");
+        echo "   Migracion propuestas_ia: columna 'fecha_prevista' anadida\n";
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // 2b. TABLAS ESCALABLES: CONTACTOS Y TELEFONOS DEL CLUB
     // Modelo empresa-contacto: un club (clubes_crm) puede tener N contactos

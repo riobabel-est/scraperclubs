@@ -272,6 +272,120 @@ require __DIR__ . '/api/mockups.php';
 require __DIR__ . '/api/presupuestos.php';
 require __DIR__ . '/api/plantillas.php';
 require __DIR__ . '/api/analytics.php';
+require_once __DIR__ . '/inc/motor_propuestas.php';
+require_once __DIR__ . '/inc/atencion_lead.php';
+require_once __DIR__ . '/inc/inicio.php';
+
+// ═══════════════ ASISTENTE IA — PROPUESTAS (human-in-the-loop) ═══════════════
+// La IA propone acciones por lead; el usuario aprueba o rechaza cada una.
+if ($action === 'get_propuestas_ia') {
+    header('Content-Type: application/json; charset=utf-8');
+    $cid = max(0, (int)($_GET['campaign_id'] ?? $_SESSION['campana_actual'] ?? 0));
+    $lista = [];
+    $r = $db->query("SELECT p.*, c.nombre_club, c.email FROM propuestas_ia p LEFT JOIN clubes_crm c ON c.id = p.lead_id WHERE p.estado = 'pendiente' AND (p.fecha_prevista IS NULL OR p.fecha_prevista <= CURRENT_TIMESTAMP) ORDER BY CASE p.prioridad WHEN 'Alta' THEN 0 WHEN 'Media' THEN 1 ELSE 2 END, p.id ASC");
+    if ($r) { while ($x = $r->fetchArray(SQLITE3_ASSOC)) $lista[] = $x; }
+    echo json_encode(['ok' => true, 'propuestas' => $lista]);
+    exit;
+}
+if ($action === 'generar_propuestas_ia') {
+    header('Content-Type: application/json; charset=utf-8');
+    $cid = max(0, (int)($_POST['campaign_id'] ?? $_SESSION['campana_actual'] ?? 0));
+    try {
+        $nuevas = motor_generar_propuestas($db, $cid);
+        echo json_encode(['ok' => true, 'generadas' => count($nuevas)]);
+    } catch (\Throwable $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+if ($action === 'aprobar_propuesta') {
+    header('Content-Type: application/json; charset=utf-8');
+    $id = (int)($_POST['id'] ?? 0);
+    $ok = $id > 0 && $db->exec("UPDATE propuestas_ia SET estado = 'aprobada', aprobado_el = CURRENT_TIMESTAMP WHERE id = {$id}");
+    echo json_encode(['ok' => (bool)$ok]);
+    exit;
+}
+if ($action === 'rechazar_propuesta') {
+    header('Content-Type: application/json; charset=utf-8');
+    $id = (int)($_POST['id'] ?? 0);
+    $nota = trim((string)($_POST['nota'] ?? ''));
+    $stmt = $db->prepare("UPDATE propuestas_ia SET estado = 'rechazada', voto = :nota, aprobado_el = CURRENT_TIMESTAMP WHERE id = :id");
+    $stmt->bindValue(':nota', $nota, SQLITE3_TEXT);
+    $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+    echo json_encode(['ok' => $stmt->execute() ? true : false]);
+    exit;
+}
+if ($action === 'posponer_propuesta') {
+    header('Content-Type: application/json; charset=utf-8');
+    $id = (int)($_POST['id'] ?? 0);
+    $fecha = trim((string)($_POST['fecha'] ?? ''));
+    // fecha esperada: YYYY-MM-DD (o datetime). Se convierte a datetime de día completo.
+    if ($fecha !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha)) $fecha .= ' 09:00:00';
+    if ($id <= 0 || $fecha === '') { echo json_encode(['ok' => false, 'error' => 'id y fecha requeridos']); exit; }
+    $stmt = $db->prepare("UPDATE propuestas_ia SET fecha_prevista = :fecha WHERE id = :id AND estado = 'pendiente'");
+    $stmt->bindValue(':fecha', $fecha, SQLITE3_TEXT);
+    $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+    echo json_encode(['ok' => (bool)$stmt->execute()]);
+    exit;
+}
+if ($action === 'resolver_propuestas_lead') {
+    header('Content-Type: application/json; charset=utf-8');
+    $leadId = (int)($_POST['lead_id'] ?? 0);
+    if ($leadId <= 0) { echo json_encode(['ok' => false, 'error' => 'lead_id requerido']); exit; }
+    // Al atender con éxito: todas las recomendaciones pendientes del lead se cumplen.
+    $db->exec("UPDATE propuestas_ia SET estado = 'ejecutada', aprobado_el = CURRENT_TIMESTAMP WHERE lead_id = {$leadId} AND estado = 'pendiente'");
+    // Se limpia la próxima acción del lead (la tarea quedó hecha).
+    $db->exec("UPDATE clubes_crm SET fecha_proxima_accion = NULL WHERE id = {$leadId} AND fecha_proxima_accion IS NOT NULL");
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+// ═══════════════ TAB INICIO — qué enviar / qué conseguir ═══════════════
+if ($action === 'get_inicio') {
+    header('Content-Type: application/json; charset=utf-8');
+    $cid = max(0, (int)($_GET['campaign_id'] ?? $_SESSION['campana_actual'] ?? 0));
+    echo json_encode(datosInicio($db, $cid));
+    exit;
+}
+if ($action === 'generar_resumen_dia') {
+    header('Content-Type: application/json; charset=utf-8');
+    $cid = max(0, (int)($_POST['campaign_id'] ?? $_SESSION['campana_actual'] ?? 0));
+    try {
+        $resumen = generarResumenDiaIA($db, $cid);
+        if ($resumen === null) { echo json_encode(['ok' => false, 'error' => 'No se pudo generar (¿API key de IA configurada?)']); exit; }
+        echo json_encode(['ok' => true, 'resumen' => $resumen]);
+    } catch (\Throwable $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ═══════════════ ATENCIÓN A MEDIDA POR LEAD (modal) ═══════════════
+// Charla real del lead (historial) + redacción IA bajo demanda.
+if ($action === 'get_charla_lead') {
+    header('Content-Type: application/json; charset=utf-8');
+    $leadId = (int)($_GET['lead_id'] ?? 0);
+    $cid = max(0, (int)($_GET['campaign_id'] ?? $_SESSION['campana_actual'] ?? 0));
+    echo json_encode(charlaLead($db, $leadId, $cid));
+    exit;
+}
+if ($action === 'generar_email_ia') {
+    header('Content-Type: application/json; charset=utf-8');
+    $leadId = (int)($_POST['lead_id'] ?? 0);
+    $plantillaId = (int)($_POST['plantilla_id'] ?? 0);
+    try {
+        $gen = generarEmailIA($db, $leadId, $plantillaId > 0 ? $plantillaId : null);
+        if ($gen === null) {
+            echo json_encode(['ok' => false, 'error' => 'No se pudo generar (¿API key de IA configurada?)']);
+            exit;
+        }
+        echo json_encode(['ok' => true, 'asunto' => $gen['asunto'], 'cuerpo' => $gen['cuerpo']]);
+    } catch (\Throwable $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 require __DIR__ . '/api/config.php';
 require __DIR__ . '/api/pruebas.php';
 require __DIR__ . '/api/campanas.php';
@@ -800,7 +914,12 @@ $db->close();
          componente ANTES de procesar el DOM. Esto elimina la condición de
          carrera que provocaba "Alpine Expression Error: rsSyncing is not
          defined" en el tab Respuestas. -->
-    <script defer src="js/app.js?v=<?= filemtime(__DIR__ . '/js/app.js') ?>"></script>
+    <script defer src="js/app.js?v=<?= md5_file(__DIR__ . '/js/app.js') ?>"></script>
+    <!-- Módulos Alpine (refactor modular 2026-08-26): se cargan ANTES de Alpine,
+         en orden, para que las funciones globales existan cuando Alpine procese el DOM. -->
+    <script defer src="js/seguimiento.js?v=<?= md5_file(__DIR__ . '/js/seguimiento.js') ?>"></script>
+    <script defer src="js/analytics.js?v=<?= md5_file(__DIR__ . '/js/analytics.js') ?>"></script>
+    <script defer src="js/campanas.js?v=<?= md5_file(__DIR__ . '/js/campanas.js') ?>"></script>
     <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -984,6 +1103,9 @@ $db->close();
 <!-- ═══════════ TABS ═══════════ -->
 <div class="max-w-full mx-auto px-4">
     <nav class="flex gap-1 border-b border-slate-800 overflow-x-auto">
+        <button @click="tab='inicio'; loadInicio()"
+            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'inicio' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">🏠 Inicio</button>
         <button @click="tab='kanban'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'kanban' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Pipeline</button>
@@ -1016,6 +1138,9 @@ $db->close();
 </div>
 
 <!-- ═══════════ TAB CONTENTS (includes) ═══════════ -->
+<div x-show="tab === 'inicio'" x-cloak class="max-w-full mx-auto px-4 py-4">
+    <?php include __DIR__ . '/tabs/inicio.php'; ?>
+</div>
 <div x-show="tab === 'kanban'" x-cloak class="max-w-full mx-auto px-4 py-4">
     <?php include __DIR__ . '/tabs/kanban.php'; ?>
 </div>

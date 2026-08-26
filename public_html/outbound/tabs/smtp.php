@@ -58,6 +58,14 @@
             </div>
         </div>
 
+        <!-- Conocimiento de producto: base para que la IA redacte mensajes comerciales B2B -->
+        <div class="mb-4">
+            <label class="block text-sm font-semibold text-slate-300 mb-1.5">Conocimiento de producto (base para el Asistente IA)</label>
+            <textarea x-model="conocimientoProducto" rows="4" placeholder="Describe tu producto: qué es, para quién, características clave, precios, casos de éxito, enlaces... La IA usará esto para redactar emails de venta, 2ºs toques y presentaciones de mockups/proformas."
+                class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/50"></textarea>
+            <p class="text-xs text-slate-400 mt-1.5">No hace falta pegar URLs: la IA no navega. Pega el contenido (catálogo, precios, ventajas). Se inyecta en el prompt del asistente.</p>
+        </div>
+
         <div class="flex items-center justify-end gap-3 mt-4 pt-3 border-t border-slate-800">
             <span x-show="guardando" class="text-xs text-slate-400 flex items-center gap-1.5">
                 <span class="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin inline-block"></span> Guardando...
@@ -391,12 +399,13 @@ function configIA() {
         mostrar: false,
         guardando: false,
         guardado: false,
+        conocimientoProducto: '',
         get nombreProveedor() { return (CATALOGO[this.proveedor] || {}).nombre || ''; },
         get modelosDisponibles() { return (CATALOGO[this.proveedor] || {}).modelos || []; },
         get notaModelo() { return (CATALOGO[this.proveedor] || {}).nota || ''; },
         async cargar() {
             try {
-                const r = await fetch('?action=get_config&keys=ia_proveedor,deepseek_api_key,deepseek_model,openai_api_key,openai_model,anthropic_api_key,anthropic_model,google_api_key,google_model,mistral_api_key,mistral_model,groq_api_key,groq_model');
+                const r = await fetch('?action=get_config&keys=ia_proveedor,deepseek_api_key,deepseek_model,openai_api_key,openai_model,anthropic_api_key,anthropic_model,google_api_key,google_model,mistral_api_key,mistral_model,groq_api_key,groq_model,ia_conocimiento_producto');
                 const j = await r.json();
                 if (j.ok && j.config) {
                     // Cache de todas las claves devueltas (get_config) para que
@@ -405,6 +414,7 @@ function configIA() {
                     this.proveedor = j.config.ia_proveedor || 'deepseek';
                     this.apiKey = j.config[CATALOGO[this.proveedor].claveApi] || '';
                     this.modelo = j.config[CATALOGO[this.proveedor].claveModelo] || (CATALOGO[this.proveedor].modelos[0] || {}).value || '';
+                    this.conocimientoProducto = j.config.ia_conocimiento_producto || '';
                 }
             } catch (e) { console.error('configIA: cargar falló', e); }
             if (window.lucide) lucide.createIcons();
@@ -442,6 +452,9 @@ function configIA() {
                 await fetch('?action=update_config', { method: 'POST', body: f1 });
                 const f2 = new FormData(); f2.append('action', 'update_config'); f2.append('key', cfg.claveModelo); f2.append('value', this.modelo);
                 await fetch('?action=update_config', { method: 'POST', body: f2 });
+                // Guardar conocimiento de producto (base para redactar mensajes comerciales)
+                const f3 = new FormData(); f3.append('action', 'update_config'); f3.append('key', 'ia_conocimiento_producto'); f3.append('value', this.conocimientoProducto);
+                await fetch('?action=update_config', { method: 'POST', body: f3 });
                 this.guardado = true;
                 setTimeout(() => { this.guardado = false; }, 2500);
             } catch (e) {

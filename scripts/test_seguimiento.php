@@ -12,12 +12,13 @@ $db->exec("CREATE TABLE clubes_crm (
     persona_contacto TEXT, estado_lead TEXT, federacion TEXT, proxima_accion TEXT,
     ultimo_contacto DATETIME, volumen_estimado INTEGER, creado_el DATETIME DEFAULT CURRENT_TIMESTAMP,
     fecha_proxima_accion DATETIME)");
-$db->exec("CREATE TABLE envios (id INTEGER PRIMARY KEY, email TEXT, asunto TEXT, fecha_envio DATETIME, es_test INTEGER DEFAULT 0, tracking_id TEXT)");
+$db->exec("CREATE TABLE envios (id INTEGER PRIMARY KEY, email TEXT, asunto TEXT, fecha_envio DATETIME, es_test INTEGER DEFAULT 0, tracking_id TEXT, variant TEXT, campaign_id INTEGER)");
 $db->exec("CREATE TABLE aperturas (id INTEGER PRIMARY KEY, tracking_id TEXT, fecha_apertura DATETIME)");
 $db->exec("CREATE TABLE rebotes (id INTEGER PRIMARY KEY, email TEXT)");
 $db->exec("CREATE TABLE comunicaciones_log (id INTEGER PRIMARY KEY, lead_id INTEGER, tipo_evento TEXT, detalles TEXT)");
 $db->exec("CREATE TABLE presupuestos (id INTEGER PRIMARY KEY, lead_id INTEGER, importe_total REAL, estado TEXT, version INTEGER)");
 $db->exec("CREATE TABLE mockups (id INTEGER PRIMARY KEY, lead_id INTEGER, estado TEXT)");
+$db->exec("CREATE TABLE respuestas (id INTEGER PRIMARY KEY, lead_id INTEGER, clasificacion TEXT, fecha_respuesta DATETIME)");
 
 // Seed: 2 no respondedores (uno con apertura+7d, otro fresco) + 1 nuevo sin actividad + 1 antiguo sin actividad
 $db->exec("INSERT INTO clubes_crm (id,nombre_club,email,estado_lead,federacion,ultimo_contacto,volumen_estimado,creado_el) VALUES
@@ -48,6 +49,10 @@ $p = calcularPrioridadLead(['tiene_apertura' => false, 'dias_desde_envio' => 8, 
 check('Media: ≥7d sin apertura, volumen bajo', $p['nivel'] === 'Media' && $p['score'] === 25);
 $p = calcularPrioridadLead(['tiene_apertura' => false, 'dias_desde_envio' => 2, 'volumen_estimado' => 15, 'proxima_accion' => '']);
 check('Baja: recién enviado, volumen bajo', $p['nivel'] === 'Baja');
+$p = calcularPrioridadLead(['tiene_apertura' => true, 'num_aperturas' => 3, 'dias_desde_envio' => 8, 'volumen_estimado' => 15, 'proxima_accion' => '']);
+check('Interés repetido: 3 aperturas + 8d = Alta (score 65)', $p['nivel'] === 'Alta' && $p['score'] === 65);
+$p = calcularPrioridadLead(['tiene_apertura' => true, 'num_aperturas' => 5, 'dias_desde_envio' => 8, 'volumen_estimado' => 15, 'proxima_accion' => '']);
+check('Relectura reiterada: 5 aperturas + 8d = Alta (score 75)', $p['nivel'] === 'Alta' && $p['score'] === 75);
 $p = calcularPrioridadLead(['tiene_apertura' => false, 'dias_desde_contacto' => 5, 'estado_lead' => '04 Propuesta', 'proxima_accion' => '', 'presupuesto_importe' => 1000.0]);
 check('Alta: propuesta sin próxima acción + presupuesto', $p['nivel'] === 'Alta');
 

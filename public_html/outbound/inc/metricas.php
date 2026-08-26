@@ -67,6 +67,10 @@ function calcularMetricas(SQLite3 $db, int $campaignId): array
         $apertVar = (int)$db->querySingle(
             "SELECT COUNT(DISTINCT a.tracking_id) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE e.campaign_id = {$campaignId} AND e.variant = '{$v}'" . sqlFiltroComercial('e')
         );
+        // Recurrencia: aperturas TOTALES (incluye reaperturas del mismo destinatario).
+        $apertVarTot = (int)$db->querySingle(
+            "SELECT COUNT(a.id) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE e.campaign_id = {$campaignId} AND e.variant = '{$v}'" . sqlFiltroComercial('e')
+        );
         $respVar = (int)$db->querySingle(
             "SELECT COUNT(r.id) FROM respuestas r JOIN envios e ON e.id = r.envio_id WHERE e.campaign_id = {$campaignId} AND e.variant = '{$v}'" . sqlFiltroComercial('e')
         );
@@ -93,6 +97,7 @@ function calcularMetricas(SQLite3 $db, int $campaignId): array
             'envios'        => $enviosVar,
             'aceptados'     => $aceptVar,
             'aperturas'     => $apertVar,
+            'aperturas_totales' => $apertVarTot,
             'respuestas'    => $respVar,
             'positivas'     => $posVar,
             'negativas'     => $negVar,
