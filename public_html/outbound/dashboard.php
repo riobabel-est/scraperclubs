@@ -672,6 +672,11 @@ if ($action === 'enviar_respuesta_smtp') {
 if (empty($_SESSION['auth_outbound'])) {
 
     $db->close();
+    // Defensa: si AUTH_KEY quedó vacío (sin clave en config ni en secret.php),
+    // el login es imposible; mostrarlo para no depurar a ciegas.
+    if (AUTH_KEY === '') {
+        $loginError = 'AUTH_KEY no configurado: añade la clave auth_dashboard en config (BD) o en inc/secret.php.';
+    }
     showLoginForm($loginError ?? '');
     exit;
 }
