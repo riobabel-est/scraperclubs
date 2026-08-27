@@ -178,6 +178,11 @@ try {
     $cuerpoOverride = trim((string)($_POST['cuerpo'] ?? ''));
     if ($asuntoOverride !== '') $asuntoTpl = $asuntoOverride;
     if ($cuerpoOverride !== '') $cuerpoTpl = $cuerpoOverride;
+    // Envío A MEDIDA / respuesta (modal "Atender"): asunto o cuerpo personalizados
+    // indican una comunicación extra del comercial. NO debe chocar con la
+    // idempotencia del envío base (1 fila por (lead,campaña)) — se registra como
+    // fila NUEVA en envios (campaign_id NULL) para que quede constancia real.
+    $esMedida = ($asuntoOverride !== '' || $cuerpoOverride !== '');
 
     // ─── 3. Obtener cuenta SMTP ──────────────────────────────────────────────
     $cuenta = $db->querySingle("
@@ -307,7 +312,7 @@ try {
     // A/B/C sobre el MISMO lead no colisionen con idx_envios_lead_campaign ni
     // bloqueen el envío comercial posterior. PRODUCCIÓN: idempotente contra
     // campaign_id (un lead → una fila por campaña), comportamiento intacto.
-    $campaignIdParaReserva = $modoTest ? 0 : $idCampana;
+    $campaignIdParaReserva = $modoTest ? 0 : ($esMedida ? 0 : $idCampana);
     $reserva = reservarEnvioLogico(
         $db,
         (int)$club['id'],

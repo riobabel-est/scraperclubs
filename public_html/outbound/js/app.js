@@ -1889,7 +1889,8 @@ var app = function() {
             return (m.subject_respuesta || m.asunto_envio || '') + ' — ' + (m.remitente || m.email || '');
         },
         rsEsEntrante(m) {
-            // Entrante = respuesta del lead (tiene remitente distinto del envío)
+            // Entrante = respuesta del lead; saliente = envío de FutProtec.
+            if (m && m.sentido) return m.sentido === 'entrante';
             return !!m.remitente && m.remitente !== m.email;
         },
 

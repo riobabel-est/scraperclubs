@@ -868,6 +868,7 @@ if ($action === 'get_respuestas') {
                 $cuerpoLimpio = limpiarCuerpoMime((string)($r['contenido_html'] ?? ''));
             }
             $r['cuerpo_limpio'] = $cuerpoLimpio;
+            $r['sentido'] = 'entrante'; // respuesta del club (para el visor de hilo)
             $conversaciones[$idx]['mensajes'][] = $r;
 
             if ((int)($r['notificado'] ?? 0) === 0) {
@@ -875,6 +876,42 @@ if ($action === 'get_respuestas') {
             }
 
         }
+
+        // ─── Añadir los envíos SALIENTES al hilo de cada conversación ──────────
+        // El visor necesita ver a qué respondió el lead: se mezclan los emails que
+        // FutProtec envió (envios, es_test=0) con las respuestas entrantes, en
+        // orden cronológico DESC (más reciente primero, como consume el frontend).
+        foreach ($conversaciones as $idxC => &$convC) {
+            $lidC = (int)($convC['lead_id'] ?? 0);
+            if ($lidC > 0) {
+                $resEnv = $db->query(
+                    "SELECT e.id, e.fecha_envio, e.asunto, e.cuerpo_mensaje, e.cuenta_emision, e.variant, e.estado
+                     FROM envios e WHERE e.lead_id = {$lidC} AND COALESCE(e.es_test,0) = 0
+                     ORDER BY e.id DESC LIMIT 20"
+                );
+                if ($resEnv) {
+                    while ($ev = $resEnv->fetchArray(SQLITE3_ASSOC)) {
+                        $convC['mensajes'][] = [
+                            'id'           => 'env-' . (int)$ev['id'],
+                            'sentido'      => 'saliente', // lo enviamos nosotros
+                            'fecha'        => (string)($ev['fecha_envio'] ?? ''),
+                            'asunto_envio' => (string)($ev['asunto'] ?? ''),
+                            'subject'      => (string)($ev['asunto'] ?? ''),
+                            'cuerpo_limpio'=> limpiarCuerpoMime((string)($ev['cuerpo_mensaje'] ?? '')),
+                            'cuerpo_texto' => limpiarCuerpoMime((string)($ev['cuerpo_mensaje'] ?? '')),
+                            'remitente'    => '',          // saliente → rsEsEntrante() = false
+                            'email'        => (string)($convC['email'] ?? ''),
+                            'variant'      => (string)($ev['variant'] ?? ''),
+                            'estado_envio' => (string)($ev['estado'] ?? ''),
+                            'clasificacion'=> '',
+                        ];
+                    }
+                }
+                // Ordenar el hilo por fecha DESC (más reciente primero)
+                usort($convC['mensajes'], fn($a, $b) => strcmp((string)($b['fecha'] ?? ''), (string)($a['fecha'] ?? '')));
+            }
+        }
+        unset($convC);
 
         // ─── Calcular score y prioridad por conversación (función pura) ────────
         calcularScorePrioridad($db, $conversaciones);

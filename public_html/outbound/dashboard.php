@@ -556,23 +556,21 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
 
     require_once __DIR__ . '/inc/smtp_transport.php';
 
-    // Seleccionar cuenta SMTP activa con rotación y límite diario.
-    $cuenta = $db->querySingle(
-        "SELECT * FROM cuentas_smtp WHERE activa = 1 AND enviados_hoy < limite_diario ORDER BY RANDOM() LIMIT 1",
-        true
-    );
+    // Seleccionar cuenta SMTP activa disponible (recuento REAL de hoy, E-2/FI-005).
+    $cuenta = elegirCuentaSmtpDisponible($db);
     if (!$cuenta) {
         return ['ok' => false, 'error' => 'No hay cuentas SMTP activas disponibles'];
     }
 
     $cuentaNormalizada = [
         'email'         => $cuenta['email'],
-        'host'          => $cuenta['smtp'],
+        'host'          => $cuenta['host'],
         'puerto'        => (int)$cuenta['puerto'],
-        'usuario'       => $cuenta['user'],
-        'password'      => $cuenta['pass'],
+        'usuario'       => $cuenta['usuario'],
+        // Credenciales cifradas FP1: en BD desde 2026-08-25.
+        'password'      => futprotec_descifrarPassword((string)($cuenta['password'] ?? '')),
         'seguridad'     => ((int)$cuenta['puerto'] === 465) ? 'ssl' : 'tls',
-        'nombre_emisor' => $cuenta['nombre'] ?? $cuenta['email'],
+        'nombre_emisor' => $cuenta['nombre_emisor'] ?? $cuenta['email'],
     ];
 
     // Cuerpo en HTML simple (párrafos) para el envío.
@@ -592,8 +590,9 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
         return ['ok' => false, 'error' => $resultado['error'] ?? 'Error al enviar'];
     }
 
-    // Incrementar contador de la cuenta.
-    $db->exec("UPDATE cuentas_smtp SET enviados_hoy = enviados_hoy + 1, ultimo_uso = CURRENT_TIMESTAMP WHERE id = " . (int)$cuenta['id']);
+    // Incrementar contador de la cuenta (recuento real, E-2/FI-005).
+    $db->exec("UPDATE cuentas_smtp SET ultimo_uso = CURRENT_TIMESTAMP WHERE id = " . (int)$cuenta['id']);
+    sincronizarEnviadosHoyCuenta($db, (int)$cuenta['id']);
 
     // Registrar en envios para trazabilidad (usa lead_id para vincular la respuesta).
     $trackingId = 'fut_' . dechex(time()) . '_' . bin2hex(random_bytes(6));

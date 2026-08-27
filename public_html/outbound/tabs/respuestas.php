@@ -178,8 +178,8 @@
                   <span class="text-xs font-bold uppercase tracking-wider"
                         :class="rsEsEntrante(m) ? 'text-slate-400' : 'text-orange-400'"
                         x-text="rsEsEntrante(m) ? (m.remitente || 'Club') : 'FutProtec'"></span>
-                  <span class="text-xs text-slate-400" x-text="rsFmtFecha(m.fecha_respuesta || m.fecha_envio)"></span>
-                  <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold border" :class="rsClasColor(m.clasificacion)" x-text="rsClasLabel(m.clasificacion)"></span>
+                  <span class="text-xs text-slate-400" x-text="rsFmtFecha(m.fecha || m.fecha_respuesta || m.fecha_envio)"></span>
+                  <span x-show="m.sentido !== 'saliente' && m.clasificacion" class="px-1.5 py-0.5 rounded-full text-xs font-semibold border" :class="rsClasColor(m.clasificacion)" x-text="rsClasLabel(m.clasificacion)"></span>
                 </div>
                 <div class="text-sm text-slate-300 font-medium" x-text="m.subject_respuesta || m.asunto_envio || ''"></div>
                 <!-- Cuerpo del mensaje: prioriza el texto limpio (cuerpo_limpio/cuerpo_texto)
@@ -192,8 +192,8 @@
                   <div class="mensaje-cuerpo-html mt-1" x-html="rsSanitizarHtml(m.contenido_html)"></div>
                 </template>
 
-                <!-- Clasificación rápida del mensaje -->
-                <div class="mt-2 flex items-center gap-1 flex-wrap">
+                <!-- Clasificación rápida del mensaje (solo respuestas entrantes) -->
+                <div x-if="m.sentido !== 'saliente'" class="mt-2 flex items-center gap-1 flex-wrap">
                   <template x-for="c in ['PENDING','POSITIVE','NEGATIVE','NEUTRAL','UNSUBSCRIBE','OOO']" :key="c">
                     <button @click="clasificarRespuesta(m.id, c)"
                       class="px-2 py-0.5 rounded text-xs font-semibold transition border"
