@@ -479,13 +479,15 @@ function imap_decodificar_parte(string $cabeceras, string $data): string
 }
 
 /**
- * Extrae el TEXTO PLANO y el HTML de un cuerpo MIME crudo (multipart o simple).
- * Rellena respuestas.cuerpo (texto) y respuestas.contenido_html (HTML).
+ * Extrae el TEXTO PLANO, el HTML y los ADJUNTOS de un cuerpo MIME crudo
+ * (multipart o simple). Rellena respuestas.cuerpo, respuestas.contenido_html
+ * y respuestas_adjuntos (tabla de adjuntos).
  */
 function imap_extraer_cuerpo_partes(string $raw): array
 {
     $cuerpo = '';
     $cuerpoHtml = '';
+    $adjuntos = [];
 
     if (preg_match('/boundary\s*=\s*"?([^";\r\n]+)"?/i', $raw, $bm)) {
         $boundary = preg_quote(trim($bm[1]), '/');
@@ -496,10 +498,22 @@ function imap_extraer_cuerpo_partes(string $raw): array
             if (!preg_match('/^([\s\S]*?\r?\n\r?\n)([\s\S]*)$/', $parte, $mm)) continue;
             $cab = $mm[1];
             $data = $mm[2];
-            if (stripos($cab, 'text/plain') !== false && $cuerpo === '') {
+            $cabLower = strtolower($cab);
+            // ── ADJUNTO explícito (Content-Disposition attachment/inline + filename) ──
+            if (preg_match('/content-disposition:\s*(?:attachment|inline)[^;\r\n]*;\s*filename="?([^"\r\n]+)"?/i', $cab, $mDisp)) {
+                $adjuntos[] = imap_armar_adjunto($cab, $data, trim($mDisp[1]));
+            } elseif (preg_match('/content-disposition:\s*attachment/i', $cab)) {
+                // attachment sin filename → nombre genérico
+                $adjuntos[] = imap_armar_adjunto($cab, $data, 'adjunto_' . (count($adjuntos) + 1) . '.bin');
+            } elseif (stripos($cabLower, 'text/plain') !== false && $cuerpo === '') {
                 $cuerpo = imap_decodificar_parte($cab, $data);
-            } elseif (stripos($cab, 'text/html') !== false && $cuerpoHtml === '') {
+            } elseif (stripos($cabLower, 'text/html') !== false && $cuerpoHtml === '') {
                 $cuerpoHtml = imap_decodificar_parte($cab, $data);
+            } elseif (!stripos($cabLower, 'multipart')
+                && !stripos($cabLower, 'text/')
+                && !preg_match('/content-id/i', $cabLower)) {
+                // Parte binaria sin disposition explícita (imagen, etc.) → adjunto
+                $adjuntos[] = imap_armar_adjunto($cab, $data, 'adjunto_' . (count($adjuntos) + 1) . '.bin');
             }
         }
     } else {
@@ -522,7 +536,23 @@ function imap_extraer_cuerpo_partes(string $raw): array
         $cuerpo = trim(preg_replace('/\s+/', ' ', strip_tags($cuerpoHtml)));
     }
 
-    return ['cuerpo' => $cuerpo, 'cuerpo_html' => $cuerpoHtml];
+    return ['cuerpo' => $cuerpo, 'cuerpo_html' => $cuerpoHtml, 'adjuntos' => $adjuntos];
+}
+
+/**
+ * Construye la entrada de un adjunto (nombre, mime, datos decodificados).
+ */
+function imap_armar_adjunto(string $cab, string $data, string $nombre): array
+{
+    $mime = 'application/octet-stream';
+    if (preg_match('/content-type:\s*([^;\r\n]+)/i', $cab, $mMime)) {
+        $mime = trim($mMime[1]);
+    }
+    return [
+        'nombre' => basename($nombre),
+        'mime'   => $mime,
+        'datos'  => imap_decodificar_parte($cab, $data),
+    ];
 }
 
 /**
@@ -1043,6 +1073,21 @@ function imap_asegurar_esquema(SQLite3 $db): void
             $db->exec("ALTER TABLE respuestas ADD COLUMN {$col} {$tipo}");
         }
     }
+
+    // ─── Adjuntos de las respuestas (2026-08-27) ───
+    // Almacena los archivos adjuntos que llegan en los correos de los clubes
+    // (logos, PDFs, imágenes, etc.) para poder verlos/descargarlos en la Bandeja.
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS respuestas_adjuntos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            respuesta_id INTEGER NOT NULL,
+            nombre TEXT NOT NULL,
+            mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+            tamano INTEGER NOT NULL DEFAULT 0,
+            datos BLOB NOT NULL
+        )
+    ");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_ra_respuesta ON respuestas_adjuntos(respuesta_id)");
 }
 
 /**
@@ -1237,7 +1282,29 @@ function imap_insertar_respuesta(SQLite3 $db, array $msg, ?array $envio, string 
         return null;
     }
 
-    return (int)$db->lastInsertRowID();
+    $respuestaId = (int)$db->lastInsertRowID();
+
+    // ─── Guardar ADJUNTOS de la respuesta (tabla respuestas_adjuntos) ───
+    if ($respuestaId > 0 && !empty($msg['adjuntos']) && is_array($msg['adjuntos'])) {
+        foreach ($msg['adjuntos'] as $adj) {
+            $nombreA = (string)($adj['nombre'] ?? 'adjunto');
+            $mimeA   = (string)($adj['mime'] ?? 'application/octet-stream');
+            $datosA  = (string)($adj['datos'] ?? '');
+            if ($datosA === '') continue;
+            $stmtA = $db->prepare(
+                "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos)
+                 VALUES (:rid, :nombre, :mime, :tam, :datos)"
+            );
+            $stmtA->bindValue(':rid', $respuestaId, SQLITE3_INTEGER);
+            $stmtA->bindValue(':nombre', $nombreA, SQLITE3_TEXT);
+            $stmtA->bindValue(':mime', $mimeA, SQLITE3_TEXT);
+            $stmtA->bindValue(':tam', strlen($datosA), SQLITE3_INTEGER);
+            $stmtA->bindValue(':datos', $datosA, SQLITE3_BLOB);
+            $stmtA->execute();
+        }
+    }
+
+    return $respuestaId;
 }
 
 /**
@@ -1398,21 +1465,18 @@ function imap_procesar_mensaje(SQLite3 $db, array $cuenta, string $carpeta, stri
         // estricto (5s) o lanza error, se captura la excepción y se
         // mantienen los datos de ENVELOPE (no se pierde la respuesta).
         try {
-            // BODY.PEEK[TEXT] como primera opción.
-            $cuerpoRaw = $imap->fetchCuerpo($seq);
+            // Mensaje COMPLETO (BODY.PEEK[]) como primera opción: incluye el
+            // CUERPO y los ADJUNTOS. Si falla, se degrada a BODY.PEEK[TEXT].
+            $cuerpoRaw = $imap->fetchCuerpoCompleto($seq);
             if (trim($cuerpoRaw) === '') {
-                // Fallback: mensaje COMPLETO (BODY.PEEK[]) y separar el cuerpo.
-                $cuerpoRaw = $imap->fetchCuerpoCompleto($seq);
-                if (trim($cuerpoRaw) !== '') {
-                    $parsedRaw = imap_parsear_mensaje($cuerpoRaw);
-                    $cuerpoRaw = $parsedRaw['cuerpo'] ?? '';
-                }
+                $cuerpoRaw = $imap->fetchCuerpo($seq);
             }
             if (trim($cuerpoRaw) !== '') {
-                // Extraer text/plain + text/html del cuerpo MIME.
+                $parsedRaw = imap_parsear_mensaje($cuerpoRaw);
                 $partesCuerpo = imap_extraer_cuerpo_partes($cuerpoRaw);
-                $msg['cuerpo'] = $partesCuerpo['cuerpo'] !== '' ? $partesCuerpo['cuerpo'] : trim($cuerpoRaw);
+                $msg['cuerpo'] = $partesCuerpo['cuerpo'] !== '' ? $partesCuerpo['cuerpo'] : trim($parsedRaw['cuerpo'] ?? '');
                 $msg['cuerpo_html'] = $partesCuerpo['cuerpo_html'];
+                $msg['adjuntos'] = $partesCuerpo['adjuntos'];
             }
         } catch (\Throwable $e) {
             // Timeout/error en BODY.PEEK[TEXT]: el socket puede quedar
@@ -1779,6 +1843,24 @@ function imap_backfill_cuerpos(SQLite3 $db, int $limite = 200): array
                             $stmt->bindValue(':id', (int)$r['id'], SQLITE3_INTEGER);
                             $stmt->execute();
                             $stats['recuperados']++;
+                        }
+                        // ── Recuperar también ADJUNTOS si la respuesta no tiene ──
+                        $nAdj = (int)$db->querySingle("SELECT COUNT(*) FROM respuestas_adjuntos WHERE respuesta_id = " . (int)$r['id']);
+                        if ($nAdj === 0 && !empty($partes['adjuntos'])) {
+                            foreach ($partes['adjuntos'] as $adj) {
+                                $dA = (string)($adj['datos'] ?? '');
+                                if ($dA === '') continue;
+                                $stmtA = $db->prepare(
+                                    "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos)
+                                     VALUES (:rid, :nombre, :mime, :tam, :datos)"
+                                );
+                                $stmtA->bindValue(':rid', (int)$r['id'], SQLITE3_INTEGER);
+                                $stmtA->bindValue(':nombre', (string)($adj['nombre'] ?? 'adjunto'), SQLITE3_TEXT);
+                                $stmtA->bindValue(':mime', (string)($adj['mime'] ?? 'application/octet-stream'), SQLITE3_TEXT);
+                                $stmtA->bindValue(':tam', strlen($dA), SQLITE3_INTEGER);
+                                $stmtA->bindValue(':datos', $dA, SQLITE3_BLOB);
+                                $stmtA->execute();
+                            }
                         }
                     } catch (\Throwable $e) {
                         $stats['errores']++;

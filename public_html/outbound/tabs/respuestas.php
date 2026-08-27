@@ -195,6 +195,17 @@
                 <template x-if="!((m.cuerpo_limpio && m.cuerpo_limpio.trim() && m.cuerpo_limpio !== 'Sin contenido de texto') || (m.cuerpo_texto && m.cuerpo_texto.trim() && m.cuerpo_texto !== 'Sin contenido de texto') || m.contenido_html)">
                   <div class="mensaje-cuerpo-texto mt-1 text-slate-500 italic text-sm">📄 <span x-text="m.subject_respuesta || m.asunto_envio || '(correo sin contenido de texto extraíble)'"></span></div>
                 </template>
+                <!-- Archivos adjuntos del mensaje (descarga autenticada) -->
+                <div x-show="m.adjuntos && m.adjuntos.length > 0" class="mt-2 flex items-center gap-2 flex-wrap">
+                  <template x-for="a in (m.adjuntos || [])" :key="'adj' + a.id">
+                    <a :href="'api/adjunto.php?id=' + a.id" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition"
+                       :title="a.mime">
+                      📎 <span x-text="a.nombre"></span>
+                      <span class="text-slate-400" x-text="(a.tamano ? (a.tamano/1024).toFixed(1) + ' KB' : '')"></span>
+                    </a>
+                  </template>
+                </div>
 
                 <!-- Clasificación rápida del mensaje (solo respuestas entrantes) -->
                 <div x-if="m.sentido !== 'saliente'" class="mt-2 flex items-center gap-1 flex-wrap">

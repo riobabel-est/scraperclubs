@@ -890,6 +890,12 @@ if ($action === 'get_respuestas') {
             }
             $r['cuerpo_limpio'] = $cuerpoLimpio;
             $r['sentido'] = 'entrante'; // respuesta del club (para el visor de hilo)
+            // Adjuntos de esta respuesta (solo metadatos para el visor; el
+            // contenido se sirve bajo demanda vía api/adjunto.php?id=).
+            $adjuntosMsg = [];
+            $resAdjMsg = $db->query("SELECT id, nombre, mime, tamano FROM respuestas_adjuntos WHERE respuesta_id = " . (int)$r['id'] . " ORDER BY id");
+            if ($resAdjMsg) { while ($aMsg = $resAdjMsg->fetchArray(SQLITE3_ASSOC)) $adjuntosMsg[] = $aMsg; }
+            $r['adjuntos'] = $adjuntosMsg;
             $conversaciones[$idx]['mensajes'][] = $r;
 
             if ((int)($r['notificado'] ?? 0) === 0) {
