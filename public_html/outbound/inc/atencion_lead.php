@@ -251,18 +251,59 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
         $historial .= $contextoExtra;
     }
 
-    $plantillaBase = '';
+    // ── FORMATO DE REFERENCIA: la IA lee las plantillas del sistema ──
+    // Si hay una plantilla concreta seleccionada, es la BASE. Además se listan
+    // las plantillas de la campaña (incluidas variantes A/B/C y de seguimiento)
+    // para que la IA imite el tono/estructura/cercanía del negocio al redactar
+    // la respuesta al club.
+    $formatoReferencia = '';
+    $refs = [];
     if ($plantillaId !== null && $plantillaId > 0) {
         $p = $db->querySingle("SELECT asunto, cuerpo FROM plantillas WHERE id = {$plantillaId} AND activo = 1", true);
         if ($p) {
-            $plantillaBase = "PLANTILLA BASE (re-escríbela adaptándola al contexto y a los datos reales del historial):\nASUNTO BASE: {$p['asunto']}\nCUERPO BASE:\n{$p['cuerpo']}";
+            $refs[] = "PLANTILLA BASE (usa esta como estructura principal, adaptada al contexto):\nASUNTO: {$p['asunto']}\nCUERPO: " . mb_substr($p['cuerpo'], 0, 250);
         }
+    }
+    $vistas = [];
+    if (!empty($charla['plantillas'])) {
+        foreach ($charla['plantillas'] as $tp) {
+            $tid = (int)($tp['id'] ?? 0);
+            if ($plantillaId !== null && $tid === (int)$plantillaId) continue;
+            if (isset($vistas[$tid])) continue;
+            $vistas[$tid] = true;
+            $refs[] = "Plantilla '{$tp['nombre']}':\nASUNTO: {$tp['asunto']}\nCUERPO: " . mb_substr((string)$tp['cuerpo'], 0, 200);
+            if (count($refs) >= 4) break;
+        }
+    }
+    // Plantillas de SEGUIMIENTO/RESPUESTA (el "segundo email" preconfigurado):
+    // se añaden como referencia para que la IA mantenga el mismo estilo del
+    // negocio en la respuesta al club.
+    if (count($refs) < 5) {
+        $resTpl = $db->query(
+            "SELECT id, nombre, asunto, cuerpo FROM plantillas
+             WHERE activo = 1 AND tipo != 'whatsapp'
+               AND categoria IN ('02 Seguimiento','03 Respuestas')
+             ORDER BY categoria, id LIMIT 3"
+        );
+        if ($resTpl) {
+            while ($tp2 = $resTpl->fetchArray(SQLITE3_ASSOC)) {
+                $tid2 = (int)$tp2['id'];
+                if (isset($vistas[$tid2])) continue;
+                $vistas[$tid2] = true;
+                $refs[] = "Plantilla '{$tp2['nombre']}':\nASUNTO: {$tp2['asunto']}\nCUERPO: " . mb_substr((string)$tp2['cuerpo'], 0, 200);
+                if (count($refs) >= 5) break;
+            }
+        }
+    }
+    if (!empty($refs)) {
+        $formatoReferencia = "FORMATO DE REFERENCIA — imita el tono, la estructura y la cercanía de estas plantillas del negocio (no las copies textualmente; adáptalas al diálogo del club):\n" . implode("\n\n", $refs);
     }
 
     $system = "Eres un asistente comercial B2B de FutProtec (software de gestión para clubes de fútbol) que RESPONDE dentro de una conversación por email ya iniciada."
         . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO (úsalo como base):\n" . mb_substr($ctx, 0, 2000) : '')
         . "\n\nREGLA DE SALUDO: {$reglaSaludo}"
         . ($varianteDom !== '' ? "\nRAMAL DE INTERÉS: el lead validó con sus aperturas el enfoque de la variante {$varianteDom} del test de prospección (A=General/Producto, B=Identidad/Cantera, C=Financiero/Rentabilidad). CONTINÚA exactamente esa misma línea argumental: no cambies de tema ni mezcles ángulos." : '')
+        . ($formatoReferencia !== '' ? "\nIMITA el tono y la estructura del FORMATO DE REFERENCIA del negocio que se te da (sin copiar textualmente)." : '')
         . "\nTAREA: lee el HISTORIAL CRONOLÓGICO del club y responde DIRECTAMENTE a la última pregunta, objeción o solicitud que haya hecho (presupuesto, boceto de espinilleras, dudas, plazos, etc.)."
         . "\nReglas: no repitas mensajes anteriores ni uses frases de prospección inicial; usa SOLO datos reales del historial (no inventes hechos, precios ni plazos); sé concreto y cercano; máximo 140 palabras."
         . "\nResponde EXACTAMENTE con este formato de dos líneas:\nASUNTO: <texto>\nCUERPO: <texto>";
@@ -271,7 +312,7 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
         . "EMAIL: {$lead['email']}\n"
         . ($contacto !== '' ? "CONTACTO: {$contacto}\n" : '')
         . "HISTORIAL REAL:\n{$historial}\n"
-        . ($plantillaBase !== '' ? "\n{$plantillaBase}\n" : '')
+        . ($formatoReferencia !== '' ? "\n{$formatoReferencia}\n" : '')
         . "\nEscribe el email de seguimiento.";
 
     $texto = llm_chat($db, $system, $user, 600, 0.6);
