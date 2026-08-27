@@ -806,9 +806,18 @@ if ($action === 'get_respuestas') {
         $indice = []; // clave de agrupación -> índice en $conversaciones
 
         foreach ($items as $r) {
-            // Determinar clave de agrupación: solo por lead_id real.
+            // Determinar clave de agrupación: lead_id real, o del envío, o
+            // RESUELTO por EMAIL del remitente (trazabilidad cuando el emparejado
+            // IMAP no asignó lead_id/envio_id).
             $leadId = (int)($r['lead_id'] ?? 0);
             if ($leadId <= 0) $leadId = (int)($r['envio_lead_id'] ?? 0);
+            if ($leadId <= 0) {
+                $emailRemR = strtolower(trim((string)($r['remitente_email'] ?? $r['remitente'] ?? '')));
+                if ($emailRemR !== '') {
+                    $clubIdR = (int)$db->querySingle("SELECT id FROM clubes_crm WHERE LOWER(email) = '" . $db->escapeString($emailRemR) . "' LIMIT 1");
+                    if ($clubIdR > 0) $leadId = $clubIdR;
+                }
+            }
             // Sin lead_id → cada respuesta es su propia conversación (clave única por id).
             $clave = $leadId > 0 ? 'lead:' . $leadId : 'resp:' . (int)($r['id'] ?? 0);
 
@@ -895,10 +904,20 @@ if ($action === 'get_respuestas') {
         // orden cronológico DESC (más reciente primero, como consume el frontend).
         foreach ($conversaciones as $idxC => &$convC) {
             $lidC = (int)($convC['lead_id'] ?? 0);
-            if ($lidC > 0) {
+            $emailC = strtolower(trim((string)($convC['remitente_email'] ?? $convC['email'] ?? '')));
+            // Trazabilidad: envíos por lead_id O por email (cuando el lead no
+            // quedó vinculado, p.ej. respuestas recién llegadas).
+            $condEnv = '';
+            if ($lidC > 0) $condEnv = "e.lead_id = {$lidC}";
+            if ($emailC !== '') {
+                $condEnv = $condEnv !== ''
+                    ? "({$condEnv} OR LOWER(e.email) = '" . $db->escapeString($emailC) . "')"
+                    : "LOWER(e.email) = '" . $db->escapeString($emailC) . "'";
+            }
+            if ($condEnv !== '') {
                 $resEnv = $db->query(
                     "SELECT e.id, e.fecha_envio, e.asunto, e.cuerpo_mensaje, e.cuenta_emision, e.variant, e.estado
-                     FROM envios e WHERE e.lead_id = {$lidC} AND COALESCE(e.es_test,0) = 0
+                     FROM envios e WHERE {$condEnv} AND COALESCE(e.es_test,0) = 0
                      ORDER BY e.id DESC LIMIT 20"
                 );
                 if ($resEnv) {

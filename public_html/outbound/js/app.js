@@ -1901,6 +1901,13 @@ var app = function() {
             if (m && m.sentido) return m.sentido === 'entrante';
             return !!m.remitente && m.remitente !== m.email;
         },
+        // Hilo en orden WhatsApp: el primer mensaje ARRIBA y el último ABAJO.
+        // (el backend mantiene mensajes en DESC para snippets/intención; aquí
+        //  se invierte SOLO para el visor, facilitando leer el último mensaje).
+        rsHiloInvertido() {
+            if (!this.rsSeleccion || !Array.isArray(this.rsSeleccion.mensajes)) return [];
+            return [...this.rsSeleccion.mensajes].reverse();
+        },
 
         // ─── UNIBOX SPLIT-VIEW (FASE UNIBOX UI) ─────────────────────────────
         // Devuelve la lista de conversaciones filtradas por búsqueda y clasificación.
@@ -2048,7 +2055,7 @@ var app = function() {
         },
         // Devuelve el snippet (primeros 110 caracteres) del cuerpo de la respuesta.
         // El cuerpo se lee del último mensaje de la conversación (cuerpo o
-        // contenido_html), con fallback al snippet del payload.
+        // contenido_html), con fallback al asunto si no hay texto extraíble.
         rsSnippet(conv) {
             if (!conv) return '';
             const ultimo = (conv.mensajes && conv.mensajes.length > 0) ? conv.mensajes[0] : null;
@@ -2064,7 +2071,10 @@ var app = function() {
                 cuerpo = d.textContent || '';
             }
             const limpio = String(cuerpo).replace(/\s+/g, ' ').trim();
-            return limpio.length > 110 ? limpio.slice(0, 110) + '…' : limpio;
+            if (limpio) return limpio.length > 110 ? limpio.slice(0, 110) + '…' : limpio;
+            // Sin cuerpo extraíble: mostrar el asunto del último mensaje (trazabilidad).
+            const asunto = (ultimo && (ultimo.subject_respuesta || ultimo.asunto_envio || '')) || conv.subject || '';
+            return asunto ? '📄 ' + asunto : '(sin contenido de texto)';
         },
         // Devuelve el volumen de equipos formateado (Ej: "12 Equipos").
         rsVolumenLabel(conv) {

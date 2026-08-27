@@ -170,7 +170,7 @@
 
         <!-- Cuerpo Central: Hilo de Mensajes (scroll independiente) -->
         <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950/40">
-          <template x-for="m in rsSeleccion.mensajes" :key="m.id">
+          <template x-for="m in rsHiloInvertido()" :key="m.id">
             <div class="flex" :class="rsEsEntrante(m) ? 'justify-start' : 'justify-end'">
               <div class="max-w-[85%] rounded-xl p-3 border"
                    :class="rsEsEntrante(m) ? 'bg-slate-900 text-slate-100 border-slate-700' : 'bg-slate-800 text-slate-200 border-slate-700'">
@@ -190,6 +190,10 @@
                 </template>
                 <template x-if="!((m.cuerpo_limpio && m.cuerpo_limpio.trim() && m.cuerpo_limpio !== 'Sin contenido de texto') || (m.cuerpo_texto && m.cuerpo_texto.trim() && m.cuerpo_texto !== 'Sin contenido de texto'))">
                   <div class="mensaje-cuerpo-html mt-1" x-html="rsSanitizarHtml(m.contenido_html)"></div>
+                </template>
+                <!-- Sin cuerpo ni HTML extraíble: al menos mostrar el asunto (trazabilidad). -->
+                <template x-if="!((m.cuerpo_limpio && m.cuerpo_limpio.trim() && m.cuerpo_limpio !== 'Sin contenido de texto') || (m.cuerpo_texto && m.cuerpo_texto.trim() && m.cuerpo_texto !== 'Sin contenido de texto') || m.contenido_html)">
+                  <div class="mensaje-cuerpo-texto mt-1 text-slate-500 italic text-sm">📄 <span x-text="m.subject_respuesta || m.asunto_envio || '(correo sin contenido de texto extraíble)'"></span></div>
                 </template>
 
                 <!-- Clasificación rápida del mensaje (solo respuestas entrantes) -->
