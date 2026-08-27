@@ -234,19 +234,24 @@ try {
     ");
 
     // Migrar cuentas hardcodeadas a la tabla si esta vacia
+    // E-1 (2026-08-27): SE ELIMINARON las credenciales SMTP en claro que había aquí.
+    // Las cuentas se dan de alta y se les configuran usuario/password desde la UI
+    // (tab "Ajustes → SMTP"). En producción la tabla ya está poblada con las
+    // credenciales cifradas FP1: (ver inc/crypto.php), por lo que este bootstrap
+    // SOLO aplica a entornos nuevos con la tabla vacía.
     $countSMTP = (int)$db->querySingle("SELECT COUNT(*) FROM cuentas_smtp");
     if ($countSMTP === 0) {
         $cuentasDefault = [
-            ['rodrigo@getfutprotec.com', 'Rodrigo Vazquez | FutProtec', '%75Q2%#_g*12'],
-            ['mario.ortiz@getfutprotec.com', 'Mario Ortiz | Area de Clubes FutProtec', 'ci21w_S%34#f'],
-            ['alvaro.ruiz@getfutprotec.com', 'Alvaro Ruiz | Equipamiento FutProtec', '~i1c%)1)i@35'],
-            ['carlos.mora@getfutprotec.com', 'Carlos Mora | Proyectos Cantera FutProtec', '_%}jP|nb~b1f'],
-            ['javier.sanz@getfutprotec.com', 'Javier Sanz | At. Clubes FutProtec', '11k1%425e;%4'],
-            ['diego.navarro@getfutprotec.com', 'Diego Navarro | Equipaciones FutProtec', '1;2Aj]#1`11i'],
-            ['pablo.blanco@getfutprotec.com', 'Pablo Blanco | FutProtec Oficial', '(5^j@c[3k%3d'],
-            ['gonzalo.vega@getfutprotec.com', 'Gonzalo Vega | Gestion Deportivo FutProtec', ';^361y)bO1*5'],
-            ['adrian.cano@getfutprotec.com', 'Adrian Cano | FutProtec Canteras', 'k@1$%%kl2lKb'],
-            ['sergio.gil@getfutprotec.com', 'Sergio Gil | Relaciones Clubes FutProtec', '(5^j@c[3k%3d'],
+            ['rodrigo@getfutprotec.com', 'Rodrigo Vazquez | FutProtec'],
+            ['mario.ortiz@getfutprotec.com', 'Mario Ortiz | Area de Clubes FutProtec'],
+            ['alvaro.ruiz@getfutprotec.com', 'Alvaro Ruiz | Equipamiento FutProtec'],
+            ['carlos.mora@getfutprotec.com', 'Carlos Mora | Proyectos Cantera FutProtec'],
+            ['javier.sanz@getfutprotec.com', 'Javier Sanz | At. Clubes FutProtec'],
+            ['diego.navarro@getfutprotec.com', 'Diego Navarro | Equipaciones FutProtec'],
+            ['pablo.blanco@getfutprotec.com', 'Pablo Blanco | FutProtec Oficial'],
+            ['gonzalo.vega@getfutprotec.com', 'Gonzalo Vega | Gestion Deportivo FutProtec'],
+            ['adrian.cano@getfutprotec.com', 'Adrian Cano | FutProtec Canteras'],
+            ['sergio.gil@getfutprotec.com', 'Sergio Gil | Relaciones Clubes FutProtec'],
         ];
         $stmtSMTP = $db->prepare(
             'INSERT INTO cuentas_smtp (email, usuario, password, host, puerto, seguridad, activa, limite_diario)
@@ -255,14 +260,15 @@ try {
         foreach ($cuentasDefault as $c) {
             $stmtSMTP->bindValue(':email', $c[0], SQLITE3_TEXT);
             $stmtSMTP->bindValue(':user', $c[0], SQLITE3_TEXT);
-            $stmtSMTP->bindValue(':pass', $c[2], SQLITE3_TEXT);
+            // E-1: sin credenciales en el repo; se configuran por la UI (tab SMTP).
+            $stmtSMTP->bindValue(':pass', '', SQLITE3_TEXT);
             $stmtSMTP->bindValue(':host', 'mail.getfutprotec.com', SQLITE3_TEXT);
             $stmtSMTP->bindValue(':port', 465, SQLITE3_INTEGER);
             $stmtSMTP->bindValue(':sec', 'ssl', SQLITE3_TEXT);
             $stmtSMTP->execute();
             $stmtSMTP->reset();
         }
-        echo "   Cuentas SMTP migradas: " . count($cuentasDefault) . "\n";
+        echo "   Cuentas SMTP creadas (sin credenciales, configúralas por la UI): " . count($cuentasDefault) . "\n";
     }
 
     // Tabla de configuracion global (motor y entornos)

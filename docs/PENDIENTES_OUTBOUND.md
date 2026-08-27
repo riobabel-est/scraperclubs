@@ -30,7 +30,7 @@
 | ID | Ítem | Estado | Prioridad |
 |---|---|---|---|
 | FI-001 | Eliminar tabla huérfana `plantillas_new` | ✅ **RESUELTO** (2026-08-25): verificada vacía y eliminada (`DROP`) | — |
-| FI-002 | Eliminar credenciales SMTP duplicadas hardcodeadas (`$CUENTAS_SMTP_FALLBACK` en `enviar_smtp_random.php`, `$cuentasDefault` en `init_db.php`) | 🔴 **Parcial**: script bloqueado con `die()`, pero el código sigue en el repo | Media |
+| FI-002 | Eliminar credenciales SMTP duplicadas hardcodeadas (`$CUENTAS_SMTP_FALLBACK` en `enviar_smtp_random.php`, `$cuentasDefault` en `init_db.php`) | ✅ **RESUELTO** (2026-08-27): `$CUENTAS_SMTP_FALLBACK` vacío + `$cuentasDefault` sin credenciales (bootstrap sin password). **Pendiente**: rotar contraseñas en producción | Media |
 | FI-003 | Corregir URL de tracking en `cli/cron.php` | ✅ **RESUELTO** (ya usa `/outbound/api/track.php`) | — |
 | FI-004 | Unificar los 3 motores de envío SMTP | ✅ **RESUELTO** (refactor §2: `inc/smtp_transport.php`) | — |
 | FI-005 | Atomicidad de `cuentas_smtp.enviados_hoy` (recuento real unificado) | 🔴 Pendiente | Media |
