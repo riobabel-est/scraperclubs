@@ -873,6 +873,22 @@ foreach ($estadosKanban as $est) {
         $esNovedadRespuesta = !empty($row['ultima_respuesta']) && date('Y-m-d', strtotime((string)$row['ultima_respuesta'])) === $fechaHoy;
         $row['novedad'] = $esNovedadApertura || $esNovedadRespuesta;
 
+        // ── O-3: semáforo de próxima acción (proxima_accion + fecha + urgencia) ──
+        $row['pa_fecha'] = (string)($row['fecha_proxima_accion'] ?? '');
+        $row['pa_texto'] = (string)($row['proxima_accion'] ?? '');
+        $row['pa_estado'] = '';
+        if ($row['pa_fecha'] !== '') {
+            $paTs = strtotime($row['pa_fecha']);
+            $diffDias = (int)floor(($paTs - strtotime(date('Y-m-d'))) / 86400);
+            if ($diffDias < 0) {
+                $row['pa_estado'] = 'vencida';
+            } elseif ($diffDias <= 2) {
+                $row['pa_estado'] = 'urgente';
+            } else {
+                $row['pa_estado'] = 'ok';
+            }
+        }
+
 
         // ── Contadores de chips (sin consultas SQL extra) ──
         if ($row['num_opens'] >= 1) {
@@ -901,6 +917,8 @@ foreach ($estadosKanban as $est) {
             'num_opens'      => $row['num_opens'],
             'telefono_movil' => (string)($row['telefono_movil'] ?? ''),
             'es_duplicado'   => (int)($row['es_duplicado'] ?? 0),
+            'fecha_proxima_accion' => (string)($row['fecha_proxima_accion'] ?? ''),
+            'proxima_accion'       => (string)($row['proxima_accion'] ?? ''),
         ];
 
         $cards[] = $row;

@@ -39,7 +39,7 @@
 |---|---|---|---|
 | **O-1** | **Secuencia de follow-up automática por ramal ABC** (IF/THEN: el lead que abrió la variante X recibe el Paso 2 en esa misma línea argumental; modo asistido o automático) | ✅ **Implementado F1-F3** (2026-08-26) — DDL, motor cron, endpoints CRUD, configurador UI y cola "Secuencia" en Seguimiento. **Pendiente F4** (endurecer elegibilidad) y activarlo en producción | Elimina el cuello manual del 2º toque y duplica la apuesta en el ángulo que el club ya validó — el mayor salto comercial. Ver `docs/PLAN_RAMIFICACION_SECUENCIAS_ABC.md` |
 | **O-2** | **Vínculos cruzados** entre tabs (ficha → Pipeline/Seguimiento; Analytics → acción) | 🔴 Pendiente | El panel se navega en contexto, sin saltos ciegos |
-| **O-3** | **Próxima acción en la tarjeta del Kanban** (`proxima_accion` + fecha + semáforo) | 🔴 Pendiente | Contexto en 0 clics en el Pipeline (patrón Pipedrive) |
+| **O-3** | **Próxima acción en la tarjeta del Kanban** (`proxima_accion` + fecha + semáforo) | ✅ **IMPLEMENTADO** (2026-08-27, local): badge con semáforo en la tarjeta (🔴 vencida / 🟠 próxima ≤2d / 🟢 agendada) + texto de la acción en tooltip; `fecha_proxima_accion` y `proxima_accion` añadidos a `window._kanbanLeads`. Pendiente deploy | Contexto en 0 clics en el Pipeline (patrón Pipedrive) |
 
 > O-1 se apoya en lo ya construido: cola Perseguir + plantillas A/B/C + `campaign_id` en envíos.
 
