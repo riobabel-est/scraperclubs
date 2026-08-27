@@ -34,6 +34,8 @@ $db->enableExceptions(true);
 $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
+require_once __DIR__ . '/../inc/eligibilidad.php';
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -515,9 +517,12 @@ $perPage = min(250, max(10, (int)($_GET['per_page'] ?? 50)));
         $params[':estado'] = $filterEstado;
     }
     if ($filterCamp > 0) {
-        $where[] = "id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$filterCamp}"
-            . " UNION SELECT c2.id FROM clubes_crm c2 JOIN envios e ON LOWER(e.email) = LOWER(c2.email)"
-            . " WHERE e.campaign_id = {$filterCamp} AND COALESCE(e.es_test,0)=0)";
+        // Pertenencia por SEGMENTOS de la campaña (campaign_segmentos) + vinculados
+        // (lead_pipelines/envíos), para que los pendientes de contactar aparezcan.
+        $condCamp = condicionCampanaLeads($db, $filterCamp, '');
+        if ($condCamp !== '1=1') {
+            $where[] = $condCamp;
+        }
     }
     if ($filterFed !== '') {
         $where[] = "federacion = :fed";

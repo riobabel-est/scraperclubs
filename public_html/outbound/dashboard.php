@@ -837,7 +837,7 @@ foreach ($estadosKanban as $est) {
                (SELECT MAX(r.fecha_respuesta) FROM respuestas r WHERE r.lead_id = c.id) AS ultima_respuesta
         FROM clubes_crm c
         WHERE c.estado_lead = :estado
-        " . ($campanaActual > 0 ? "AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = " . (int)$campanaActual . " UNION SELECT c2.id FROM clubes_crm c2 JOIN envios e ON LOWER(e.email) = LOWER(c2.email) WHERE e.campaign_id = " . (int)$campanaActual . " AND COALESCE(e.es_test,0)=0)" : "") . "
+        " . sqlFiltroKanbanPorCampana($db, $campanaActual) . "
         ORDER BY c.nombre_club ASC
     ");
     $stmt->bindValue(':estado', $est, SQLITE3_TEXT);

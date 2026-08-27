@@ -11,6 +11,7 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../inc/eligibilidad.php';
 require_once __DIR__ . '/../inc/lead_scoring.php';
 
 /**
@@ -89,17 +90,15 @@ if ($action === 'get_last_envios') {
 
 /**
  * whereCampañaLead — Condición SQL de pertenencia de un lead a una campaña.
- * Fuente real de asignación: `lead_pipelines` (asignación explícita) UNION
- * `envios.campaign_id` (asignación por envío real, que es la que puebla el piloto).
+ * Pertenencia por SEGMENTOS de la campaña (campaign_segmentos: 'todas' o
+ * federaciones concretas) + los ya vinculados (lead_pipelines/envíos reales),
+ * para que los leads PENDIENTES de contactar también se asignen a su campaña.
  */
 function whereCampañaLead(int $cid): string {
     if ($cid <= 0) return '';
-    return " AND c.id IN ("
-        . "SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$cid}"
-        . " UNION "
-        . "SELECT c2.id FROM clubes_crm c2 JOIN envios e ON LOWER(e.email) = LOWER(c2.email)"
-        . " WHERE e.campaign_id = {$cid} AND COALESCE(e.es_test,0)=0"
-        . ")";
+    global $db;
+    $c = condicionCampanaLeads($db, $cid, 'c');
+    return ($c === '1=1') ? '' : ' AND ' . $c;
 }
 
 /**

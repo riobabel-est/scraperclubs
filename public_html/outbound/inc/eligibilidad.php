@@ -137,6 +137,62 @@ function sqlFiltroCompatibilidadLeadCampana(SQLite3 $db, int $idCampana): string
 }
 
 /**
+ * Condición SQL de pertenencia de un lead a una campaña según sus SEGMENTOS
+ * (campaign_segmentos) + los ya vinculados por lead_pipelines/envíos.
+ *  - 'todas'      → la campaña cubre todo el universo de leads → devuelve '1=1'.
+ *  - 'federacion' → cubre federaciones concretas (incluye los pendientes de contactar).
+ * @param string $alias Alias de la tabla clubes_crm en la query ('' si no hay).
+ * @return string Expresión SQL SIN prefijo "AND" (lista para usar en WHERE).
+ */
+function condicionCampanaLeads(SQLite3 $db, int $campanaId, string $alias = 'c'): string
+{
+    if ($campanaId <= 0) {
+        return '1=1';
+    }
+    $pre = $alias !== '' ? $alias . '.' : '';
+    $base = "({$pre}id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = {$campanaId}
+             UNION SELECT c2.id FROM clubes_crm c2 JOIN envios e ON LOWER(e.email) = LOWER(c2.email)
+             WHERE e.campaign_id = {$campanaId} AND COALESCE(e.es_test,0) = 0))";
+
+    $feds = [];
+    $todas = false;
+    $res = $db->query("SELECT tipo, valor FROM campaign_segmentos WHERE campaign_id = {$campanaId}");
+    if ($res) {
+        while ($sg = $res->fetchArray(SQLITE3_ASSOC)) {
+            $tipo = (string)($sg['tipo'] ?? '');
+            if ($tipo === 'todas') {
+                $todas = true;
+            } elseif ($tipo === 'federacion' && trim((string)($sg['valor'] ?? '')) !== '') {
+                $feds[] = trim((string)$sg['valor']);
+            }
+        }
+    }
+
+    if ($todas) {
+        // La campaña cubre todo el universo de leads → sin restricción.
+        return '1=1';
+    }
+    if (!empty($feds)) {
+        // Leads de las federaciones configuradas (incluye pendientes de contacto)
+        // + los ya vinculados por lead_pipelines/envíos.
+        $inFeds = "'" . implode("','", array_map(fn($f) => $db->escapeString($f), $feds)) . "'";
+        return "({$base} OR {$pre}federacion IN ({$inFeds}))";
+    }
+    // Sin segmentos configurados → solo los ya vinculados a la campaña.
+    return $base;
+}
+
+/**
+ * Filtro SQL del KANBAN por campaña (wrapper de condicionCampanaLeads con alias 'c').
+ * Devuelve un fragmento SQL (posiblemente vacío) para insertar en un WHERE.
+ */
+function sqlFiltroKanbanPorCampana(SQLite3 $db, int $campanaId): string
+{
+    $c = condicionCampanaLeads($db, $campanaId, 'c');
+    return ($c === '1=1') ? '' : ' AND ' . $c;
+}
+
+/**
  * Acceso a datos: lead con los campos mínimos para evaluar elegibilidad
  * (refactor §6.3).
  */
