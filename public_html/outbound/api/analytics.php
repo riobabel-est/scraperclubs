@@ -120,7 +120,9 @@ function whereCampañaLead(int $cid): string {
 function getSeguimientoNoRespondedores($db, string $whereCommercial, array $filtros): array {
     $lista = [];
     $cid = (int)($filtros['campaign_id'] ?? 0);
-    $enviosCamp = $cid > 0 ? " AND e.campaign_id = {$cid}" : '';
+    // Incluye los envíos A MEDIDA (campaign_id NULL, modal Atender) en el conteo
+    // de actividad del lead aunque haya campaña seleccionada (2026-08-28).
+    $enviosCamp = $cid > 0 ? " AND (e.campaign_id = {$cid} OR e.campaign_id IS NULL)" : '';
     $w = "c.estado_lead = '02 Contactado'"
         . " AND c.estado_lead NOT IN ('Baja / Opt-Out','Opt-Out','Unsubscribed','Lista Negra')"
         . " AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email) = LOWER(c.email) AND COALESCE(e.es_test,0)=0{$enviosCamp})"

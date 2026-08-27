@@ -716,7 +716,22 @@ var app = function() {
             this.emailCuerpo = rep(p.cuerpo);
         },
         async enviarAtencion() {
-            if (!this.smtpSel || !this.emailCuerpo) return;
+            // Auto-seleccionar la primera cuenta SMTP activa si no hay ninguna
+            // elegida (evita el fallo SILENCIOSO que dejaba el envío sin registrar).
+            if (!this.smtpSel && this.charla && this.charla.cuentas && this.charla.cuentas.length) {
+                const act = (this.charla.cuentas || []).find(c => String(c.activa) === '1' || c.activa === 1) || this.charla.cuentas[0];
+                if (act && act.id) this.smtpSel = act.id;
+            }
+            if (!this.smtpSel) {
+                this.atencionMsg = '❌ No hay cuenta SMTP seleccionada. Elige una cuenta en el desplegable antes de enviar.';
+                this.atencionMsgTipo = 'error';
+                return;
+            }
+            if (!this.emailCuerpo || !this.emailCuerpo.trim()) {
+                this.atencionMsg = '❌ Escribe un mensaje antes de enviar.';
+                this.atencionMsgTipo = 'error';
+                return;
+            }
             const cid = (typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? window._campanaActual : 0;
             if (!cid) {
                 // No usar nunca campaign_id=1 como fallback (puede ser DRAFT).
