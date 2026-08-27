@@ -1114,9 +1114,11 @@ function imap_asegurar_esquema(SQLite3 $db): void
     }
 
     // ─── Retroactivo: marcar rebotes y estado de conversación de filas previas ───
-    // (idempotente y barato; se ejecuta también en cada registro de respuesta)
+    // (idempotente y barato; se ejecuta también en cada registro de respuesta).
+    // Las humanas en estado inicial 'nuevo' pasan a 'requiere_respuesta'; los
+    // rebotes se marcan y quedan fuera de la cola de respuesta.
     $db->exec("UPDATE respuestas SET es_rebote = 1 WHERE LOWER(COALESCE(clasificacion,'')) = 'rebote'");
-    $db->exec("UPDATE respuestas SET estado_conversacion = 'requiere_respuesta' WHERE estado_conversacion IS NULL OR estado_conversacion = ''");
+    $db->exec("UPDATE respuestas SET estado_conversacion = 'requiere_respuesta' WHERE COALESCE(es_rebote,0) = 0 AND estado_conversacion = 'nuevo'");
     $db->exec("UPDATE respuestas SET estado_conversacion = 'nuevo' WHERE es_rebote = 1 AND estado_conversacion NOT IN ('archivado','borrado')");
 
     // ─── Adjuntos de las respuestas (2026-08-27) ───
