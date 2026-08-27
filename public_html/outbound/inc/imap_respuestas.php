@@ -313,11 +313,32 @@ class ClienteIMAP
 
 
     /**
+     * Obtiene el mensaje COMPLETO por UID (backfill de cuerpos de respuestas
+     * ya registradas sin contenido).
+     */
+    public function fetchCuerpoPorUID(string $uid): string
+    {
+        $resp = $this->comando("UID FETCH {$uid} (BODY.PEEK[])");
+        return $this->extraerLiteral($resp);
+    }
+
+    /**
      * Obtiene el cuerpo de un mensaje (BODY.PEEK[TEXT] — no marca leído).
      */
     public function fetchCuerpo(string $seq): string
     {
         $resp = $this->comando("FETCH {$seq} (BODY.PEEK[TEXT])");
+        return $this->extraerLiteral($resp);
+    }
+
+    /**
+     * Obtiene el mensaje COMPLETO (cabeceras + cuerpo) con BODY.PEEK[].
+     * Fallback de fetchCuerpo(): algunos mensajes de SiteGround no responden
+     * a BODY.PEEK[TEXT] pero sí al mensaje completo.
+     */
+    public function fetchCuerpoCompleto(string $seq): string
+    {
+        $resp = $this->comando("FETCH {$seq} (BODY.PEEK[])");
         return $this->extraerLiteral($resp);
     }
 
@@ -439,6 +460,69 @@ function imap_parsear_mensaje(string $raw): array
         'date'         => imap_decodificar($get('date')),
         'cuerpo'       => trim($cuerpo),
     ];
+}
+
+/**
+ * Decodifica una parte MIME según su Content-Transfer-Encoding.
+ */
+function imap_decodificar_parte(string $cabeceras, string $data): string
+{
+    $data = trim($data);
+    if (preg_match('/Content-Transfer-Encoding:\s*base64/i', $cabeceras)) {
+        $dec = base64_decode($data);
+        if ($dec !== false) return $dec;
+    }
+    if (preg_match('/Content-Transfer-Encoding:\s*quoted-printable/i', $cabeceras)) {
+        return quoted_printable_decode($data);
+    }
+    return $data;
+}
+
+/**
+ * Extrae el TEXTO PLANO y el HTML de un cuerpo MIME crudo (multipart o simple).
+ * Rellena respuestas.cuerpo (texto) y respuestas.contenido_html (HTML).
+ */
+function imap_extraer_cuerpo_partes(string $raw): array
+{
+    $cuerpo = '';
+    $cuerpoHtml = '';
+
+    if (preg_match('/boundary\s*=\s*"?([^";\r\n]+)"?/i', $raw, $bm)) {
+        $boundary = preg_quote(trim($bm[1]), '/');
+        $partes = preg_split('/--' . $boundary . '[^\r\n]*/i', $raw);
+        foreach ($partes as $parte) {
+            $parte = ltrim($parte, "\r\n");
+            if ($parte === '') continue;
+            if (!preg_match('/^([\s\S]*?\r?\n\r?\n)([\s\S]*)$/', $parte, $mm)) continue;
+            $cab = $mm[1];
+            $data = $mm[2];
+            if (stripos($cab, 'text/plain') !== false && $cuerpo === '') {
+                $cuerpo = imap_decodificar_parte($cab, $data);
+            } elseif (stripos($cab, 'text/html') !== false && $cuerpoHtml === '') {
+                $cuerpoHtml = imap_decodificar_parte($cab, $data);
+            }
+        }
+    } else {
+        // Sin boundary: separar cabeceras (si las hay) y usar el resto.
+        if (preg_match('/^([\s\S]*?\r?\n\r?\n)([\s\S]*)$/', $raw, $mm)) {
+            $cab = $mm[1];
+            $data = $mm[2];
+            if (stripos($cab, 'text/html') !== false) {
+                $cuerpoHtml = imap_decodificar_parte($cab, $data);
+            } else {
+                $cuerpo = imap_decodificar_parte($cab, $data);
+            }
+        } else {
+            $cuerpo = trim($raw);
+        }
+    }
+
+    // Si no hay texto plano pero sí HTML, extraer el texto visible del HTML.
+    if ($cuerpo === '' && $cuerpoHtml !== '') {
+        $cuerpo = trim(preg_replace('/\s+/', ' ', strip_tags($cuerpoHtml)));
+    }
+
+    return ['cuerpo' => $cuerpo, 'cuerpo_html' => $cuerpoHtml];
 }
 
 /**
@@ -1200,6 +1284,32 @@ function imap_notificar_respuesta(SQLite3 $db, ?int $leadId, int $respuestaId, s
  * Registra una respuesta en la tabla `respuestas` con idempotencia.
  * Devuelve 'insertado', 'duplicado' o 'error'.
  */
+/**
+ * Si una respuesta ya existe (duplicado) pero su cuerpo está vacío (típico del
+ * modo LIGERO del dashboard), se COMPLETA el cuerpo/contenido_html con el que
+ * ahora sí se ha podido descargar. Devuelve true si se actualizó.
+ */
+function imap_completar_cuerpo_duplicado(SQLite3 $db, string $campo, string $valor, array $msg): bool
+{
+    if (empty($msg['cuerpo']) && empty($msg['cuerpo_html'])) return false;
+    $row = $db->querySingle(
+        "SELECT id, cuerpo, contenido_html FROM respuestas WHERE {$campo} = '" . $db->escapeString($valor) . "' LIMIT 1",
+        true
+    );
+    if (!$row) return false;
+    $cuerpoActual = (string)($row['cuerpo'] ?? '');
+    $htmlActual = (string)($row['contenido_html'] ?? '');
+    if (trim($cuerpoActual) === '' && trim($htmlActual) === '') {
+        $stmt = $db->prepare("UPDATE respuestas SET cuerpo = :c, contenido_html = :h WHERE id = :id");
+        $stmt->bindValue(':c', $msg['cuerpo'] ?? '', SQLITE3_TEXT);
+        $stmt->bindValue(':h', $msg['cuerpo_html'] ?? '', SQLITE3_TEXT);
+        $stmt->bindValue(':id', (int)$row['id'], SQLITE3_INTEGER);
+        $stmt->execute();
+        return true;
+    }
+    return false;
+}
+
 function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string $clasificacion, string $carpeta, ?string $uidImap = null, ?string $cuentaEmail = null): string
 {
     // Asegurar esquema (idempotente)
@@ -1208,15 +1318,12 @@ function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string
     // ─── Idempotencia completa ───
     // 1. Message-ID
     if (!empty($msg['message_id']) && imap_existe_respuesta($db, 'message_id', $msg['message_id'])) {
+        imap_completar_cuerpo_duplicado($db, 'message_id', $msg['message_id'], $msg);
         return 'duplicado';
     }
     // 2. cuenta + UID (idempotencia correcta por cuenta y UID IMAP)
-    // NOTA: El UID IMAP solo es único dentro de cada buzón/cuenta. Consultarlo
-    // sin filtrar por cuenta (como se hacía antes) provocaba FALSOS duplicados:
-    // mensajes de cuentas distintas con el mismo UID (1, 2, 3...) colisionaban
-    // con filas de otras cuentas y se descartaban sin registrarse. Por eso se
-    // combina SIEMPRE con la cuenta (cuenta_uid = cuentaEmail:uidImap).
     if (!empty($uidImap) && !empty($cuentaEmail) && imap_existe_respuesta($db, 'cuenta_uid', $cuentaEmail . ':' . $uidImap)) {
+        imap_completar_cuerpo_duplicado($db, 'cuenta_uid', $cuentaEmail . ':' . $uidImap, $msg);
         return 'duplicado';
     }
 
@@ -1225,6 +1332,7 @@ function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string
     if (!empty($msg['message_id'])) {
         $hashAux = hash('sha256', $msg['message_id'] . '|' . ($msg['from_email'] ?? '') . '|' . ($msg['subject'] ?? ''));
         if (imap_existe_respuesta($db, 'hash_auxiliar', $hashAux)) {
+            imap_completar_cuerpo_duplicado($db, 'hash_auxiliar', $hashAux, $msg);
             return 'duplicado';
         }
     }
@@ -1290,9 +1398,21 @@ function imap_procesar_mensaje(SQLite3 $db, array $cuenta, string $carpeta, stri
         // estricto (5s) o lanza error, se captura la excepción y se
         // mantienen los datos de ENVELOPE (no se pierde la respuesta).
         try {
+            // BODY.PEEK[TEXT] como primera opción.
             $cuerpoRaw = $imap->fetchCuerpo($seq);
+            if (trim($cuerpoRaw) === '') {
+                // Fallback: mensaje COMPLETO (BODY.PEEK[]) y separar el cuerpo.
+                $cuerpoRaw = $imap->fetchCuerpoCompleto($seq);
+                if (trim($cuerpoRaw) !== '') {
+                    $parsedRaw = imap_parsear_mensaje($cuerpoRaw);
+                    $cuerpoRaw = $parsedRaw['cuerpo'] ?? '';
+                }
+            }
             if (trim($cuerpoRaw) !== '') {
-                $msg['cuerpo'] = trim($cuerpoRaw);
+                // Extraer text/plain + text/html del cuerpo MIME.
+                $partesCuerpo = imap_extraer_cuerpo_partes($cuerpoRaw);
+                $msg['cuerpo'] = $partesCuerpo['cuerpo'] !== '' ? $partesCuerpo['cuerpo'] : trim($cuerpoRaw);
+                $msg['cuerpo_html'] = $partesCuerpo['cuerpo_html'];
             }
         } catch (\Throwable $e) {
             // Timeout/error en BODY.PEEK[TEXT]: el socket puede quedar
@@ -1593,4 +1713,85 @@ function imap_procesar_todas_cuentas_ligero(SQLite3 $db): array
     return $resultado;
 }
 
+
+
+/**
+ * BACKFILL DE CUERPOS: recupera el contenido (texto + HTML) de las respuestas
+ * registradas SIN cuerpo (típico del modo LIGERO del dashboard). Usa UID FETCH
+ * sobre el buzón de la cuenta (INBOX/Junk/spam) y actualiza cuerpo/contenido_html.
+ *
+ * @return array{recuperados:int, sin_uid:int, errores:int}
+ */
+function imap_backfill_cuerpos(SQLite3 $db, int $limite = 200): array
+{
+    $stats = ['recuperados' => 0, 'sin_uid' => 0, 'errores' => 0];
+    $filas = [];
+    $res = $db->query(
+        "SELECT id, uid_imap, destinatario, remitente, subject FROM respuestas
+         WHERE (cuerpo IS NULL OR trim(cuerpo) = '')
+           AND (contenido_html IS NULL OR trim(contenido_html) = '')
+           AND uid_imap IS NOT NULL AND uid_imap != ''
+         ORDER BY id DESC LIMIT {$limite}"
+    );
+    if ($res) { while ($x = $res->fetchArray(SQLITE3_ASSOC)) $filas[] = $x; }
+    if (empty($filas)) return $stats;
+
+    // Agrupar por cuenta (destinatario = email FutProtec que recibió).
+    $porCuenta = [];
+    foreach ($filas as $f) {
+        $cuentaEmail = strtolower(trim((string)($f['destinatario'] ?? '')));
+        $porCuenta[$cuentaEmail][] = $f;
+    }
+
+    foreach ($porCuenta as $cuentaEmail => $respuestas) {
+        $cuenta = $db->querySingle(
+            "SELECT * FROM cuentas_smtp WHERE LOWER(email) = '" . $db->escapeString($cuentaEmail) . "' AND activa = 1 LIMIT 1",
+            true
+        );
+        if (!$cuenta) {
+            $stats['sin_uid'] += count($respuestas);
+            continue;
+        }
+        $imap = new ClienteIMAP($GLOBALS['IMAP_HOST'], $GLOBALS['IMAP_PORT']);
+        try {
+            $imap->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
+            foreach ($GLOBALS['CARPETAS_AUDITAR'] as $carpeta) {
+                try {
+                    $imap->seleccionar($carpeta);
+                } catch (\Throwable $e) {
+                    continue;
+                }
+                foreach ($respuestas as $r) {
+                    $uid = trim((string)($r['uid_imap'] ?? ''));
+                    if ($uid === '') continue;
+                    try {
+                        $raw = $imap->fetchCuerpoPorUID($uid);
+                        if (trim($raw) === '') continue;
+                        $parsedRaw = imap_parsear_mensaje($raw);
+                        $cuerpoParte = $parsedRaw['cuerpo'] ?? $raw;
+                        $partes = imap_extraer_cuerpo_partes((string)$cuerpoParte);
+                        $cuerpoN = $partes['cuerpo'] !== '' ? $partes['cuerpo'] : trim((string)$cuerpoParte);
+                        $htmlN = $partes['cuerpo_html'];
+                        if ($cuerpoN !== '' || $htmlN !== '') {
+                            $stmt = $db->prepare("UPDATE respuestas SET cuerpo = :c, contenido_html = :h WHERE id = :id");
+                            $stmt->bindValue(':c', $cuerpoN, SQLITE3_TEXT);
+                            $stmt->bindValue(':h', $htmlN, SQLITE3_TEXT);
+                            $stmt->bindValue(':id', (int)$r['id'], SQLITE3_INTEGER);
+                            $stmt->execute();
+                            $stats['recuperados']++;
+                        }
+                    } catch (\Throwable $e) {
+                        $stats['errores']++;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $stats['errores'] += count($respuestas);
+        } finally {
+            try { $imap->cerrar(); } catch (\Throwable $ign) {}
+        }
+    }
+
+    return $stats;
+}
 

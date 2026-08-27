@@ -736,6 +736,18 @@ if ($action === 'sync_respuestas') {
         }
     }
 
+    // BACKFILL: recuperar los CUERPOS de respuestas registradas sin contenido
+    // (el sync ligero del dashboard no descarga cuerpos; aquí se rellenan desde
+    // IMAP por UID). Después de cada sincronización queda todo visible.
+    try {
+        $backfill = imap_backfill_cuerpos($db, 200);
+        if ($backfill['recuperados'] > 0) {
+            $resumen[] = 'Cuerpos recuperados: ' . $backfill['recuperados'];
+        }
+    } catch (\Throwable $e) {
+        $resumen[] = 'Backfill cuerpos: error (' . $e->getMessage() . ')';
+    }
+
     echo json_encode(['ok' => true, 'resumen' => $resumen]);
     exit;
 }
