@@ -446,6 +446,22 @@ try {
     $stmtUpd->bindValue(':id', (int)$envioRow['id'], SQLITE3_INTEGER);
     $stmtUpd->execute();
 
+    // Guardar los ADJUNTOS salientes (presupuesto, boceto y manuales) para que
+    // aparezcan como chips 📎 descargables en el hilo de la Bandeja y en la
+    // charla del modal (tabla envios_adjuntos, consultada por get_respuestas).
+    if (!empty($adjuntos) && (int)$envioRow['id'] > 0) {
+        $stmtAdj = $db->prepare('INSERT INTO envios_adjuntos (envio_id, nombre, mime, tamano, datos) VALUES (:e, :n, :m, :t, :d)');
+        foreach ($adjuntos as $adj) {
+            $bin = (string)($adj['contenido'] ?? '');
+            $stmtAdj->bindValue(':e', (int)$envioRow['id'], SQLITE3_INTEGER);
+            $stmtAdj->bindValue(':n', (string)($adj['nombre'] ?? 'adjunto'), SQLITE3_TEXT);
+            $stmtAdj->bindValue(':m', (string)($adj['mime'] ?? 'application/octet-stream'), SQLITE3_TEXT);
+            $stmtAdj->bindValue(':t', strlen($bin), SQLITE3_INTEGER);
+            $stmtAdj->bindValue(':d', $bin, SQLITE3_BLOB);
+            $stmtAdj->execute();
+        }
+    }
+
     // Envío a medida: si el modal marcó "Incluir mockup", pasa a enviado al éxito.
     if ($estadoEnvio === 'enviado' && ($_POST['marcar_mockup_enviado'] ?? '0') === '1') {
         $db->exec("UPDATE mockups SET estado = 'enviado', enviado_en = CURRENT_TIMESTAMP WHERE lead_id = {$idClub} AND estado IN ('solicitado','en_produccion')");

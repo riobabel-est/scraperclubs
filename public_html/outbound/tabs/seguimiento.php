@@ -243,7 +243,7 @@
                   <!-- Adjuntos (igual que en la Bandeja: chips descargables) -->
                   <div x-show="m.adjuntos && m.adjuntos.length" class="mt-1.5 flex items-center gap-1.5 flex-wrap">
                     <template x-for="a in (m.adjuntos || [])" :key="'chadj' + a.id">
-                      <a :href="'api/adjunto.php?id=' + a.id" target="_blank" rel="noopener"
+                      <a :href="'api/adjunto.php?id=' + a.id + (m.sentido === 'saliente' ? '&tipo=envio' : '')" target="_blank" rel="noopener"
                          class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition font-semibold"
                          :title="a.mime">
                         📎 <span x-text="a.nombre"></span>

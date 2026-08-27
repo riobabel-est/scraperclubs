@@ -628,7 +628,7 @@ var app = function() {
                 fecha: e.fecha_envio,
                 asunto: e.asunto,
                 cuerpo: e.cuerpo_charla,
-                adjuntos: [],
+                adjuntos: e.adjuntos || [],
             }));
             const res = (this.charla && this.charla.respuestas || []).map(r => ({
                 id: 'r' + r.id,

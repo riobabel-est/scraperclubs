@@ -96,6 +96,11 @@ function charlaLead(SQLite3 $db, int $leadId, int $campaignId = 0): array {
         while ($x = $r->fetchArray(SQLITE3_ASSOC)) {
             $x['cuerpo_charla'] = mb_substr(atencion_limpiarCuerpoRespuesta((string)($x['cuerpo_mensaje'] ?? '')), 0, 600);
             unset($x['cuerpo_mensaje']); // no exponer el HTML crudo al frontend
+            // Adjuntos salientes de este envío (presupuesto/boceto/manuales).
+            $adjuntosEnv = [];
+            $rAE = $db->query("SELECT id, nombre, mime, tamano FROM envios_adjuntos WHERE envio_id = " . (int)$x['id'] . " ORDER BY id");
+            if ($rAE) { while ($xAE = $rAE->fetchArray(SQLITE3_ASSOC)) $adjuntosEnv[] = $xAE; }
+            $x['adjuntos'] = $adjuntosEnv;
             $envios[] = $x;
         }
     }
