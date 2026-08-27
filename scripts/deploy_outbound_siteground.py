@@ -42,6 +42,18 @@ EXCLUDE_FILES = {
     "stats.db", "outbound.db", # BD legacy vacías
     ".gitignore", ".env", ".htrouter.php",
     "tailwindcss-windows-x64.exe",  # binario local
+    # Mismos candidatos que optimizar_siteground.py (se mantienen fuera del server):
+    "tailwind.config.js",
+    "css/tailwind.css",
+    "tabs/followups.php",
+    "atribuir_respuestas_runner.php",
+    "imap_diag_runner.php",
+    "imap_respuestas_runner.php",
+    "verificar_atribucion_runner.php",
+    "cli/migracion_live_runner.php",
+    "cli/migrar_estructura_local.php",
+    "cli/migrar_plantillas_objetivo.php",
+    "cli/migrar_secuencias.php",
 }
 
 subidos = 0
@@ -72,10 +84,11 @@ for root, dirs, files in os.walk(LOCAL_ROOT):
     rel_root = "" if rel_root == "." else rel_root.replace("\\", "/")
 
     for f in sorted(files):
-        if f in EXCLUDE_FILES:
-            continue
         local_path = os.path.join(root, f)
         rel = f if not rel_root else rel_root + "/" + f
+        # Excluir por nombre base (raíz) o por ruta relativa completa (subdirs)
+        if f in EXCLUDE_FILES or rel in EXCLUDE_FILES:
+            continue
         remote_path = REMOTE_ROOT + "/" + rel
         local_size = os.path.getsize(local_path)
 
