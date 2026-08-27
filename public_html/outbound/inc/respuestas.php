@@ -10,6 +10,38 @@ declare(strict_types=1);
 const CLASIFICACIONES_VALIDAS = ['PENDING', 'POSITIVE', 'NEGATIVE', 'NEUTRAL', 'UNSUBSCRIBE', 'OOO'];
 
 /**
+ * estadoDestinoPorClasificacion — Mapea la clasificación de una respuesta al
+ * estado de destino en el pipeline (trigger por sentimiento, 2026-08-26).
+ *
+ * Vocabulario A (IMAP/heurística/IA): humana, interesado, duda_precio, neutral,
+ *   no_interesa, baja, fuera_de_oficina, automatica, desconocida, otro.
+ * Vocabulario B (Unibox): PENDING, POSITIVE, NEGATIVE, NEUTRAL, UNSUBSCRIBE, OOO.
+ *
+ * - Positivo (interesado/humana/POSITIVE) y dudoso (duda_precio/neutral/NEUTRAL)
+ *   → '03 En Conversación'
+ * - Negativo (no_interesa/NEGATIVE) → '06 Perdido'
+ * - Baja (baja/UNSUBSCRIBE/opt-out) → '07 Baja'
+ * - Ruido (OOO, fuera_de_oficina, automatica, desconocida, otro, PENDING, '')
+ *   → null (no mover el lead)
+ *
+ * @return string|null Estado del pipeline o null si no debe moverse.
+ */
+function estadoDestinoPorClasificacion(string $clasificacion): ?string
+{
+    $c = strtoupper(trim($clasificacion));
+    if (in_array($c, ['INTERESADO', 'HUMANA', 'POSITIVE', 'DUDA_PRECIO', 'NEUTRAL'], true)) {
+        return '03 En Conversación';
+    }
+    if (in_array($c, ['NO_INTERESA', 'NEGATIVE'], true)) {
+        return '06 Perdido';
+    }
+    if (in_array($c, ['BAJA', 'UNSUBSCRIBE', 'OPT-OUT'], true)) {
+        return '07 Baja';
+    }
+    return null;
+}
+
+/**
  * Genera un Message-ID válido y estable para un envío lógico.
  * Se deriva del tracking_id del envío, por lo que un retry produce el MISMO valor
  * (inmutabilidad del identidad del mensaje). No sustituye a envio_id.
@@ -143,11 +175,34 @@ function clasificarRespuesta(SQLite3 $db, int $respuestaId, string $clasificacio
         return ['ok' => false, 'error' => 'respuesta no encontrada'];
     }
 
+    // Resolver el lead asociado al envío.
+    $envio = $db->querySingle("SELECT lead_id FROM envios WHERE id = " . (int)$resp['envio_id'], true);
+    $leadId = $envio && !empty($envio['lead_id']) ? (int)$envio['lead_id'] : null;
+
     // UNSUBSCRIBE → supresión del lead del envío (misma fuente de baja).
-    if ($clasif === 'UNSUBSCRIBE') {
-        $envio = $db->querySingle("SELECT lead_id FROM envios WHERE id = " . (int)$resp['envio_id'], true);
-        if ($envio && $envio['lead_id']) {
-            $db->exec("UPDATE clubes_crm SET estado_lead = 'Lista Negra', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = " . (int)$envio['lead_id']);
+    if ($clasif === 'UNSUBSCRIBE' && $leadId) {
+        $db->exec("UPDATE clubes_crm SET estado_lead = 'Lista Negra', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
+    }
+
+    // Trigger por sentimiento (reclasificación manual desde la Unibox):
+    // POSITIVE/NEUTRAL → '03 En Conversación', NEGATIVE → '06 Perdido',
+    // UNSUBSCRIBE → '07 Baja' (salvo que ya esté suprimido).
+    if ($leadId) {
+        $destino = estadoDestinoPorClasificacion($clasif);
+        if ($destino !== null) {
+            $estadoActual = (string)$db->querySingle("SELECT estado_lead FROM clubes_crm WHERE id = {$leadId}");
+            $estadosSupresion = ['Lista Negra', 'Opt-Out', 'Unsubscribed', 'Baja / Opt-Out', 'Email Inválido'];
+            if (!in_array($estadoActual, $estadosSupresion, true)) {
+                $db->exec("UPDATE clubes_crm SET estado_lead = '{$destino}', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
+                $stmtLog = $db->prepare(
+                    "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+                     VALUES (:lid, :cid, 'cambio_estado', :det, CURRENT_TIMESTAMP)"
+                );
+                $stmtLog->bindValue(':lid', $leadId, SQLITE3_INTEGER);
+                $stmtLog->bindValue(':cid', $leadId, SQLITE3_INTEGER);
+                $stmtLog->bindValue(':det', "Estado cambiado a '{$destino}' por reclasificación {$clasif} (Unibox)", SQLITE3_TEXT);
+                $stmtLog->execute();
+            }
         }
     }
 

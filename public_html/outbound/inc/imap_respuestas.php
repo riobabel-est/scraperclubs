@@ -23,7 +23,10 @@
 declare(strict_types=1);
 
 // Helper de cifrado reversible (descifra la contraseña IMAP almacenada).
+// ─── Requires ────────────────────────────────────────────────────────────────
 require_once __DIR__ . '/crypto.php';
+// Mapeo por sentimiento (estadoDestinoPorClasificacion) compartido con la Unibox.
+require_once __DIR__ . '/respuestas.php';
 
 // ─── Configuración ───
 $DB_PATH = __DIR__ . '/../data/stats.db';
@@ -959,20 +962,17 @@ function imap_asegurar_esquema(SQLite3 $db): void
 }
 
 /**
- * Mueve un lead a la etapa '03 Respondió' si es una respuesta humana.
- * Respeta la protección de opt-out real (no reactiva bajas).
+ * Mueve un lead al estado de destino según la clasificación de la respuesta
+ * (mapeo por sentimiento — estadoDestinoPorClasificacion en inc/respuestas.php).
+ * Positivo/dudoso → '03 En Conversación'; negativo → '06 Perdido'; baja → '07 Baja'.
+ * Respeta la protección de opt-out real y NO regresa etapas del pipeline.
  * Devuelve true si movió el Kanban, false en caso contrario.
  */
 /**
- * Determina si una clasificación corresponde a una respuesta humana que debe
- * mover el Kanban a "03 En Conversación" y generar notificación.
- *
- * Se considera respuesta humana tanto la heurística 'humana' como las
- * intenciones comerciales devueltas por la IA (interesado, duda_precio,
- * neutral, no_interesa). Las clasificaciones no humanas (rebote, baja,
- * fuera_de_oficina, automatica, desconocida, otro) NO mueven el Kanban.
- *
- * @param string $clasificacion Clasificación guardada en respuestas.clasificacion
+ * Determina si una clasificación corresponde a una respuesta humana (heurística
+ * 'humana' o intención comercial de la IA). Se usa para decidir si se genera
+ * notificación (🔔 NUEVA RESPUESTA). El movimiento del Kanban se decide con
+ * estadoDestinoPorClasificacion (mapeo por sentimiento).
  */
 function imap_es_respuesta_humana(string $clasificacion): bool
 {
@@ -987,7 +987,8 @@ function imap_es_respuesta_humana(string $clasificacion): bool
 
 function imap_mover_kanban(SQLite3 $db, ?array $envio, string $clasificacion): bool
 {
-    if (!imap_es_respuesta_humana($clasificacion)) {
+    $destino = estadoDestinoPorClasificacion($clasificacion);
+    if ($destino === null) {
         return false;
     }
 
@@ -1008,7 +1009,7 @@ function imap_mover_kanban(SQLite3 $db, ?array $envio, string $clasificacion): b
         return false;
     }
 
-    // Solo mover si aún no está en una etapa posterior a '03 En Conversación'
+    // Solo avanzar: no regresar etapas
     // (pipeline canónico unificado: 01 Sin Contactar → 02 Contactado → 03 En Conversación → 04 Propuesta → 05 Ganado → 06 Perdido → 07 Baja)
     $orden = [
         '01 Sin Contactar'    => 1,
@@ -1019,13 +1020,14 @@ function imap_mover_kanban(SQLite3 $db, ?array $envio, string $clasificacion): b
         '06 Perdido'          => 6,
         '07 Baja'             => 7,
     ];
-    $ordenActual = $orden[$estadoActual] ?? 0;
-    if ($ordenActual >= 3) {
-        return false; // Ya está en 03 o posterior
+    $ordenActual  = $orden[$estadoActual] ?? 0;
+    $ordenDestino = $orden[$destino] ?? 0;
+    if ($ordenActual >= $ordenDestino) {
+        return false; // Ya está en el destino o en una etapa posterior
     }
 
-    // Mover a '03 En Conversación' (respuesta humana = lead en conversación)
-    $db->exec("UPDATE clubes_crm SET estado_lead = '03 En Conversación', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
+    // Mover al estado de destino según el sentimiento de la respuesta.
+    $db->exec("UPDATE clubes_crm SET estado_lead = '{$destino}', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
 
     // Registrar cambio de estado en comunicaciones_log (trazabilidad)
     $stmtLog = $db->prepare(
@@ -1034,9 +1036,47 @@ function imap_mover_kanban(SQLite3 $db, ?array $envio, string $clasificacion): b
     );
     $stmtLog->bindValue(':lid', $leadId, SQLITE3_INTEGER);
     $stmtLog->bindValue(':cid', $leadId, SQLITE3_INTEGER);
-    $stmtLog->bindValue(':det', "Estado cambiado de '{$estadoActual}' a '03 En Conversación' (respuesta humana IMAP)", SQLITE3_TEXT);
+    $stmtLog->bindValue(':det', "Estado cambiado de '{$estadoActual}' a '{$destino}' (respuesta {$clasificacion} IMAP)", SQLITE3_TEXT);
     $stmtLog->execute();
 
+    return true;
+}
+
+/**
+ * Fulfillment automático: si la respuesta es positiva/dudosa y menciona muestra
+ * (espinillera/muestra/boceto/catálogo), crea un mockup 'solicitado' para el lead.
+ * Idempotente (no duplica mockups activos). Devuelve true si creó el mockup.
+ */
+function imap_fulfillment_mockup(SQLite3 $db, ?array $envio, string $clasificacion, string $cuerpo): bool
+{
+    if (estadoDestinoPorClasificacion($clasificacion) !== '03 En Conversación') {
+        return false; // solo respuestas positivas/dudosas
+    }
+    $leadId = $envio['lead_id'] ?? null;
+    if ($leadId === null) {
+        return false;
+    }
+    $txt = mb_strtolower(trim((string)$cuerpo), 'UTF-8');
+    $claves = ['muestra', 'muestras', 'espinillera', 'espinilleras', 'boceto', 'envíanos', 'envianos', 'enviarnos', 'catalogo', 'catálogo', 'maqueta'];
+    $hay = false;
+    foreach ($claves as $k) {
+        if ($k !== '' && str_contains($txt, $k)) { $hay = true; break; }
+    }
+    if (!$hay) {
+        return false;
+    }
+    // Idempotencia: no duplicar un mockup activo del lead.
+    $existe = (int)$db->querySingle("SELECT COUNT(*) FROM mockups WHERE lead_id = {$leadId} AND estado IN ('solicitado','en_produccion')");
+    if ($existe > 0) {
+        return false;
+    }
+    $stmt = $db->prepare(
+        "INSERT INTO mockups (lead_id, estado, solicitado_en, notas)
+         VALUES (:lid, 'solicitado', CURRENT_TIMESTAMP, :notas)"
+    );
+    $stmt->bindValue(':lid', $leadId, SQLITE3_INTEGER);
+    $stmt->bindValue(':notas', 'Generado automáticamente por respuesta con solicitud de muestra (fulfillment IA)', SQLITE3_TEXT);
+    $stmt->execute();
     return true;
 }
 
@@ -1204,11 +1244,14 @@ function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string
     // ─── FASE G: Notificación ───
     imap_notificar_respuesta($db, $leadId, $respuestaId, $clasificacion);
 
-    // ─── Kanban: respuesta humana → 03 Respondió ───
+    // ─── Kanban: respuesta humana → estado según sentimiento (positiva→03, negativa→06) ───
     $movido = imap_mover_kanban($db, $envio, $clasificacion);
     if ($movido) {
         $db->exec("UPDATE respuestas SET kanban_movido = 1 WHERE id = {$respuestaId}");
     }
+
+    // ─── Fulfillment: si la respuesta pide muestra/espinillera, crear mockup ───
+    imap_fulfillment_mockup($db, $envio, $clasificacion, (string)($msg['cuerpo'] ?? ''));
 
     return 'insertado';
 }

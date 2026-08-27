@@ -88,36 +88,6 @@ if ($action === 'get_last_envios') {
 // Funciones puras de la cola de trabajo priorizada + KPIs + embudo.
 
 /**
- * calcularPrioridadLead — Scoring de prioridad comercial de un lead.
- * Reglas (espejo del plan): apertura +30 · ≥7 días +25 · 3-6 días +10 ·
- * volumen ≥50 +15 · volumen 20-49 +10 · presupuesto creado +25 ·
- * estado '04 Propuesta' sin próxima acción +15.
- * Nivel: score ≥50 Alta · ≥25 Media · resto Baja.
- */
-function calcularPrioridadLead(array $lead): array {
-    $score = 0;
-    $dias  = (int)($lead['dias_desde_envio'] ?? $lead['dias_desde_contacto'] ?? -1);
-    $volumen = (int)($lead['volumen_estimado'] ?? 0);
-    $estado  = (string)($lead['estado_lead'] ?? '');
-    $sinProx = empty($lead['proxima_accion']);
-
-    if (!empty($lead['tiene_apertura'])) $score += 30;
-    $nAperturas = (int)($lead['num_aperturas'] ?? 0);
-    if ($nAperturas >= 2) $score += 10;   // interés repetido (reabre el envío)
-    if ($nAperturas >= 4) $score += 10;   // relectura reiterada = intención real
-    if ($dias >= 7) $score += 25;
-    elseif ($dias >= 3) $score += 10;
-    if ($volumen >= 50) $score += 15;
-    elseif ($volumen >= 20) $score += 10;
-    if (!empty($lead['presupuesto_importe'])) $score += 25;
-    if ($estado === '04 Propuesta' && $sinProx) $score += 15;
-    if (!empty($lead['vencida'])) $score += 15;
-
-    $nivel = $score >= 50 ? 'Alta' : ($score >= 25 ? 'Media' : 'Baja');
-    return ['score' => $score, 'nivel' => $nivel];
-}
-
-/**
  * whereCampañaLead — Condición SQL de pertenencia de un lead a una campaña.
  * Fuente real de asignación: `lead_pipelines` (asignación explícita) UNION
  * `envios.campaign_id` (asignación por envío real, que es la que puebla el piloto).
@@ -175,9 +145,6 @@ function getSeguimientoNoRespondedores($db, string $whereCommercial, array $filt
         $r['dias_desde_contacto'] = $r['ultimo_contacto'] ? (int)round((time() - strtotime($r['ultimo_contacto'])) / 86400) : null;
         $r['dias_desde_envio']    = $r['ultimo_envio'] ? (int)round((time() - strtotime($r['ultimo_envio'])) / 86400) : null;
         $r['tiene_apertura']      = (bool)(int)$r['num_aperturas'];
-        $p = calcularPrioridadLead($r);
-        $r['score'] = $p['score'];
-        $r['prioridad'] = $p['nivel'];
         $t = calcularTemperaturaLead($r);
         $r['score_temp'] = $t['score'];
         $r['fit'] = $t['fit'];
@@ -185,7 +152,11 @@ function getSeguimientoNoRespondedores($db, string $whereCommercial, array $filt
         $r['temperatura'] = $t['temperatura'];
         $r['estado_b2b'] = $t['estado_b2b'] ?? 'Prospect';
         $r['color_b2b'] = $t['color_b2b'] ?? 'azul';
-        if (!empty($filtros['solo_alta']) && $p['nivel'] !== 'Alta') continue;
+        // Prioridad derivada de la temperatura (datos reales: aperturas/respuestas/estado),
+        // no de campos de prospección aún vacíos (volumen/presupuesto). 2026-08-26.
+        $r['score'] = $t['score'];
+        $r['prioridad'] = $t['prioridad'];
+        if (!empty($filtros['solo_alta']) && $t['prioridad'] !== 'Alta') continue;
         $lista[] = $r;
     }
     usort($lista, static function ($a, $b) {
@@ -246,9 +217,6 @@ function getSeguimientoSinProximaAccion($db, string $whereCommercial, array $fil
         $pres = $db->querySingle("SELECT importe_total FROM presupuestos WHERE lead_id = " . (int)$r['id'] . " ORDER BY version DESC LIMIT 1", true);
         $r['presupuesto_importe'] = $pres ? (float)$pres['importe_total'] : null;
         $r['tiene_presupuesto'] = !empty($r['presupuesto_importe']);
-        $p = calcularPrioridadLead($r);
-        $r['score'] = $p['score'];
-        $r['prioridad'] = $p['nivel'];
         $t = calcularTemperaturaLead($r);
         $r['score_temp'] = $t['score'];
         $r['fit'] = $t['fit'];
@@ -256,7 +224,10 @@ function getSeguimientoSinProximaAccion($db, string $whereCommercial, array $fil
         $r['temperatura'] = $t['temperatura'];
         $r['estado_b2b'] = $t['estado_b2b'] ?? 'Prospect';
         $r['color_b2b'] = $t['color_b2b'] ?? 'azul';
-        if (!empty($filtros['solo_alta']) && $p['nivel'] !== 'Alta') continue;
+        // Prioridad derivada de la temperatura (datos reales: aperturas/respuestas/estado).
+        $r['score'] = $t['score'];
+        $r['prioridad'] = $t['prioridad'];
+        if (!empty($filtros['solo_alta']) && $t['prioridad'] !== 'Alta') continue;
         $lista[] = $r;
     }
     // Orden: prioridad → vencidos primero → días desc.
@@ -308,9 +279,6 @@ function getSeguimientoNuevosSinActividad($db, string $whereCommercial, array $f
         $r['dias_desde_contacto'] = $r['ultimo_contacto'] ? (int)round((time() - strtotime($r['ultimo_contacto'])) / 86400) : null;
         $r['num_aperturas'] = 0;
         $r['num_envios'] = 0;
-        $p = calcularPrioridadLead($r);
-        $r['score'] = $p['score'];
-        $r['prioridad'] = $p['nivel'];
         $t = calcularTemperaturaLead($r);
         $r['score_temp'] = $t['score'];
         $r['fit'] = $t['fit'];
@@ -318,7 +286,10 @@ function getSeguimientoNuevosSinActividad($db, string $whereCommercial, array $f
         $r['temperatura'] = $t['temperatura'];
         $r['estado_b2b'] = $t['estado_b2b'] ?? 'Prospect';
         $r['color_b2b'] = $t['color_b2b'] ?? 'azul';
-        if (!empty($filtros['solo_alta']) && $p['nivel'] !== 'Alta') continue;
+        // Prioridad derivada de la temperatura (datos reales: aperturas/respuestas/estado).
+        $r['score'] = $t['score'];
+        $r['prioridad'] = $t['prioridad'];
+        if (!empty($filtros['solo_alta']) && $t['prioridad'] !== 'Alta') continue;
         $lista[] = $r;
     }
     usort($lista, static function ($a, $b) {
@@ -401,12 +372,14 @@ function fusionarColaSeguimiento(SQLite3 $db, array $noRespondedores, array $sin
     };
     // 1) Calentar — 1er toque (sin contacto)
     foreach ($nuevos as $l) $mapa[(int)$l['id']] = $etiquetar($l, 'calentar', '1er toque (sin contacto)');
-    // 2) Perseguir / Pausar / Descartar — no respondedores
+    // 2) Perseguir / Calientes / Pausar / Descartar — no respondedores
     foreach ($noRespondedores as $l) {
         $id = (int)$l['id'];
         $apert = (int)($l['num_aperturas'] ?? 0);
         $dias  = (int)($l['dias_desde_envio'] ?? 0);
-        if ($apert >= 1)        $mapa[$id] = $etiquetar($l, 'perseguir', "{$apert} apertura(s) sin respuesta");
+        // 🔥 Alta apertura sin respuesta → "Calientes" (disparador del asesor: ≥3 aperturas).
+        if ($apert >= 3)        $mapa[$id] = $etiquetar($l, 'calientes', "{$apert} aperturas sin respuesta (alto interés)");
+        elseif ($apert >= 1)    $mapa[$id] = $etiquetar($l, 'perseguir', "{$apert} apertura(s) sin respuesta");
         elseif ($dias >= 30)    $mapa[$id] = $etiquetar($l, 'descartar', 'Sin interés (0 aperturas, 30+ días)');
         elseif ($dias >= 15)    $mapa[$id] = $etiquetar($l, 'pausar', 'Sin señales de interés');
     }
@@ -428,6 +401,17 @@ function fusionarColaSeguimiento(SQLite3 $db, array $noRespondedores, array $sin
         $base = $mapa[$id] ?? array_merge(['id' => $id, 'nombre_club' => $p['nombre_club'], 'email' => $p['email']], $baseMockPro);
         $mapa[$id] = $etiquetar($base, 'proforma', 'Presentar proforma v' . $p['version'] . ' (' . number_format((float)$p['importe_total'], 0, ',', '.') . ' €)');
     } }
+    // 5) Sugerencias de secuencia (O-1): pasos pendientes de aprobación.
+    $r = $db->query("SELECT p.id AS propuesta_id, p.lead_id, p.mensaje_sugerido, p.razon, p.tipo, c.nombre_club, c.email, c.estado_lead, c.federacion
+        FROM propuestas_ia p JOIN clubes_crm c ON c.id = p.lead_id
+        WHERE p.estado = 'pendiente' AND p.tipo LIKE 'secuencia_paso%'");
+    if ($r) { while ($sp = $r->fetchArray(SQLITE3_ASSOC)) {
+        $id = (int)$sp['lead_id'];
+        $base = $mapa[$id] ?? array_merge(['id' => $id, 'nombre_club' => $sp['nombre_club'], 'email' => $sp['email']], $baseMockPro);
+        $base['propuesta_id'] = (int)$sp['propuesta_id'];
+        $base['mensaje_sugerido'] = (string)($sp['mensaje_sugerido'] ?? '');
+        $mapa[$id] = $etiquetar($base, 'secuencia', $sp['razon'] ?: ('Sugerencia ' . $sp['tipo']));
+    } }
 
     // Semáforo de urgencia de la acción requerida (rojo=urgente, ambar=hoy, verde=ok).
     $semPeso = function (array $r): int {
@@ -437,9 +421,11 @@ function fusionarColaSeguimiento(SQLite3 $db, array $noRespondedores, array $sin
         $dias  = (int)($r['dias'] ?? 0);
         if ($tipo === 'proforma' || $tipo === 'mockup') return 0;                              // dinero/diseño por entregar
         if (!empty($r['vencida'])) return 0;                                                    // acción vencida
+        if ($tipo === 'calientes' && $apert >= 3) return 0;                                     // alto interés sin respuesta
         if ($tipo === 'cerrar' && in_array($temp, ['MuyCaliente', 'Caliente'], true)) return 0; // caliente sin siguiente paso
         if ($tipo === 'perseguir' && $apert >= 2 && $dias >= 7) return 0;                       // interés claro + tiempo perdido
         if ($tipo === 'pausar' || $tipo === 'descartar') return 2;                              // sin urgencia
+        if ($tipo === 'secuencia') return 1;                                                    // sugerencia de secuencia: atender hoy
         return 1;                                                                               // atender hoy
     };
     $semNombre = [0 => 'rojo', 1 => 'ambar', 2 => 'verde'];
@@ -447,7 +433,7 @@ function fusionarColaSeguimiento(SQLite3 $db, array $noRespondedores, array $sin
 
     // Orden jerárquico: semáforo → prioridad → tipo → días.
     $rankP = ['Alta' => 0, 'Media' => 1, 'Baja' => 2];
-    $rankT = ['proforma' => 0, 'mockup' => 1, 'cerrar' => 2, 'perseguir' => 3, 'calentar' => 4, 'pausar' => 5, 'descartar' => 6];
+    $rankT = ['proforma' => 0, 'mockup' => 1, 'secuencia' => 2, 'calientes' => 3, 'cerrar' => 4, 'perseguir' => 5, 'calentar' => 6, 'pausar' => 7, 'descartar' => 8];
     $lista = array_values($mapa);
     foreach ($lista as $i => $r) {
         $p = $semPeso($r);
@@ -466,6 +452,19 @@ function fusionarColaSeguimiento(SQLite3 $db, array $noRespondedores, array $sin
     return $lista;
 }
 
+
+/**
+ * interesDeVariante — Etiqueta de interés del test ABC según la variante que el
+ * lead más abrió (ramal argumental, 2026-08-26).
+ * Mapeo con el contenido real de la plantilla de prospección:
+ *   A → General / Producto · B → Identidad / Cantera · C → Financiero / Rentabilidad
+ *
+ * @return string etiqueta ('General / Producto'|'Identidad / Cantera'|'Financiero / Rentabilidad'|'')
+ */
+function interesDeVariante(string $variant): string
+{
+    return ['A' => 'General / Producto', 'B' => 'Identidad / Cantera', 'C' => 'Financiero / Rentabilidad'][strtoupper($variant)] ?? '';
+}
 
 if ($action === 'get_seguimiento') {
     header('Content-Type: application/json');
@@ -486,6 +485,31 @@ if ($action === 'get_seguimiento') {
     $kpis               = getSeguimientoKpis($db, $whereCommercial, $noRespondedores, $sinProximaAccion, $nuevosSinActividad, (int)$filtros['campaign_id']);
     $funnel             = getSeguimientoFunnel($db, $whereCommercial, (int)$filtros['campaign_id']);
     $unificada          = fusionarColaSeguimiento($db, $noRespondedores, $sinProximaAccion, $nuevosSinActividad);
+
+    // Ramal de interés: variante del test ABC con más aperturas por lead.
+    // La etiqueta [Interés: ...] indica qué ángulo validó el club con sus aperturas.
+    $mapaVariante = [];
+    $rVar = $db->query(
+        "SELECT LOWER(e.email) AS email, e.variant, COUNT(a.id) AS n
+         FROM envios e JOIN aperturas a ON a.tracking_id = e.tracking_id
+         WHERE COALESCE(e.es_test,0)=0 AND e.variant IS NOT NULL AND e.variant != ''
+         GROUP BY LOWER(e.email), e.variant ORDER BY n DESC"
+    );
+    if ($rVar) {
+        while ($f = $rVar->fetchArray(SQLITE3_ASSOC)) {
+            $em = (string)$f['email'];
+            if ($em === '' || isset($mapaVariante[$em])) continue; // primera fila = mayor nº de aperturas
+            $mapaVariante[$em] = $f['variant'];
+        }
+    }
+    foreach ($unificada as $i => $u) {
+        $em = strtolower((string)($u['email'] ?? ''));
+        $v  = $mapaVariante[$em] ?? '';
+        $interes = $v !== '' ? interesDeVariante($v) : '';
+        $unificada[$i]['variante_dominante'] = $v;
+        $unificada[$i]['interes'] = $interes !== '' ? explode(' / ', $interes)[0] : '';
+        $unificada[$i]['interes_etiqueta'] = $interes !== '' ? 'Interés: ' . $interes : '';
+    }
 
     echo json_encode([
         'ok' => true,

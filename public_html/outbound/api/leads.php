@@ -1165,6 +1165,53 @@ if ($action === 'registrar_interaccion') {
     exit;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: registrar_whatsapp — Traza el envío de WhatsApp desde ficha/tarjeta
+// y avanza el lead a '03 En Conversación' si está en 01/02 (flujo 2026-08-26).
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'registrar_whatsapp') {
+    header('Content-Type: application/json');
+    $leadId = (int)($_POST['lead_id'] ?? 0);
+    if ($leadId <= 0) {
+        echo json_encode(['ok' => false, 'error' => 'lead_id requerido']);
+        exit;
+    }
+    $estadoActual = (string)$db->querySingle("SELECT estado_lead FROM clubes_crm WHERE id = {$leadId}");
+    if ($estadoActual === '') {
+        echo json_encode(['ok' => false, 'error' => 'lead no encontrado']);
+        exit;
+    }
+
+    // Trazabilidad del envío de WhatsApp.
+    $stmt = $db->prepare(
+        "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, tipo, resultado, detalles, fecha)
+         VALUES (:lid, :lid, 'whatsapp_enviado', 'whatsapp', 'exito', :det, CURRENT_TIMESTAMP)"
+    );
+    $stmt->bindValue(':lid', $leadId, SQLITE3_INTEGER);
+    $stmt->bindValue(':det', 'Envío de WhatsApp iniciado desde el CRM', SQLITE3_TEXT);
+    $stmt->execute();
+
+    // Avanzar el lead a '03 En Conversación' si está en 01/02 (no regresar etapas).
+    $orden = ['01 Sin Contactar' => 1, '02 Contactado' => 2, '03 En Conversación' => 3];
+    $ordenActual = $orden[$estadoActual] ?? 0;
+    if ($ordenActual >= 1 && $ordenActual < 3) {
+        $db->exec("UPDATE clubes_crm SET estado_lead = '03 En Conversación', canal_interaccion = 'whatsapp', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
+        $stmtLog = $db->prepare(
+            "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+             VALUES (:lid, :lid, 'cambio_estado', :det, CURRENT_TIMESTAMP)"
+        );
+        $stmtLog->bindValue(':lid', $leadId, SQLITE3_INTEGER);
+        $stmtLog->bindValue(':det', "Estado cambiado de '{$estadoActual}' a '03 En Conversación' por envío de WhatsApp", SQLITE3_TEXT);
+        $stmtLog->execute();
+    } else {
+        // Ya está en una etapa igual o posterior: solo marcar el canal.
+        $db->exec("UPDATE clubes_crm SET canal_interaccion = 'whatsapp' WHERE id = {$leadId}");
+    }
+
+    echo json_encode(['ok' => true, 'lead_id' => $leadId, 'estado_lead' => $estadoActual]);
+    exit;
+}
+
 // Default
 header('Content-Type: application/json');
 ob_clean();

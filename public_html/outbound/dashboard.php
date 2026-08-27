@@ -103,6 +103,7 @@ require_once __DIR__ . '/inc/eligibilidad.php';
 require_once __DIR__ . '/inc/metricas.php';
 require_once __DIR__ . '/inc/helpers.php';
 require_once __DIR__ . '/inc/imap_respuestas.php';
+require_once __DIR__ . '/inc/lead_scoring.php';
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
@@ -795,16 +796,33 @@ $kanbanLeads = [];             // array plano para filtros en cliente (Alpine)
 
 // Agregación única de aperturas por email (solo envíos REALES, es_test=0).
 $stmtAgg = $db->query("
-    SELECT LOWER(e.email) AS email, COUNT(*) AS num_opens
+    SELECT LOWER(e.email) AS email, COUNT(*) AS num_opens, MAX(a.fecha_apertura) AS ultima_apertura
     FROM aperturas a
     JOIN envios e ON a.tracking_id = e.tracking_id
     WHERE COALESCE(e.es_test,0) = 0
     GROUP BY LOWER(e.email)
 ");
 $aperturasPorEmail = [];
+$ultimaAperturaPorEmail = [];
 while ($rowAgg = $stmtAgg->fetchArray(SQLITE3_ASSOC)) {
     $aperturasPorEmail[$rowAgg['email']] = (int)$rowAgg['num_opens'];
+    $ultimaAperturaPorEmail[$rowAgg['email']] = (string)$rowAgg['ultima_apertura'];
 }
+
+// Envíos reales por email (para el badge de nº de comunicaciones en la tarjeta).
+$enviosPorEmail = [];
+$stmtEnv = $db->query("SELECT LOWER(email) AS email, COUNT(*) AS n FROM envios WHERE COALESCE(es_test,0)=0 GROUP BY LOWER(email)");
+if ($stmtEnv) { while ($rowEnv = $stmtEnv->fetchArray(SQLITE3_ASSOC)) { $enviosPorEmail[$rowEnv['email']] = (int)$rowEnv['n']; } }
+
+// Ramal de interés (AI-8): variante del test ABC con más aperturas por email.
+$variantePorEmail = [];
+$stmtVar = $db->query(
+    "SELECT LOWER(e.email) AS email, e.variant, COUNT(a.id) AS n
+     FROM envios e JOIN aperturas a ON a.tracking_id = e.tracking_id
+     WHERE COALESCE(e.es_test,0)=0 AND e.variant IS NOT NULL AND e.variant != ''
+     GROUP BY LOWER(e.email), e.variant ORDER BY n DESC"
+);
+if ($stmtVar) { while ($rowVar = $stmtVar->fetchArray(SQLITE3_ASSOC)) { $emV = (string)$rowVar['email']; if ($emV !== '' && !isset($variantePorEmail[$emV])) $variantePorEmail[$emV] = (string)$rowVar['variant']; } }
 
 foreach ($estadosKanban as $est) {
     $stmt = $db->prepare("
@@ -815,7 +833,8 @@ foreach ($estadosKanban as $est) {
                   AND r.clasificacion IS NOT NULL
                   AND r.clasificacion != ''
                 ORDER BY r.fecha_respuesta DESC, r.id DESC
-                LIMIT 1) AS clasificacion_ia
+                LIMIT 1) AS clasificacion_ia,
+               (SELECT MAX(r.fecha_respuesta) FROM respuestas r WHERE r.lead_id = c.id) AS ultima_respuesta
         FROM clubes_crm c
         WHERE c.estado_lead = :estado
         " . ($campanaActual > 0 ? "AND c.id IN (SELECT lp.lead_id FROM lead_pipelines lp WHERE lp.pipeline_id = " . (int)$campanaActual . " UNION SELECT c2.id FROM clubes_crm c2 JOIN envios e ON LOWER(e.email) = LOWER(c2.email) WHERE e.campaign_id = " . (int)$campanaActual . " AND COALESCE(e.es_test,0)=0)" : "") . "
@@ -829,6 +848,25 @@ foreach ($estadosKanban as $est) {
         $row['num_opens'] = $aperturasPorEmail[strtolower($row['email'])] ?? 0;
         // Clasificación IA de la última respuesta ('' si no hay).
         $row['clasificacion_ia'] = (string)($row['clasificacion_ia'] ?? '');
+
+        // ── Contexto de la tarjeta: nº de comunicaciones, temperatura, ramal y novedad ──
+        $estadoLead = (string)($row['estado_lead'] ?? '');
+        $emailL = strtolower((string)$row['email']);
+        $row['num_envios'] = $enviosPorEmail[$emailL] ?? 0;
+        $row['ultima_apertura'] = $ultimaAperturaPorEmail[$emailL] ?? '';
+        $row['ramal'] = interesDeVariante($variantePorEmail[$emailL] ?? '');
+        $tempLead = calcularTemperaturaLead([
+            'num_aperturas'    => (int)$row['num_opens'],
+            'num_envios'       => (int)$row['num_envios'],
+            'clasificacion'    => $row['clasificacion_ia'],
+            'estado_lead'      => $estadoLead,
+            'dias_desde_envio' => null,
+        ]);
+        $row['temperatura'] = $tempLead['temperatura'];
+        $fechaHoy = date('Y-m-d');
+        $esNovedadApertura  = $row['ultima_apertura'] !== '' && date('Y-m-d', strtotime($row['ultima_apertura'])) === $fechaHoy;
+        $esNovedadRespuesta = !empty($row['ultima_respuesta']) && date('Y-m-d', strtotime((string)$row['ultima_respuesta'])) === $fechaHoy;
+        $row['novedad'] = $esNovedadApertura || $esNovedadRespuesta;
 
 
         // ── Contadores de chips (sin consultas SQL extra) ──
@@ -1028,11 +1066,12 @@ $db->close();
 <!-- ═══════════ TOPBAR ═══════════ -->
 <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
     <div class="max-w-full mx-auto px-4 py-2 flex items-center justify-between flex-wrap gap-2">
-        <div class="flex items-center gap-3">
-            <i data-lucide="shield" class="w-5 h-5 text-amber-400"></i>
-            <span class="font-bold text-slate-100 text-sm tracking-tight">FutProtec Outbound CRM</span>
-        </div>
+        <!-- IZQUIERDA: título de la plataforma + selector de campaña -->
         <div class="flex items-center gap-3 flex-wrap">
+            <div class="flex items-center gap-2">
+                <i data-lucide="shield" class="w-5 h-5 text-amber-400"></i>
+                <span class="font-bold text-slate-100 text-sm tracking-tight">FutProtec Outbound CRM</span>
+            </div>
             <div class="flex items-center gap-2 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5">
                 <i data-lucide="folder-kanban" class="w-4 h-4 text-amber-400"></i>
                 <select x-model="campanaActual" @change="setCampana($event.target.value)"
@@ -1043,10 +1082,40 @@ $db->close();
                     <?php endforeach; ?>
                 </select>
             </div>
+            <!-- Widget de tutoría (a continuación del selector de campañas) -->
+            <div class="relative" x-data="tutorApp()">
+                <button @click="toggle()" class="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800 hover:text-amber-400 transition" title="Guía del CRM (cómo usar este tab)">
+                    <i data-lucide="life-buoy" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                    <span class="text-sm font-semibold hidden sm:inline">Guía</span>
+                    <span x-show="abierto" class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]"></span>
+                </button>
+                <!-- Panel desplegable de la guía -->
+                <div x-show="abierto" x-cloak class="absolute left-0 top-[44px] z-[60] w-[340px] max-w-[92vw] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl">
+                    <div class="flex items-center gap-2 px-3 py-2 border-b border-slate-700/60 bg-slate-800/60 rounded-t-xl">
+                        <i data-lucide="life-buoy" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                        <span class="text-sm font-semibold text-slate-200 truncate" x-text="guia.titulo"></span>
+                        <button @click="cerrar()" class="ml-auto p-1 rounded hover:bg-slate-700 transition" title="Cerrar guía">
+                            <i data-lucide="x" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                    <div class="p-3 space-y-2 max-h-[60vh] overflow-y-auto">
+                        <ol class="space-y-1.5">
+                            <template x-for="(p, i) in guia.pasos" :key="i">
+                                <li class="flex gap-2 text-sm text-slate-300">
+                                    <span class="shrink-0 w-5 h-5 rounded-full bg-amber-500/15 text-amber-400 text-xs font-semibold flex items-center justify-center" x-text="i+1"></span>
+                                    <span x-text="p"></span>
+                                </li>
+                            </template>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- DERECHA: notificaciones + logout -->
+        <div class="flex items-center gap-3 flex-wrap">
             <button @click="irARespuestas()" class="relative text-slate-300 hover:text-amber-400 transition p-1.5 rounded-lg hover:bg-slate-800/60" title="Respuestas nuevas">
                 <i data-lucide="bell" class="w-4 h-4"></i>
                 <span x-show="rsNuevas > 0" x-cloak x-text="rsNuevas" class="absolute -top-1 -right-1 bg-orange-500 text-white text-xs font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1.5 border-2 border-slate-900 shadow-[0_0_10px_rgba(249,115,22,0.5)]"></span>
-
             </button>
             <a href="?logout=1" class="text-slate-300 hover:text-slate-100 text-sm transition ml-2">
                 <i data-lucide="log-out" class="w-4 h-4 inline"></i>
@@ -1102,38 +1171,48 @@ $db->close();
 
 <!-- ═══════════ TABS ═══════════ -->
 <div class="max-w-full mx-auto px-4">
-    <nav class="flex gap-1 border-b border-slate-800 overflow-x-auto">
-        <button @click="tab='inicio'; loadInicio()"
-            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'inicio' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">🏠 Inicio</button>
-        <button @click="tab='kanban'"
-            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'kanban' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Pipeline</button>
-        <button @click="tab='gestor'"
-            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'gestor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Leads</button>
-        <button @click="tab='editor'; loadCategorias()"
-            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'editor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Plantillas y Campañas</button>
+    <!-- Navegación agrupada por bloques lógicos (Setup → Operación → Análisis).
+         Los valores internos de tab NO cambian (compatibilidad con app.js); solo el
+         orden y la agrupación visual. Mejora AI-1 del roadmap. -->
+    <nav class="flex gap-1 border-b border-slate-800 overflow-x-auto items-end">
+        <!-- 🛠️ SETUP — configuración puntual (una sola vez) -->
+        <span class="px-2 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap select-none">🛠️ Setup</span>
         <button @click="tab='smtp'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'smtp' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Ajustes</button>
+        <button @click="tab='editor'; loadCategorias()"
+            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'editor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Plantillas y Campañas</button>
+        <button @click="tab='lista_negra'; blCargar()"
+            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'lista_negra' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Lista Negra</button>
+
+        <!-- 📈 OPERACIÓN — flujo de trabajo diario del vendedor -->
+        <span class="px-2 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap select-none">📈 Operación</span>
+        <button @click="tab='inicio'; loadInicio()"
+            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'inicio' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">🏠 Inicio</button>
+        <button @click="tab='gestor'"
+            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'gestor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Leads</button>
+        <button @click="tab='kanban'"
+            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'kanban' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Pipeline</button>
         <button @click="tab='lanza'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'lanza' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Lanzadera</button>
-        <button @click="tab='analytics'"
-            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'analytics' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Analytics</button>
         <button @click="tab='respuestas'; loadRespuestas()"
-
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'respuestas' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Bandeja</button>
         <button @click="tab='seguimiento'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'seguimiento' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Seguimiento</button>
-        <button @click="tab='lista_negra'; blCargar()"
+
+        <!-- 📊 ANÁLISIS — medición y optimización -->
+        <span class="px-2 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap select-none">📊 Análisis</span>
+        <button @click="tab='analytics'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'lista_negra' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Lista Negra</button>
+            :class="tab === 'analytics' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Analytics</button>
     </nav>
 </div>
 
@@ -1204,7 +1283,6 @@ window._campanaActual = <?= (int)$campanaActual ?>;
 <!-- app.js se carga con defer en el <head> (ANTES de Alpine.js) para garantizar
      que 'app' se registre como componente antes de que Alpine procese el DOM.
      No se duplica aquí para evitar doble ejecución. -->
-
 
 </body>
 </html>

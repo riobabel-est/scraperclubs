@@ -198,6 +198,9 @@ var app = function() {
          categorias: [], templates: [],
          edNombre: '', edAsunto: '', edAsuntoB: '', edAsuntoC: '', edTestAb: 0,
          edCuerpo: '', edCuerpoB: '', edCuerpoC: '', edTipo: 'html', edFocus: 'edCuerpo',
+         // Asistente IA de Plantillas
+         iaTplOpen: false, iaTplGenerando: false, iaTplMsg: '', iaTplMsgOk: false,
+         iaTpl: { categoria: '01 Prospección', ramal: '', tono: 'profesional', longitud: 'media', instruccion: '' },
          edCategoria: '',
          previewClubId: '', debounceTimer: null,
          pvLive: false, pvLiveA: '', pvLiveB: '', pvLiveC: '', previewClubCache: {}, senderCache: null,
@@ -210,6 +213,8 @@ var app = function() {
         testEmails: '',
         lzCola: [],
         lzColaIndex: 0,
+        lzModoRotacion: false,
+        lzRotacionInfo: null,
         lzColaPaginada: [],
         lzColaPageSize: 50,
         lzColaPageCurrent: 0,
@@ -240,6 +245,8 @@ var app = function() {
         lzTemplatesWa: [],
         lzCampanas: [],
         lzCampaignId: '',
+        // Selección en lote desde Seguimiento (IDs concretos a enviar en la Lanzadera).
+        lzBulkIds: null,
         lzTabMonitor: 'cola',
         lzKpiClubes: 0,
         lzKpiSmtpActivas: 0,
@@ -765,8 +772,61 @@ var app = function() {
             const num = (this.ld.telefono_movil || '').replace(/[^0-9]/g, '').match(/([67]\d{8})/)?.[1] || '';
             this.ldWaUrl = num ? ('https://wa.me/34' + num + '?text=' + encodeURIComponent(texto)) : '';
         },
+        async registrarWhatsApp(id) {
+            // Registra el envío de WhatsApp (trazabilidad en comunicaciones_log +
+            // avance del lead a '03 En Conversación'). No bloquea la apertura de wa.me.
+            const lid = id || (this.ld ? this.ld.id : 0);
+            if (!lid) return;
+            try {
+                const f = new FormData();
+                f.append('action', 'registrar_whatsapp');
+                f.append('lead_id', lid);
+                await fetch('api/leads.php', { method: 'POST', body: f });
+            } catch (e) {}
+        },
         markChanged() {
             this.ldChanged = JSON.stringify(this.ld) !== JSON.stringify(this.ldOriginal);
+        },
+        abrirAsistente() {
+            // Asistente IA de Plantillas: pre-carga la categoría actual del editor.
+            this.iaTpl.categoria = this.edCategoria || this.ec || '01 Prospección';
+            this.iaTplOpen = true; this.iaTplMsg = '';
+            setTimeout(() => { if (window.lucide) lucide.createIcons(); }, 80);
+        },
+        async generarPlantillaIA(variantes) {
+            if (this.iaTplGenerando) return;
+            this.iaTplGenerando = true; this.iaTplMsg = '';
+            try {
+                const f = new FormData();
+                f.append('action', 'generar_plantilla_ia');
+                f.append('categoria', this.iaTpl.categoria);
+                f.append('ramal', this.iaTpl.ramal);
+                f.append('tono', this.iaTpl.tono);
+                f.append('longitud', this.iaTpl.longitud);
+                f.append('instruccion', this.iaTpl.instruccion);
+                f.append('variantes', variantes ? '1' : '0');
+                const r = await fetch('?action=generar_plantilla_ia', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) {
+                    if (variantes && j.variantes && j.variantes.length === 3) {
+                        this.edTestAb = 1;
+                        this.edAsunto = j.variantes[0].asunto; this.edCuerpo = j.variantes[0].cuerpo;
+                        this.edAsuntoB = j.variantes[1].asunto; this.edCuerpoB = j.variantes[1].cuerpo;
+                        this.edAsuntoC = j.variantes[2].asunto; this.edCuerpoC = j.variantes[2].cuerpo;
+                    } else {
+                        this.edAsunto = j.asunto || ''; this.edCuerpo = j.cuerpo || '';
+                    }
+                    this.edCategoria = this.iaTpl.categoria || '';
+                    this.iaTplMsg = 'Plantilla generada ✓ Revísala y guárdala.';
+                    this.iaTplMsgOk = true;
+                } else {
+                    this.iaTplMsg = j.error || 'Error al generar.'; this.iaTplMsgOk = false;
+                }
+            } catch (e) {
+                this.iaTplMsg = 'Error de conexión.'; this.iaTplMsgOk = false;
+            }
+            this.iaTplGenerando = false;
+            if (window.lucide) lucide.createIcons();
         },
         async guardarFicha() {
             if (!this.ld.id || !this.ldChanged) return;
@@ -1095,7 +1155,13 @@ var app = function() {
             const f = new FormData(); f.append('action', 'update_config'); f.append('key', 'test_emails'); f.append('value', this.testEmails);
             await fetch('', { method: 'POST', body: f });
         },
-        lzOnCampaignChange() { /* la campaña se lee de lzCampaignId en el envío */ },
+        lzOnCampaignChange() { /* la campaña se lee de lzCampaignId en el envío; no se pierde la selección en lote */ },
+        // Al elegir plantilla con una selección en lote (desde Seguimiento), carga la cola.
+        lzOnPlantillaChange() {
+            if (this.lzBulkIds && this.lzBulkIds.length > 0 && this.lzIdPlantillaEmail) {
+                this.cargarCola();
+            }
+        },
         // Prevalidación de campaña en UI (SOLO UX). NO sustituye a
         // validarCampanaActiva()/esEntornoCoherente() del backend, que siguen
         // siendo la autoridad. Espejo de inc/abc.php para no prometer envíos
@@ -1224,27 +1290,64 @@ var app = function() {
             return seleccion;
         },
         async lzOnEstadoChange() {
+            // Cambiar el estado manualmente cancela cualquier selección en lote
+            // (se vuelve al modo filtrado normal).
+            this.lzBulkIds = null;
             this.lzIdPlantillaEmail = ''; this.lzTemplatesEmail = []; if (!this.lzEstadoLead) return;
-            // incluir_genericas=1: además de las de la categoría (estado), se ofrecen
-            // las plantillas sin categoría (genéricas) para cualquier estado.
-            try { const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(this.lzEstadoLead) + '&incluir_genericas=1'); const j = await r.json();
+            // Mapeo estado del pipeline → categoría por objetivo/campaña (reorganización 2026-08-26).
+            // Los estados sin categoría asignada devuelven solo plantillas genéricas
+            // (incluir_genericas=1 → WHERE categoria = :cat OR categoria = '').
+            const mapaCat = {
+                '01 Sin Contactar': '01 Prospección',
+                '02 Contactado': '02 Seguimiento',
+                '03 En Conversación': '03 Respuestas',
+                '03 Respondió': '03 Respuestas',
+            };
+            const cat = mapaCat[this.lzEstadoLead] || '__sin_categoria__';
+            try { const r = await fetch('?action=get_templates&categoria=' + encodeURIComponent(cat) + '&incluir_genericas=1'); const j = await r.json();
                 if (j.ok && j.templates) { this.lzTemplatesEmail = j.templates.filter(t => t.tipo !== 'whatsapp'); this.lzTemplatesWa = j.templates.filter(t => t.tipo === 'whatsapp'); }
             } catch (e) {}
         },
-        puedeCargarCola() { return this.lzEstadoLead !== '' && this.lzIdPlantillaEmail !== ''; },
+        puedeCargarCola() {
+            if (!this.lzIdPlantillaEmail) return false;
+            if (this.lzBulkIds && this.lzBulkIds.length > 0) return true;
+            return this.lzEstadoLead !== '';
+        },
         async cargarCola() {
-            if (!this.puedeCargarCola()) { alert('Selecciona al menos Estado del Lead y Plantilla de Email'); return; }
+            // MODO ROTACIÓN ABC: no requiere estado ni plantilla (el sistema
+            // resuelve plantilla y variante rotada desde la secuencia).
+            if (this.lzModoRotacion) {
+                if (!this.lzCampaignId) { alert('Selecciona una campaña para cargar la rotación ABC.'); return; }
+            } else {
+                // Con selección en lote (Seguimiento) la plantilla es obligatoria y el
+                // estado se ignora (la lista de IDs es la fuente de la cola).
+                if (!this.lzIdPlantillaEmail) { alert('Selecciona al menos la Plantilla de Email'); return; }
+                if (!this.lzBulkIds && !this.lzEstadoLead) { alert('Selecciona al menos Estado del Lead y Plantilla de Email'); return; }
+            }
             this.lzCola = []; this.lzColaPaginada = []; this.lzColaPageCurrent = 0; this.lzColaIndex = 0;
             this.lzColaCompletados = {}; this.lzColaResultados = {}; this.lzLogEnviados = []; this.lzLogEnviadosPaginados = []; this.lzLogPageCurrent = 0; this.lzMotorEstado = 'PAUSADO';
             const params = new URLSearchParams({ estado_lead: this.lzEstadoLead, federacion: this.lzFederacion, id_plantilla_email: this.lzIdPlantillaEmail, id_plantilla_wa: this.lzIdPlantillaWa, habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0', random_mode: this.randomMode ? '1' : '0', campaign_id: this.lzCampaignId || '' });
+            if (this.lzModoRotacion) { params.set('rotacion', '1'); params.delete('estado_lead'); params.delete('id_plantilla_email'); }
+            if (this.lzBulkIds && this.lzBulkIds.length > 0) params.set('ids', this.lzBulkIds.join(','));
             try { const r = await fetch('api/get_cola.php?' + params.toString()); const j = await r.json();
                 if (!j.ok) { alert('Error: ' + (j.error || 'Desconocido')); return; }
                 this.lzCola = j.cola || [];
                 if (this.lzCola.length > 0) { this.lzColaPaginada = this.lzCola.slice(0, Math.min(this.lzColaPageSize, this.lzCola.length)); this.lzColaPageCurrent = 1; }
                 this.lzCuentasSmtp = j.cuentas_smtp || []; this.lzKpiClubes = j.kpi_clubes || 0; this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0; this.lzKpiEnviosHoy = j.kpi_envios_hoy || 0; this.lzDelay = j.delay_segundos || 5;
-                if (this.lzCola.length === 0) { alert('No hay leads pendientes con los filtros seleccionados.'); }
-            } catch (e) { alert('Error de conexión al cargar la cola.'); }
+                if (this.lzCola.length === 0) { alert(this.lzModoRotacion ? 'No hay leads no abridores pendientes de rotación (revisa espera/máx. envíos en la secuencia).' : 'No hay leads pendientes con los filtros seleccionados.'); }
+                this.lzRotacionInfo = j.rotacion || null;
+                // La selección en lote se consume en la carga (vuelve al modo normal).
+                this.lzBulkIds = null;
+                this.lzSelectedLeadId = 0; this.lzSelectedLead = null;
+                this.lzModoRotacion = false;
+            } catch (e) { alert('Error de conexión al cargar la cola.'); this.lzModoRotacion = false; }
             setTimeout(() => lucide.createIcons(), 100);
+        },
+        async cargarRotacion() {
+            // 🔄 Rotación ABC: prepara en la Lanzadera el reenvío con la siguiente
+            // variante para los no abridores (configurado en Plantillas y Campañas → Secuencia).
+            this.lzModoRotacion = true;
+            await this.cargarCola();
         },
         async iniciarMotor() {
             if (!this.lzCampaignId) { alert('Selecciona una campaña antes de enviar.'); return; }
@@ -1308,8 +1411,9 @@ var app = function() {
                 // ─── DOBLE SALVAGUARDA: nunca superar el tamaño de lote ────────
                 if (this.lzSendCalls >= batchSize) { this.lzMotorEstado = 'PAUSADO'; break; }
                 this.lzColaIndex = i; const lead = this.lzCola[i]; if (!lead) continue;
-                const r = Math.random(); const vAb = r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C');
-                const fd = new FormData(); fd.append('id_club', lead.id); fd.append('id_plantilla', this.lzIdPlantillaEmail); fd.append('id_cuenta_smtp', lead.smtp_asignada_id); fd.append('modo_test', this.modeTest ? '1' : '0'); fd.append('variante_ab', vAb); fd.append('campaign_id', this.lzCampaignId);
+                const r = Math.random(); const vAb = lead.es_rotacion ? (lead.variante_ab || 'A') : (r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C'));
+                const fd = new FormData(); fd.append('id_club', lead.id); fd.append('id_plantilla', lead.es_rotacion ? (lead.rotacion_plantilla_id || this.lzIdPlantillaEmail) : this.lzIdPlantillaEmail); fd.append('id_cuenta_smtp', lead.smtp_asignada_id); fd.append('modo_test', this.modeTest ? '1' : '0'); fd.append('variante_ab', vAb); fd.append('campaign_id', this.lzCampaignId);
+                if (lead.es_rotacion) { fd.append('es_rotacion', '1'); }
                 if (this.modeTest && this.testEmailsList.length > 0) { fd.append('test_email', this.testEmailsList[i % this.testEmailsList.length]); }
                 try {
                     const r = await fetch('api/enviar_lote.php', { method: 'POST', body: fd, signal: signal }); const j = await r.json();
@@ -1372,6 +1476,8 @@ var app = function() {
             this.lzSelectedLeadId = lead.id;
             this.lzSelectedLead = lead;
             this.lzLeadValidation = null;
+            // Al seleccionar un lead dirigido se cancela cualquier selección en lote.
+            this.lzBulkIds = null;
             // Al seleccionar un lead dirigido, el tamaño de lote se fuerza a 1
             this.lzBatchSize = 1;
         },
@@ -1379,6 +1485,23 @@ var app = function() {
             this.lzSelectedLeadId = 0;
             this.lzSelectedLead = null;
             this.lzLeadValidation = null;
+        },
+        async lzEnviarSeleccion(ids) {
+            // Acción en lote desde Seguimiento: lleva los leads seleccionados a la
+            // Lanzadera y carga la cola con esa lista exacta (get_cola.php?ids=...).
+            this.lzBulkIds = (ids || []).map(Number).filter(Boolean);
+            // En modo selección por IDs no hay estado del lead: cargar todas las
+            // plantillas de email para poder elegir sin depender del estado.
+            try {
+                const r = await fetch('?action=get_templates');
+                const j = await r.json();
+                if (j.ok && j.templates) {
+                    this.lzTemplatesEmail = j.templates.filter(t => t.tipo !== 'whatsapp');
+                    this.lzTemplatesWa = j.templates.filter(t => t.tipo === 'whatsapp');
+                }
+            } catch (e) {}
+            this.tab = 'lanza';
+            setTimeout(() => { if (this.lzIdPlantillaEmail) this.cargarCola(); }, 150);
         },
         async lzValidateLead() {
             if (!this.lzSelectedLeadId) return;
@@ -2198,4 +2321,173 @@ document.addEventListener('click', function (e) {
 
 
 
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// secuenciaConfig — Configurador de secuencias condicionales (O-1, ramal ABC).
+// Plan: docs/PLAN_RAMIFICACION_SECUENCIAS_ABC.md
+// Usado por tabs/editor.php (x-data="secuenciaConfig()").
+// ═════════════════════════════════════════════════════════════════════════════
+function secuenciaConfig() {
+    return {
+        campanas: [], plantillas: [],
+        campaignId: 0, secuencias: [],
+        edit: { id: 0, nombre: '', modo_auto: 0, pasos: [], rotar_no_abridores: 0, rotar_espera_dias: 3, rotar_max_envios: 2, rotar_plantilla_id: 0 },
+        formVisible: false,
+        msg: '', msgOk: false,
+        async cargar() {
+            this.msg = '';
+            try { const rC = await fetch('?action=get_piloto_campanas'); const jC = await rC.json(); if (jC.ok) this.campanas = jC.campanas || []; } catch (e) {}
+            try { const rT = await fetch('?action=get_templates'); const jT = await rT.json(); if (jT.ok) this.plantillas = jT.templates || []; } catch (e) {}
+            if (this.campaignId > 0) await this.cargarSecuencias();
+        },
+        async cargarSecuencias() {
+            try { const r = await fetch('?action=get_secuencias&campaign_id=' + this.campaignId); const j = await r.json(); if (j.ok) this.secuencias = j.secuencias || []; } catch (e) { this.secuencias = []; }
+        },
+        nuevaSecuencia() {
+            if (!this.campaignId) { this.msg = 'Selecciona una campaña primero.'; this.msgOk = false; return; }
+            this.edit = { id: 0, nombre: 'Secuencia de la campaña', modo_auto: 0, pasos: [{ paso: 1, plantilla_id: 0, espera_dias: 2, ramal: '', activo: 1 }], rotar_no_abridores: 0, rotar_espera_dias: 3, rotar_max_envios: 2, rotar_plantilla_id: 0 };
+            this.formVisible = true;
+            this.msg = ''; this.msgOk = false;
+        },
+        editar(s) {
+            this.edit = { id: s.id, nombre: s.nombre, modo_auto: s.modo_auto, pasos: (s.pasos || []).map(p => ({ paso: p.paso, plantilla_id: p.plantilla_id, espera_dias: p.espera_dias, ramal: p.ramal || '', activo: p.activo })), rotar_no_abridores: +(s.rotar_no_abridores || 0), rotar_espera_dias: +(s.rotar_espera_dias || 3), rotar_max_envios: +(s.rotar_max_envios || 2), rotar_plantilla_id: +(s.rotar_plantilla_id || 0) };
+            this.formVisible = true;
+            this.msg = ''; this.msgOk = false;
+        },
+        addPaso() { const max = this.edit.pasos.reduce((m, p) => Math.max(m, p.paso || 0), 0); this.edit.pasos.push({ paso: max + 1, plantilla_id: 0, espera_dias: 2, ramal: '', activo: 1 }); },
+        removePaso(idx) { this.edit.pasos.splice(idx, 1); },
+        async guardar() {
+            if (!this.campaignId || !this.edit.nombre) { this.msg = 'Nombre y campaña son obligatorios.'; this.msgOk = false; return; }
+            try {
+                const f = new FormData();
+                f.append('action', 'save_secuencia');
+                f.append('id', this.edit.id);
+                f.append('campaign_id', this.campaignId);
+                f.append('nombre', this.edit.nombre);
+                f.append('modo_auto', this.edit.modo_auto);
+                f.append('activo', '1');
+                f.append('rotar_no_abridores', this.edit.rotar_no_abridores ? '1' : '0');
+                f.append('rotar_espera_dias', this.edit.rotar_espera_dias || 3);
+                f.append('rotar_max_envios', this.edit.rotar_max_envios || 2);
+                f.append('rotar_plantilla_id', this.edit.rotar_plantilla_id || 0);
+                f.append('pasos', JSON.stringify(this.edit.pasos));
+                const r = await fetch('?action=save_secuencia', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) { this.msg = 'Secuencia guardada ✓'; this.msgOk = true; this.edit.id = j.id; await this.cargarSecuencias(); }
+                else { this.msg = j.error || 'Error al guardar'; this.msgOk = false; }
+            } catch (e) { this.msg = 'Error de conexión'; this.msgOk = false; }
+        },
+        async eliminar(s) {
+            if (!confirm('¿Eliminar la secuencia "' + s.nombre + '"? No toca envíos ya registrados.')) return;
+            try {
+                const f = new FormData();
+                f.append('action', 'delete_secuencia');
+                f.append('id', s.id);
+                const r = await fetch('?action=delete_secuencia', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) { if (this.edit.id === s.id) { this.edit = { id: 0, nombre: '', modo_auto: 0, pasos: [], rotar_no_abridores: 0, rotar_espera_dias: 3, rotar_max_envios: 2, rotar_plantilla_id: 0 }; this.formVisible = false; } await this.cargarSecuencias(); }
+                else { alert(j.error || 'Error al eliminar'); }
+            } catch (e) { alert('Error de conexión'); }
+        },
+    };
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// WIDGET DE TUTORÍA FLOTANTE — Guía de uso por tab + pasos de configuración.
+// Contenido por tab; la lógica (arrastre/minimizar) vive en tutorApp().
+// ═════════════════════════════════════════════════════════════════════════════
+const TUTORIA = {
+    inicio: { titulo: '🏠 Inicio — Resumen del día', pasos: [
+        'Pulsa ✨ Generar con IA para ver las prioridades de hoy, alertas de retraso y la franja horaria recomendada según aperturas reales.',
+        'KPIs: pendientes hoy, respuestas sin atender, mockups, proformas y acciones vencidas.',
+        '"Qué enviar hoy": 1er y 2º toque que requieren tu acción.',
+        '"Qué conseguir por cliente": pendientes para cerrar cada club.',
+        'Bandeja resumida: últimas respuestas; pulsa "Ver Bandeja completa" para atenderlas.',
+    ] },
+    kanban: { titulo: '🧱 Pipeline — Estado de la negociación', pasos: [
+        'Arrastra las tarjetas entre columnas para mover el lead de etapa (01 Sin Contactar → 07 Baja).',
+        'Chips: 🔥 Calientes (+2 aperturas), 👁️ Leídos (1+), 📱 Pendiente WA, Federación y buscador.',
+        'Cada tarjeta muestra: temperatura (🌋🔥⏳🥶), ramal de interés (A/B/C), nº de aperturas, clasificación IA y ● NUEVO si hay actividad hoy.',
+        'Clic en la tarjeta → ficha completa (timeline, mockup, presupuesto, próxima acción).',
+        'Clic en WA → abre WhatsApp y registra el contacto automáticamente (avanza el lead).',
+    ] },
+    gestor: { titulo: '📇 Leads — Base de datos', pasos: [
+        'Añadir Lead: alta manual validando el email (MX).',
+        'Busca por club o email; filtra por estado y federación; ordena por columnas.',
+        'Escanear Duplicados: detecta clubes repetidos y fusiona.',
+        'Clic en la fila → ficha del lead con timeline y acciones.',
+    ] },
+    editor: { titulo: '📝 Plantillas y Campañas — Configuración del envío', pasos: [
+        'PASO 1 · PLANTILLA: crea el email y asígnale la categoría por objetivo (01 Prospección / 02 Seguimiento / 03 Respuestas). El paso se indica en el nombre (Paso 1, 2, 3…).',
+        'Activa 🧪 Test A/B/C para probar 3 asuntos y cuerpos. Cada lead recibe SIEMPRE la misma variante (determinística), así sabes qué ángulo le interesa.',
+        'Usa los tags {{CLUB}}, {{CONTACTO}}, {{FEDERACION}}, {{ANIO}} y {{SENDER_*}} en asunto y cuerpo.',
+        'PASO 2 · CAMPAÑA: nombre, identificador, estado, entorno, federaciones y plantillas. Guarda.',
+        'ESTADO vs ENTORNO: el ESTADO (DRAFT/PILOT/ACTIVE) es la fase — solo PILOT/ACTIVE pueden enviar (DRAFT no). El ENTORNO (TEST/PILOT/PRODUCTION) define con qué datos: TEST solo leads de prueba; PILOT/PRODUCTION van a clubes reales (operan con el motor en modo producción).',
+        'Cuando la campaña está ACTIVE, los campos de entorno/federaciones/plantillas se ocultan para no alterarla en marcha. Para cambiarlos, pásala a PILOT/DRAFT, guárdala y vuelve a ACTIVE.',
+        'PASO 3 · SECUENCIA (opcional): elige la campaña, crea la secuencia y define pasos (plantilla + espera en días + ramal A/B/C).',
+        'Modo 🟡 Asistido → el Paso 2/3 sale como sugerencia en Seguimiento; 🟢 Automático → el cron envía solo. El paso solo se dispara si el ramal coincide con el que el lead más abrió.',
+    ] },
+    smtp: { titulo: '⚙️ Ajustes — IA, correo y seguridad', pasos: [
+        'IA: elige proveedor (DeepSeek/OpenAI/Anthropic/Gemini/Mistral/Groq), API key y modelo. El "conocimiento de producto" mejora los borradores.',
+        'Cuentas SMTP: añade/edita cuentas, prueba conexión, activa/desactiva y define límite diario.',
+        'Seguridad: cambia la contraseña del panel y el email de recuperación.',
+        'Gestión de Pruebas: emails de prueba para verificar envíos sin tocar leads reales.',
+    ] },
+    lanza: { titulo: '🚀 Lanzadera — Envío masivo', pasos: [
+        '1) Campaña (obligatoria) · 2) Federación · 3) Estado del lead · 4) Plantilla de email.',
+        'Pulsa 🔵 Cargar Cola: se listan los candidatos con su cuenta SMTP asignada (round-robin) y hora estimada.',
+        'Configura el tamaño de lote y pulsa Iniciar: respeta el delay y los límites diarios por cuenta.',
+        'Desde Seguimiento puedes "Enviar a Lanzadera" una selección exacta (modo lote).',
+        'Monitorea el log: ✅ enviados / ❌ errores, con la cuenta utilizada.',
+    ] },
+    respuestas: { titulo: '📥 Bandeja — Respuestas clasificadas por IA', pasos: [
+        'Las respuestas entrantes se clasifican con IA: POSITIVE / NEGATIVE / NEUTRAL / UNSUBSCRIBE / OOO.',
+        'Clic en una conversación → visor con el hilo; reclasifica si la IA se equivoca (mueve el lead según el sentimiento).',
+        'Responder: redacta y envía con la cuenta SMTP original (incluye tracking).',
+        'La campana 🔔 del header muestra cuántas respuestas tienes sin atender.',
+    ] },
+    seguimiento: { titulo: '🎯 Seguimiento — Tu consola de decisiones', pasos: [
+        'Cola unificada: Semáforo (qué hacer) + Temperatura (interés) + Ramal (ángulo validado).',
+        'Vistas: Todos / 🌱 Calentar / 🎯 Perseguir / 🔥 Calientes (≥3 apert.) / 🤝 Cerrar / 🎨 Mockup / 🧾 Proforma / 📋 Secuencia.',
+        'Filtros: Federación, Estado, Variante e Interés (General / Identidad / Financiero).',
+        'Por fila: 🎯 Atender (modal IA con borrador editable), Ficha; en Secuencia: 📨 Enviar / 🗑️ Descartar.',
+        'Selección múltiple: marca checkboxes y usa "Enviar a Lanzadera" o "Programar próxima acción" en lote.',
+        'El semáforo tiene tooltip con el motivo (aperturas, vencida, mockup pendiente…).',
+    ] },
+    analytics: { titulo: '📊 Analytics — Rendimiento de campaña', pasos: [
+        'Elige la campaña: KPIs de envíos, entregados, aperturas, respuestas y PRR.',
+        'Embudo de conversión y comparativa A/B/C con la variante ganadora.',
+        'Clasificación IA de respuestas: positivas / negativas / neutrales / bajas.',
+    ] },
+    lista_negra: { titulo: '🚫 Lista Negra — Supresión', pasos: [
+        'Busca un lead y pulsa "Añadir a Lista Negra" (se guarda su estado anterior para poder restaurarlo).',
+        'Los leads suprimidos nunca vuelven a recibir envíos.',
+        '"Quitar de Lista Negra" restaura el estado anterior.',
+    ] },
+};
+
+// tutorApp — Widget de tutoría del topbar (junto a la campana): panel desplegable
+// con la guía del tab activo. Estado abierto/cerrado persistido.
+function tutorApp() {
+    return {
+        abierto: false,
+        init() {
+            try { this.abierto = localStorage.getItem('crm_tutor_open') === '1'; } catch (e) {}
+        },
+        get guia() {
+            const tab = (window.app && window.app.tab) || 'inicio';
+            return TUTORIA[tab] || TUTORIA.inicio;
+        },
+        toggle() {
+            this.abierto = !this.abierto;
+            try { localStorage.setItem('crm_tutor_open', this.abierto ? '1' : '0'); } catch (e) {}
+        },
+        cerrar() {
+            this.abierto = false;
+            try { localStorage.setItem('crm_tutor_open', '0'); } catch (e) {}
+        },
+    };
+}
 

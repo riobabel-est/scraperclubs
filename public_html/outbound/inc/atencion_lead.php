@@ -158,6 +158,20 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
     $lead = $charla['lead'];
     $ctx = atencion_contextoProducto($db);
 
+    // Ramal de interés: variante del test ABC con más aperturas del lead.
+    // Guía al LLM para CONTINUAR el mismo ángulo que el club ya validó.
+    $varianteDom = '';
+    $rV = $db->query(
+        "SELECT e.variant, COUNT(a.id) AS n FROM envios e
+         JOIN aperturas a ON a.tracking_id = e.tracking_id
+         WHERE LOWER(e.email) = LOWER('" . $db->escapeString($lead['email']) . "') AND COALESCE(e.es_test,0)=0
+           AND e.variant IS NOT NULL AND e.variant != ''
+         GROUP BY e.variant ORDER BY n DESC LIMIT 1"
+    );
+    if ($rV && ($fV = $rV->fetchArray(SQLITE3_ASSOC))) {
+        $varianteDom = (string)$fV['variant'];
+    }
+
     $contacto = $charla['contacto_real'];
     if ($contacto !== '') {
         $reglaSaludo = "Hay persona de contacto: {$contacto}. Usa su nombre en el saludo.";
@@ -196,6 +210,7 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
     $system = "Eres un redactor de ventas B2B de un software de gestión de clubes de fútbol (FutProtec)."
         . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO (úsalo como base):\n" . mb_substr($ctx, 0, 2000) : '')
         . "\n\nREGLA DE SALUDO: {$reglaSaludo}"
+        . ($varianteDom !== '' ? "\nRAMAL DE INTERÉS: el lead validó con sus aperturas el enfoque de la variante {$varianteDom} del test de prospección (A=General/Producto, B=Identidad/Cantera, C=Financiero/Rentabilidad). CONTINÚA exactamente esa misma línea argumental en este seguimiento: no cambies de tema ni mezcles ángulos." : '')
         . "\nRedacta un email de seguimiento comercial en español, profesional y cercano, máximo 120 palabras, que avance la conversación usando SOLO datos reales del historial (no inventes hechos)."
         . "\nResponde EXACTAMENTE con este formato de dos líneas:\nASUNTO: <texto>\nCUERPO: <texto>";
 

@@ -17,16 +17,6 @@
       </select>
     </div>
     <div>
-      <label class="block text-sm font-semibold text-slate-300 mb-1">Prioridad</label>
-      <select x-model="filtroPrioridad" @change="pagina=1"
-        class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
-        <option value="">Todas</option>
-        <option value="Alta">Alta</option>
-        <option value="Media">Media</option>
-        <option value="Baja">Baja</option>
-      </select>
-    </div>
-    <div>
       <label class="block text-sm font-semibold text-slate-300 mb-1">Estado</label>
       <select x-model="filtroEstado" @change="pagina=1"
         class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
@@ -44,10 +34,16 @@
         <option value="C">C</option>
       </select>
     </div>
-    <label class="flex items-center gap-2 pb-2 cursor-pointer">
-      <input type="checkbox" x-model="f.solo_alta" @change="pagina=1;load()" class="accent-amber-500">
-      <span class="text-sm text-slate-300">Solo alta</span>
-    </label>
+    <div>
+      <label class="block text-sm font-semibold text-slate-300 mb-1">Interés</label>
+      <select x-model="filtroInteres" @change="pagina=1"
+        class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+        <option value="">Todos</option>
+        <option value="General">General / Producto</option>
+        <option value="Identidad">Identidad / Cantera</option>
+        <option value="Financiero">Financiero / Rentabilidad</option>
+      </select>
+    </div>
     <button @click="pagina=1;load()" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition flex items-center gap-1.5">
       <i data-lucide="refresh-cw" class="w-4 h-4"></i> Refrescar
     </button>
@@ -62,6 +58,8 @@
       <select x-model="cola" @change="pagina=1" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
         <option value="todos">Todos</option>
         <option value="calentar">🌱 Calentar (1er toque)</option>
+        <option value="secuencia">📋 Secuencia pendiente</option>
+        <option value="calientes">🔥 Calientes sin responder (≥3 apert.)</option>
         <option value="perseguir">🎯 Perseguir (2º toque)</option>
         <option value="cerrar">🤝 Cerrar</option>
         <option value="mockup">🎨 Mockup</option>
@@ -77,13 +75,27 @@
       </span>
     </div>
 
+    <!-- Barra de acciones en lote (selección múltiple) — complementa el flujo lead a lead -->
+    <div x-show="seleccion.length > 0" x-cloak class="px-3 py-2 bg-slate-800/50 border-t border-slate-700/50 flex flex-wrap items-center gap-2">
+      <span class="text-xs font-semibold text-slate-200" x-text="seleccion.length + ' seleccionado(s)'"></span>
+      <button @click="enviarLanzaderaLote()" class="px-3 py-1.5 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold hover:bg-amber-500/25 transition flex items-center gap-1">
+        <i data-lucide="send" class="w-3.5 h-3.5"></i> Enviar a Lanzadera
+      </button>
+      <button @click="programarAccionLote()" class="px-3 py-1.5 bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold hover:bg-cyan-500/25 transition flex items-center gap-1">
+        <i data-lucide="calendar-clock" class="w-3.5 h-3.5"></i> Programar próxima acción
+      </button>
+      <button @click="limpiarSeleccion()" class="px-3 py-1.5 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-xs font-semibold hover:text-slate-100 transition ml-auto flex items-center gap-1">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i> Quitar selección
+      </button>
+    </div>
+
     <!-- Tabla operativa unificada (densificada) -->
     <div class="p-2 overflow-x-auto min-h-[240px]">
       <table class="w-full text-sm">
         <thead>
           <tr class="text-slate-400 uppercase tracking-wider border-b border-slate-800 text-xs">
+            <th class="px-2 py-2 text-left w-8"><input type="checkbox" :checked="seleccionTodos" @change="toggleSeleccionTodos()" class="w-4 h-4 accent-amber-500 rounded" title="Seleccionar todos los visibles"></th>
             <th class="px-2 py-2 text-left"><button @click="ordenar('sem')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='sem' ? 'text-amber-400' : ''">Semáforo <span x-show="sortKey==='sem'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
-            <th class="px-2 py-2 text-left"><button @click="ordenar('prioridad')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='prioridad' ? 'text-amber-400' : ''">Prioridad <span x-show="sortKey==='prioridad'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-left"><button @click="ordenar('tipo')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='tipo' ? 'text-amber-400' : ''">Acción <span x-show="sortKey==='tipo'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-left"><button @click="ordenar('nombre')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='nombre' ? 'text-amber-400' : ''">Club / Email <span x-show="sortKey==='nombre'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-left hidden md:table-cell"><button @click="ordenar('envio')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='envio' ? 'text-amber-400' : ''">Última acción <span x-show="sortKey==='envio'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
@@ -92,21 +104,19 @@
             <th class="px-2 py-2 text-right hidden md:table-cell"><button @click="ordenar('aperturas')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='aperturas' ? 'text-amber-400' : ''">Apert. <span x-show="sortKey==='aperturas'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-left hidden lg:table-cell"><button @click="ordenar('temperatura')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='temperatura' ? 'text-amber-400' : ''">Temp. <span x-show="sortKey==='temperatura'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-left hidden lg:table-cell"><button @click="ordenar('estado')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='estado' ? 'text-amber-400' : ''">Estado <span x-show="sortKey==='estado'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
-            <th class="px-2 py-2 text-center hidden lg:table-cell"><button @click="ordenar('variante')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='variante' ? 'text-amber-400' : ''">Variante <span x-show="sortKey==='variante'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
+            <th class="px-2 py-2 hidden lg:table-cell"><button @click="ordenar('variante')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='variante' ? 'text-amber-400' : ''">Variante / Interés <span x-show="sortKey==='variante'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-right">Acciones</th>
           </tr>
         </thead>
         <tbody>
           <template x-for="l in colaPaginada" :key="l.id">
             <tr class="border-b border-slate-800/40 hover:bg-slate-800/30">
+              <td class="px-2 py-1.5 w-8"><input type="checkbox" :checked="seleccion.includes(l.id)" @change="toggleSeleccion(l.id)" class="w-4 h-4 accent-amber-500 rounded"></td>
               <td class="px-2 py-1.5">
                 <span class="inline-flex items-center gap-1.5 whitespace-nowrap">
-                  <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" :class="semDot(l.sem)" :title="l.sem_label"></span>
-                  <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold" :class="semClase(l.sem)" x-text="l.sem_label"></span>
+                  <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" :class="semDot(l.sem)" :title="'Urgencia: ' + l.sem_label + '. ' + (l.motivo || '')"></span>
+                  <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold" :class="semClase(l.sem)" x-text="l.sem_label" :title="'Urgencia: ' + l.sem_label + '. ' + (l.motivo || '')"></span>
                 </span>
-              </td>
-              <td class="px-2 py-1.5">
-                <span class="px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap" :class="prioridadClase(l.prioridad)" x-text="l.prioridad"></span>
               </td>
               <td class="px-2 py-1.5">
                 <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap" :class="tipoClase(l.tipo)" x-text="tipoLabel(l.tipo)"></span>
@@ -138,10 +148,17 @@
               <td class="px-2 py-1.5 hidden lg:table-cell">
                 <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30" x-text="l.estado_lead"></span>
               </td>
-              <td class="px-2 py-1.5 text-center hidden lg:table-cell">
-                <span class="px-1.5 py-0.5 rounded text-xs font-semibold" :class="l.variante ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' : 'bg-slate-800 text-slate-500'" x-text="l.variante || '—'"></span>
+              <td class="px-2 py-1.5 hidden lg:table-cell">
+                <div class="flex items-center gap-1.5">
+                  <span class="px-1.5 py-0.5 rounded text-xs font-semibold" :class="l.variante ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' : 'bg-slate-800 text-slate-500'" x-text="l.variante || '—'"></span>
+                  <span class="text-xs text-slate-400 truncate max-w-[130px]" x-text="l.interes_etiqueta || ''" :title="l.interes_etiqueta || ''"></span>
+                </div>
               </td>
               <td class="px-2 py-1.5 text-right whitespace-nowrap">
+                <template x-if="l.tipo === 'secuencia'">
+                  <button @click="enviarSugerenciaSecuencia(l)" class="px-2 py-1 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold hover:bg-amber-500/25 transition mr-1" title="Aprobar y abrir borrador de la secuencia">📨 Enviar</button>
+                  <button @click="rechazarPropuesta({id: l.propuesta_id})" class="px-2 py-1 bg-rose-500/15 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold hover:bg-rose-500/25 transition mr-1" title="Descartar la sugerencia">🗑️ Descartar</button>
+                </template>
                 <button @click="abrirAtencion(l)" class="px-2 py-1 bg-violet-500/15 text-violet-400 border border-violet-500/30 rounded-lg text-xs font-semibold hover:bg-violet-500/25 transition mr-1">🎯 Atender</button>
                 <button @click="openFicha(l.id)" class="px-2 py-1 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-xs font-semibold hover:text-slate-100 transition">Ficha</button>
               </td>

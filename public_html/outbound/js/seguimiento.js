@@ -7,10 +7,11 @@ function seguimientoApp() {
         noRespondedores: [], sinProximaAccion: [], nuevosSinActividad: [], funnel: [],
         kpis: { no_respondedores: 0, sin_proxima_accion: 0, tasa_apertura: 0, tasa_respuesta: 0, mockups_pendientes: 0, presupuestos_pendientes: 0, pipeline_value: 0 },
         federaciones: [],
-        f: { busqueda: '', federacion: '', dias_min: 0, solo_alta: false },
+        f: { busqueda: '', federacion: '', dias_min: 0 },
         cola: 'todos', colaUnificada: [], cargando: false, error: '',
         sortKey: 'sem', sortDir: 'asc',
-        filtroPrioridad: '', filtroEstado: '', filtroVariante: '',
+        filtroEstado: '', filtroVariante: '', filtroInteres: '',
+        seleccion: [],
         pagina: 1, paginaSize: 50,
         propuestas: [],
         estadosPipeline: ['01 Sin Contactar', '02 Contactado', '03 En Conversación', '04 Propuesta', '05 Ganado', '06 Perdido', '07 Baja'],
@@ -24,7 +25,6 @@ function seguimientoApp() {
                 if (this.f.busqueda) params.append('busqueda', this.f.busqueda);
                 if (this.f.federacion) params.append('federacion', this.f.federacion);
                 if (this.f.dias_min > 0) params.append('dias_min', this.f.dias_min);
-                if (this.f.solo_alta) params.append('solo_alta', '1');
                 const r = await fetch('?action=get_seguimiento&' + params.toString());
                 const j = await r.json();
                 if (j.ok) {
@@ -81,6 +81,73 @@ function seguimientoApp() {
                 }
             } catch (e) { alert('Error de conexión al guardar la fecha.'); }
         },
+        // ─── Acciones en lote (selección múltiple) ──────────────────────────────
+        toggleSeleccion(id) {
+            const i = this.seleccion.indexOf(id);
+            if (i >= 0) this.seleccion.splice(i, 1); else this.seleccion.push(id);
+        },
+        get seleccionTodos() {
+            return this.colaPaginada.length > 0 && this.colaPaginada.every(l => this.seleccion.includes(l.id));
+        },
+        toggleSeleccionTodos() {
+            if (this.seleccionTodos) { this.seleccion = []; return; }
+            this.seleccion = this.colaPaginada.map(l => l.id);
+        },
+        limpiarSeleccion() { this.seleccion = []; },
+        async programarAccionLote() {
+            // Programa fecha_proxima_accion en lote para los leads seleccionados.
+            if (this.seleccion.length === 0) return;
+            const fecha = prompt('Fecha de próxima acción (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
+            if (!fecha) return;
+            const val = fecha + ' 00:00:00';
+            let ok = 0;
+            for (const id of this.seleccion.slice()) {
+                try {
+                    const f = new FormData();
+                    f.append('action', 'update_lead');
+                    f.append('id', id);
+                    f.append('field', 'fecha_proxima_accion');
+                    f.append('value', val);
+                    const r = await fetch('?action=update_lead', { method: 'POST', body: f });
+                    const j = await r.json();
+                    if (j.ok) ok++;
+                } catch (e) {}
+            }
+            alert('Próxima acción programada para ' + ok + ' lead(s).');
+            this.seleccion = [];
+            await this.load();
+        },
+        enviarLanzaderaLote() {
+            // Lleva los leads seleccionados a la Lanzadera y carga la cola con esa
+            // lista exacta (get_cola.php?ids=...). Mantiene el flujo lead a lead
+            // disponible vía Ficha/Atender.
+            if (this.seleccion.length === 0) return;
+            if (window.app && window.app.lzEnviarSeleccion) {
+                window.app.lzEnviarSeleccion(this.seleccion.slice());
+                this.seleccion = [];
+            } else {
+                alert('La Lanzadera no está disponible.');
+            }
+        },
+        async enviarSugerenciaSecuencia(l) {
+            // Aprueba la sugerencia (la quita de la cola pendiente) y abre el modal
+            // de atención con el borrador de la secuencia precargado para revisar y enviar.
+            if (!window.app) return;
+            if (l.propuesta_id) {
+                try {
+                    const f = new FormData();
+                    f.append('action', 'aprobar_propuesta');
+                    f.append('id', l.propuesta_id);
+                    await fetch('?action=aprobar_propuesta', { method: 'POST', body: f });
+                } catch (e) {}
+            }
+            await window.app.abrirAtencion(l);
+            if (l.mensaje_sugerido) {
+                const partes = String(l.mensaje_sugerido).split('\n\n');
+                window.app.emailAsunto = (partes[0] || '').replace(/^ASUNTO:\s*/i, '');
+                window.app.emailCuerpo = partes.slice(1).join('\n\n') || l.mensaje_sugerido;
+            }
+        },
         ordenar(key) {
             // Ordenación interactiva de las colas (Perseguir / Avanzar / Calentar).
             if (this.sortKey === key) {
@@ -93,14 +160,14 @@ function seguimientoApp() {
         },
         get colaFiltrada() {
             // Lista ÚNICA de trabajo: todas las colas juntas, con select de vista
-            // (todos / calentar / perseguir / cerrar / mockup / proforma / pausar / descartar).
+            // (todos / calentar / perseguir / calientes / cerrar / mockup / proforma / pausar / descartar).
             const datos = (this.colaUnificada || []).filter(l => this.cola === 'todos' || l.tipo === this.cola);
-            const fp = this.filtroPrioridad, fe = this.filtroEstado, fv = this.filtroVariante;
-            if (!fp && !fe && !fv) return datos;
+            const fe = this.filtroEstado, fv = this.filtroVariante, fi = this.filtroInteres;
+            if (!fe && !fv && !fi) return datos;
             return datos.filter(l => {
-                if (fp && l.prioridad !== fp) return false;
                 if (fe && l.estado_lead !== fe) return false;
                 if (fv && (l.variante || '') !== fv) return false;
+                if (fi && (l.interes || '') !== fi) return false;
                 return true;
             });
         },
@@ -111,7 +178,6 @@ function seguimientoApp() {
             const val = (l) => {
                 switch (key) {
                     case 'sem':         return { rojo: 0, ambar: 1, verde: 2 }[l.sem] ?? 1;
-                    case 'prioridad':   return ['Alta', 'Media', 'Baja'].indexOf(l.prioridad);
                     case 'tipo':        return (l.tipo || '');
                     case 'nombre':      return (l.nombre_club || '').toLowerCase();
                     case 'contacto':    return (l.persona_contacto || '').toLowerCase();
@@ -140,11 +206,6 @@ function seguimientoApp() {
         get inicioPaginado() { return this.colaTotal === 0 ? 0 : (this.pagina - 1) * this.paginaSize + 1; },
         get finPaginado()    { return Math.min(this.pagina * this.paginaSize, this.colaTotal); },
         get colaPaginada()   { return this.colaOrdenada.slice(this.inicioPaginado - 1, this.finPaginado); },
-        prioridadClase(pri) {
-            return pri === 'Alta' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                : (pri === 'Media' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                : 'bg-slate-700 text-slate-400 border border-slate-600');
-        },
         semClase(sem) {
             return sem === 'rojo' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
                 : sem === 'ambar' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
@@ -211,10 +272,10 @@ function seguimientoApp() {
             } catch (e) {}
         },
         tipoClase(t) {
-            return ({ perseguir: 'bg-amber-500/15 text-amber-400 border border-amber-500/30', calentar: 'bg-sky-500/15 text-sky-400 border border-sky-500/30', cerrar: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30', mockup: 'bg-purple-500/15 text-purple-400 border border-purple-500/30', proforma: 'bg-violet-500/15 text-violet-400 border border-violet-500/30', pausar: 'bg-slate-700 text-slate-400 border border-slate-600', descartar: 'bg-rose-500/15 text-rose-400 border border-rose-500/30' }[t] || 'bg-slate-700 text-slate-400');
+            return ({ perseguir: 'bg-amber-500/15 text-amber-400 border border-amber-500/30', calientes: 'bg-orange-500/15 text-orange-400 border border-orange-500/30', calentar: 'bg-sky-500/15 text-sky-400 border border-sky-500/30', cerrar: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30', mockup: 'bg-purple-500/15 text-purple-400 border border-purple-500/30', proforma: 'bg-violet-500/15 text-violet-400 border border-violet-500/30', secuencia: 'bg-amber-500/15 text-amber-400 border border-amber-500/30', pausar: 'bg-slate-700 text-slate-400 border border-slate-600', descartar: 'bg-rose-500/15 text-rose-400 border border-rose-500/30' }[t] || 'bg-slate-700 text-slate-400');
         },
         tipoLabel(t) {
-            return ({ perseguir: '🎯 Perseguir', calentar: '🌱 Calentar', cerrar: '🤝 Cerrar', mockup: '🎨 Mockup', proforma: '🧾 Proforma', pausar: '⏸️ Pausar', descartar: '🗑️ Descartar' }[t] || t);
+            return ({ perseguir: '🎯 Perseguir', calientes: '🔥 Caliente (alta apertura)', calentar: '🌱 Calentar', cerrar: '🤝 Cerrar', mockup: '🎨 Mockup', proforma: '🧾 Proforma', secuencia: '📋 Secuencia', pausar: '⏸️ Pausar', descartar: '🗑️ Descartar' }[t] || t);
         },
     };
 }

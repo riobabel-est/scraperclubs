@@ -57,6 +57,9 @@ $varianteAb = strtoupper($_POST['variante_ab'] ?? 'A');
 if (!in_array($varianteAb, ['A', 'B', 'C'], true)) {
     $varianteAb = 'A';
 }
+// Rotación ABC: el sistema calcula la variante siguiente (A→B→C→A) y la fuerza
+// aquí (como en modo test); el envío de rotación respeta esa variante.
+$esRotacion = (($_POST['es_rotacion'] ?? '0') === '1') ? 1 : 0;
 
 // ─── Validación de campaña (existencia + estado + activo + entorno) ──────
 // Política ÚNICA compartida con P3 (cron.php). SIN debilitamientos: se aplica
@@ -82,7 +85,7 @@ try {
 //   un retry/reanudación nunca cambie la variante.
 // - PRUEBA (modo_test): respeta la variante explícita A/B/C elegida en la UI,
 //   de modo que "Enviar correos de prueba" entregue las 3 variantes distintas.
-$varianteUsada = $modoTest ? $varianteAb : asignarVariante($idClub, $idCampana);
+$varianteUsada = ($modoTest || $esRotacion === 1) ? $varianteAb : asignarVariante($idClub, $idCampana);
 
 // ─── VALIDAR ─────────────────────────────────────────────────────────────────
 try {
@@ -286,7 +289,8 @@ try {
         ($campaignIdParaReserva > 0) ? $varianteUsada : $varianteAb,
         $idPlantilla,
         $idSmtp,
-        $modoTest ? 1 : 0
+        $modoTest ? 1 : 0,
+        $esRotacion
     );
 
 

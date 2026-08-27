@@ -84,7 +84,7 @@
 <label class="text-xs text-slate-400 uppercase tracking-wider font-semibold">WhatsApp</label>
 <div class="bg-slate-800 border rounded-lg px-3 py-2.5 flex items-center gap-3" :class="waLink ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-slate-700'">
 <div class="flex items-center gap-2"><input type="checkbox" x-model="ld.tiene_whatsapp" @change="markChanged()" class="w-4 h-4 accent-amber-500 rounded"><label class="text-sm text-slate-300 cursor-pointer select-none">WhatsApp</label></div>
-<a :href="waLink" x-show="waLink" target="_blank" class="px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 ml-auto" :class="waLink ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30' : 'bg-slate-700 text-slate-400 cursor-not-allowed'"><i data-lucide="message-circle" class="w-4 h-4"></i> Enviar WA</a>
+<a :href="waLink" x-show="waLink" target="_blank" @click="registrarWhatsApp()" class="px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 ml-auto" :class="waLink ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30' : 'bg-slate-700 text-slate-400 cursor-not-allowed'"><i data-lucide="message-circle" class="w-4 h-4"></i> Enviar WA</a>
 <span x-show="!waLink" class="text-xs text-slate-400 ml-auto">Sin numero valido</span>
 </div>
 </div>

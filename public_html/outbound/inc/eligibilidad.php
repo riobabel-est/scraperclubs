@@ -291,11 +291,14 @@ function reservarEnvioLogico(
     ?string $variant = null,
     ?int $plantillaId = null,
     ?int $smtpId = null,
-    int $esTest = 0
+    int $esTest = 0,
+    int $esRotacion = 0
 ): array {
     // INMUTABILIDAD: para campaña real la variante es determinística e
     // independiente del valor que pase el llamador (impide random por envío).
-    if ($campaignId > 0) {
+    // EXCEPCIÓN: envíos de ROTACIÓN ABC (es_rotacion=1) — la variante rotada la
+    // calcula el sistema (A→B→C→A) y debe respetarse tal cual.
+    if ($campaignId > 0 && $esRotacion === 0) {
         $variant = asignarVariante($leadId, $campaignId);
     }
 
@@ -303,14 +306,16 @@ function reservarEnvioLogico(
     $messageId = generarMessageIdEnvio($trackingId, $cuentaEmision);
 
     if ($campaignId > 0) {
-        // Reserva idempotente: solo una fila (lead_id, campaign_id) con campaign no nulo.
+        // Reserva idempotente: solo una fila (lead_id, campaign_id, es_rotacion)
+        // con campaign no nulo (el índice único incluye es_rotacion, por lo que
+        // el envío base y el de rotación conviven sin colisionar).
         insertarEnvioLogico($db, $club, $email, $federacion, $cuentaEmision, $trackingId,
-            $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, true);
+            $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, true, $esRotacion);
         if ($db->changes() > 0) {
             return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
         }
         // Ya existe: devolver la fila existente (no crear segundo envío lógico).
-        $row = getEnvioLogicoExistente($db, $leadId, $campaignId);
+        $row = getEnvioLogicoExistente($db, $leadId, $campaignId, $esRotacion);
         if ($row) {
             return ['id' => (int)$row['id'], 'nuevo' => false, 'estado' => (string)$row['estado']];
         }
@@ -319,7 +324,7 @@ function reservarEnvioLogico(
 
     // Sin campaña (legacy/test): insert directo.
     insertarEnvioLogico($db, $club, $email, $federacion, $cuentaEmision, $trackingId,
-        $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, false);
+        $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, false, $esRotacion);
 
     return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
 }
@@ -344,14 +349,15 @@ function insertarEnvioLogico(
     ?int $smtpId,
     string $messageId,
     int $esTest,
-    bool $ignore = false
+    bool $ignore = false,
+    int $esRotacion = 0
 ): void {
     $sql = ($ignore ? 'INSERT OR IGNORE INTO envios' : 'INSERT INTO envios')
         . " (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje,
-            lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, es_test)
+            lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, es_test, es_rotacion)
          VALUES
             (:club, :email, :fed, :cuenta, 'pendiente', :tid, :asunto, :cuerpo,
-             :lid, :cid, :variant, :pid, :sid, :mid, :estest)";
+             :lid, :cid, :variant, :pid, :sid, :mid, :estest, :esrot)";
     $stmt = $db->prepare($sql);
     $stmt->bindValue(':club',  $club,  SQLITE3_TEXT);
     $stmt->bindValue(':email', $email, SQLITE3_TEXT);
@@ -367,6 +373,7 @@ function insertarEnvioLogico(
     $stmt->bindValue(':sid',   $smtpId, SQLITE3_INTEGER);
     $stmt->bindValue(':mid',   $messageId, SQLITE3_TEXT);
     $stmt->bindValue(':estest', $esTest, SQLITE3_INTEGER);
+    $stmt->bindValue(':esrot', $esRotacion, SQLITE3_INTEGER);
     $stmt->execute();
 }
 
@@ -374,13 +381,13 @@ function insertarEnvioLogico(
  * Acceso a datos: fila del envío lógico existente para (lead, campaña)
  * (refactor §6.3).
  */
-function getEnvioLogicoExistente(SQLite3 $db, int $leadId, int $campaignId): ?array
+function getEnvioLogicoExistente(SQLite3 $db, int $leadId, int $campaignId, int $esRotacion = 0): ?array
 {
     if ($leadId <= 0 || $campaignId <= 0) {
         return null;
     }
     $row = $db->querySingle(
-        "SELECT id, estado FROM envios WHERE lead_id = {$leadId} AND campaign_id = {$campaignId} ORDER BY id DESC LIMIT 1",
+        "SELECT id, estado FROM envios WHERE lead_id = {$leadId} AND campaign_id = {$campaignId} AND es_rotacion = {$esRotacion} ORDER BY id DESC LIMIT 1",
         true
     );
     return $row ?: null;

@@ -8,6 +8,9 @@
 
 declare(strict_types=1);
 
+// Cliente LLM multi-proveedor para el Asistente IA de plantillas.
+require_once __DIR__ . '/../inc/llm.php';
+
 // ─── save_template ───────────────────────────────────────────────────────────
 if ($action === 'save_template') {
     header('Content-Type: application/json');
@@ -93,7 +96,10 @@ if ($action === 'get_templates') {
         }
         $params[':cat'] = $cat;
     }
-    $sql .= " ORDER BY fecha_creacion DESC";
+    // Orden de gestión (2026-08-26): primero las categorías numeradas
+    // (01 Prospección → 02 Seguimiento → 03 Respuestas), después las genéricas;
+    // dentro de cada grupo, por nombre alfabético.
+    $sql .= " ORDER BY (categoria = '') ASC, categoria COLLATE NOCASE ASC, nombre COLLATE NOCASE ASC";
     $stmt = $db->prepare($sql);
     foreach ($params as $k => $v) { $stmt->bindValue($k, $v, SQLITE3_TEXT); }
     $res = $stmt->execute();
@@ -167,6 +173,72 @@ if ($action === 'preview_template') {
         echo json_encode(['ok' => true, 'asunto' => $asunto, 'cuerpo' => $cuerpo, 'tipo' => $tpl['tipo']]);
     } else {
         echo json_encode(['ok' => false, 'error' => 'No encontrado']);
+    }
+    exit;
+}
+
+// ─── generar_plantilla_ia ─────────────────────────────────────────────────────
+// Asistente IA para crear emails en el editor de plantillas.
+// Reutiliza llm_chat (multi-proveedor de Ajustes → IA) + conocimiento de producto.
+// Devuelve {asunto, cuerpo} o {variantes: [A,B,C]} según el parámetro variantes.
+if ($action === 'generar_plantilla_ia') {
+    header('Content-Type: application/json; charset=utf-8');
+    $categoria   = trim($_POST['categoria'] ?? '');
+    $ramal       = trim($_POST['ramal'] ?? '');
+    $tono        = trim($_POST['tono'] ?? 'profesional');
+    $longitud    = trim($_POST['longitud'] ?? 'media');
+    $instruccion = trim($_POST['instruccion'] ?? '');
+    $variantes   = (($_POST['variantes'] ?? '0') === '1');
+
+    $ctx = trim((string)$db->querySingle("SELECT valor FROM config WHERE clave = 'ia_conocimiento_producto'") ?? '');
+
+    $mapaRama = [
+        'general'    => 'General / Producto (presentación del producto y sus ventajas)',
+        'identidad'  => 'Identidad / Cantera (escudo, colores del club, orgullo de los jugadores, categorías base)',
+        'financiero' => 'Financiero / Rentabilidad (precio por unidad, diferencia, sin pedido mínimo)',
+    ];
+    $enfoque = $mapaRama[$ramal] ?? 'Equilibrado (combina beneficios del producto y cercanía con el club)';
+
+    $maxPalabras = ['corta' => 60, 'media' => 110, 'larga' => 180][$longitud] ?? 110;
+    $tonoDesc = ['profesional' => 'profesional y cercano', 'cercano' => 'cercano y natural', 'directo' => 'directo y conciso', 'formal' => 'formal e institucional'][$tono] ?? 'profesional y cercano';
+
+    $system = "Eres un redactor de ventas B2B de un software de gestión de clubes de fútbol (FutProtec)."
+        . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO (úsalo como base, no inventes datos):\n" . mb_substr($ctx, 0, 2000) : '')
+        . "\n\nREGLA: Escribe en español, tono {$tonoDesc}, máximo {$maxPalabras} palabras. Usa los placeholders {{CLUB}}, {{CONTACTO}}, {{FEDERACION}} y {{ANIO}} donde corresponda. No inventes precios, cifras ni hechos. El email debe ser accionable (una sola llamada a la acción).";
+
+    $user = "Crea un email de la categoría '{$categoria}' con el enfoque: {$enfoque}."
+        . ($instruccion !== '' ? " Requisitos adicionales: {$instruccion}." : '')
+        . ($variantes
+            ? "\n\nGenera 3 variantes (A, B, C) con enfoques ligeramente distintos. Formato EXACTO:\nVARIANTE A\nASUNTO: <texto>\nCUERPO: <texto>\n\nVARIANTE B\nASUNTO: <texto>\nCUERPO: <texto>\n\nVARIANTE C\nASUNTO: <texto>\nCUERPO: <texto>"
+            : "\n\nFormato EXACTO de respuesta (dos líneas):\nASUNTO: <texto>\nCUERPO: <texto>");
+
+    $texto = llm_chat($db, $system, $user, 1400, 0.6);
+    if ($texto === null) {
+        echo json_encode(['ok' => false, 'error' => 'No hay API key de IA configurada. Ve a Ajustes → Inteligencia Artificial.']);
+        exit;
+    }
+
+    if ($variantes) {
+        $resultado = [];
+        foreach (['A', 'B', 'C'] as $letra) {
+            if (preg_match('/VARIANTE\s+' . $letra . '\s*\n(ASUNTO:\s*[^\n]*\nCUERPO:\s*[\s\S]*?)(?=\nVARIANTE|\z)/i', $texto, $m)) {
+                $as = ''; $cu = '';
+                if (preg_match('/ASUNTO:\s*(.*)/i', $m[1], $a)) $as = trim($a[1]);
+                if (preg_match('/CUERPO:\s*([\s\S]*)$/i', $m[1], $c)) $cu = trim($c[1]);
+                $resultado[] = ['asunto' => $as, 'cuerpo' => $cu];
+            }
+        }
+        if (count($resultado) === 3) {
+            echo json_encode(['ok' => true, 'variantes' => $resultado]);
+        } else {
+            echo json_encode(['ok' => false, 'error' => 'No se pudo estructurar 3 variantes. Inténtalo de nuevo.']);
+        }
+    } else {
+        $asunto = ''; $cuerpo = '';
+        if (preg_match('/ASUNTO:\s*(.*)/i', $texto, $m)) $asunto = trim($m[1]);
+        if (preg_match('/CUERPO:\s*([\s\S]*)$/i', $texto, $m)) $cuerpo = trim($m[1]);
+        if ($asunto === '' && $cuerpo === '') $cuerpo = $texto;
+        echo json_encode(['ok' => true, 'asunto' => $asunto, 'cuerpo' => $cuerpo]);
     }
     exit;
 }

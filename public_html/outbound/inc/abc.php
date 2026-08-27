@@ -34,6 +34,23 @@ function asignarVariante(int $leadId, int $campaignId): string
 }
 
 /**
+ * ROTACIÓN ABC para no abridores: devuelve la SIGUIENTE variante en la rueda
+ * A→B→C→A. Usada por la "secuencia de rotación" para reenviar con otro ángulo
+ * a los leads que NO abrieron el email anterior (máx. según secuencia).
+ *
+ * @return string 'A' | 'B' | 'C'
+ */
+function siguienteVariante(string $actual): string
+{
+    $actual = strtoupper(trim($actual));
+    if (!in_array($actual, ['A', 'B', 'C'], true)) {
+        $actual = 'A';
+    }
+    $rueda = ['A' => 'B', 'B' => 'C', 'C' => 'A'];
+    return $rueda[$actual];
+}
+
+/**
  * Resuelve asunto/cuerpo concretos para una variante a partir de una plantilla.
  * Centraliza la lógica que antes estaba duplicada en los motores.
  *

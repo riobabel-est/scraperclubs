@@ -88,6 +88,11 @@ x-text="edPlataforma==='whatsapp'?'💬 WhatsApp':'📧 Email'"></span>
 </div>
         <div class="flex items-center gap-2">
             <span class="text-xs text-slate-400" x-text="edNombre||'(nueva)'"></span>
+            <button @click="abrirAsistente()" type="button"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition border flex items-center gap-1.5 bg-violet-500/20 text-violet-400 border-violet-500/30 hover:bg-violet-500/30" title="Genera el email con IA y rellena este formulario">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                <span>Asistente IA</span>
+            </button>
             <button @click="pvLive = !pvLive; if(pvLive){ renderLivePreview(); }" type="button"
                 class="px-3 py-1.5 rounded-lg text-xs font-semibold transition border flex items-center gap-1.5"
                 :class="pvLive ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'">
@@ -309,13 +314,16 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
                     <input type="text" x-model="form.identificador" placeholder="Ej: CAMPA3"
                         class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
                 </div>
-                <div>
+                <div x-show="form.estado !== 'ACTIVE'">
                     <label class="block text-sm font-semibold text-slate-300 mb-1.5">Entorno</label>
                     <select x-model="form.entorno" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
                         <option value="test">TEST</option>
                         <option value="pilot">PILOT</option>
-                        <option value="produccion">Producción</option>
+                        <option value="production">PRODUCTION</option>
                     </select>
+                    <!-- Aviso según el entorno -->
+                    <p x-show="form.entorno === 'test'" class="text-xs text-amber-400 mt-1">🧪 Solo leads de PRUEBA — nunca saldrá a clubes reales.</p>
+                    <p x-show="form.entorno !== 'test'" class="text-xs text-emerald-400 mt-1">🌐 Campaña REAL — se enviará a clubes reales (excluye leads de prueba).</p>
                 </div>
                 <div>
                     <label class="block text-sm font-semibold text-slate-300 mb-1.5">Estado</label>
@@ -334,8 +342,19 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
                 </div>
             </div>
 
+            <!-- Aviso condicional según el estado de la campaña -->
+            <div x-show="form.estado === 'DRAFT'" class="rounded-lg px-3 py-2 text-sm bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                📝 <strong>Borrador</strong> — aún no se puede enviar. Configúrala y pásala a <strong>PILOT</strong> o <strong>ACTIVE</strong> para operarla.
+            </div>
+            <div x-show="form.estado === 'PILOT'" class="rounded-lg px-3 py-2 text-sm bg-sky-500/10 text-sky-400 border border-sky-500/30">
+                🚀 <strong>PILOT</strong> — campaña operable en modo producción (leads reales). Revisa que segmento y plantillas sean los correctos antes de activar el motor.
+            </div>
+            <div x-show="form.estado === 'ACTIVE'" class="rounded-lg px-3 py-2 text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                ✅ <strong>ACTIVE</strong> — campaña en marcha. Para evitar cambios accidentales, los campos de <strong>entorno, federaciones y plantillas</strong> quedan ocultos. Si necesitas modificarlos, pasa la campaña a PILOT o DRAFT, guárdala y vuelve a ACTIVE.
+            </div>
+
             <!-- Federaciones del público (pill-tags con :checked) -->
-            <div>
+            <div x-show="form.estado !== 'ACTIVE'">
                 <div class="flex items-center justify-between mb-1.5">
                     <label class="block text-sm font-semibold text-slate-300">Federaciones del público</label>
                     <div class="flex gap-3 text-xs" x-show="!form.todas && federaciones.length > 0">
@@ -360,7 +379,7 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
             </div>
 
             <!-- Plantillas asignadas (chips removibles + selector) -->
-            <div>
+            <div x-show="form.estado !== 'ACTIVE'">
                 <label class="block text-sm font-semibold text-slate-300 mb-1.5">Plantillas asignadas (banco central)</label>
                 <div class="flex flex-wrap gap-1.5 mb-2" x-show="form.plantillas.length > 0">
                     <template x-for="t in plantillas.filter(x => form.plantillas.map(id => String(id)).includes(String(x.id)))" :key="t.id">
@@ -393,4 +412,212 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
             </div>
         </div>
     </div>
+
+
+<!-- ═══════════ CONFIGURADOR DE SECUENCIAS (O-1 — ramificación por ramal ABC) ═══════════ -->
+<div class="mt-4 bg-slate-900 border border-slate-800 rounded-xl p-4" x-data="secuenciaConfig()" x-init="cargar()">
+  <div class="flex items-center gap-2 mb-3 flex-wrap">
+    <i data-lucide="git-branch" class="w-5 h-5 text-amber-400"></i>
+    <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Secuencia de Seguimiento</h5>
+    <span class="text-xs text-slate-400 ml-auto">El Paso 2/3 sigue el ángulo (ramal ABC) que el lead validó con sus aperturas</span>
+  </div>
+
+  <!-- Selector campaña + nueva -->
+  <div class="flex items-end gap-3 mb-3 flex-wrap">
+    <div class="min-w-[240px] flex-1">
+      <label class="block text-sm font-semibold text-slate-300 mb-1">Campaña</label>
+      <select x-model="campaignId" @change="cargarSecuencias()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+        <option value="0">— Seleccionar campaña —</option>
+        <template x-for="c in campanas" :key="c.id"><option :value="c.id" x-text="(c.identificador || c.nombre || 'Campaña ' + c.id)"></option></template>
+      </select>
+    </div>
+    <button @click="nuevaSecuencia()" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition flex items-center gap-1.5">
+      <i data-lucide="plus" class="w-4 h-4"></i> Nueva secuencia
+    </button>
+  </div>
+
+  <!-- Lista de secuencias -->
+  <div class="space-y-2 mb-3" x-show="secuencias.length > 0">
+    <template x-for="s in secuencias" :key="s.id">
+      <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3 cursor-pointer" @click="editar(s)">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-sm font-semibold text-slate-200" x-text="s.nombre"></span>
+          <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold" :class="s.modo_auto == 1 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'" x-text="s.modo_auto == 1 ? '🟢 Automático' : '🟡 Asistido'"></span>
+          <span class="text-xs text-slate-400" x-text="'Paso(s): ' + s.pasos.length"></span>
+          <button @click.stop="eliminar(s)" class="ml-auto px-2 py-1 bg-rose-500/15 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold hover:bg-rose-500/25 transition">Eliminar</button>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Formulario -->
+  <div x-show="formVisible" x-cloak class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3 space-y-3">
+    <div class="grid sm:grid-cols-3 gap-3">
+      <div>
+        <label class="block text-sm font-semibold text-slate-300 mb-1">Nombre</label>
+        <input type="text" x-model="edit.nombre" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-300 mb-1">Modo</label>
+        <select x-model="edit.modo_auto" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+          <option :value="0">🟡 Asistido (sugerencias en Seguimiento)</option>
+          <option :value="1">🟢 Automático (el cron envía solo)</option>
+        </select>
+      </div>
+      <div class="flex items-end">
+        <button @click="addPaso()" class="px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg text-sm font-semibold hover:bg-blue-500/30 transition flex items-center gap-1.5">
+          <i data-lucide="plus" class="w-4 h-4"></i> Añadir paso
+        </button>
+      </div>
+    </div>
+
+    <!-- Pasos -->
+    <div class="space-y-2">
+      <template x-for="(p, idx) in edit.pasos" :key="idx">
+        <div class="grid grid-cols-12 gap-2 items-end bg-slate-900/60 border border-slate-700/50 rounded-lg p-2">
+          <div class="col-span-1">
+            <label class="block text-xs text-slate-400 mb-1">Paso</label>
+            <input type="number" x-model.number="p.paso" min="1" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200">
+          </div>
+          <div class="col-span-4">
+            <label class="block text-xs text-slate-400 mb-1">Plantilla</label>
+            <select x-model.number="p.plantilla_id" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200">
+              <option value="0">— Plantilla —</option>
+              <template x-for="t in plantillas" :key="t.id"><option :value="t.id" x-text="t.nombre"></option></template>
+            </select>
+          </div>
+          <div class="col-span-2">
+            <label class="block text-xs text-slate-400 mb-1">Espera (días)</label>
+            <input type="number" x-model.number="p.espera_dias" min="0" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200">
+          </div>
+          <div class="col-span-2">
+            <label class="block text-xs text-slate-400 mb-1">Ramal</label>
+            <select x-model="p.ramal" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200">
+              <option value="">Todos</option>
+              <option value="A">A · General</option>
+              <option value="B">B · Identidad</option>
+              <option value="C">C · Financiero</option>
+            </select>
+          </div>
+          <div class="col-span-2">
+            <label class="block text-xs text-slate-400 mb-1">Activo</label>
+            <select x-model.number="p.activo" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200">
+              <option :value="1">Sí</option>
+              <option :value="0">No</option>
+            </select>
+          </div>
+          <div class="col-span-1 flex justify-end">
+            <button @click="removePaso(idx)" class="px-2 py-1.5 bg-rose-500/15 text-rose-400 rounded text-xs" title="Quitar paso"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+          </div>
+        </div>
+      </template>
+      <p x-show="edit.pasos.length === 0" class="text-xs text-slate-400">Añade al menos el Paso 1 (prospección). Los pasos 2/3 se disparan por ramal tras la espera.</p>
+    </div>
+
+    <!-- 🔄 Rotación ABC para no abridores -->
+    <div class="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 space-y-3">
+      <div class="flex items-start gap-2.5">
+        <input type="checkbox" x-model.number="edit.rotar_no_abridores" id="rotar_abc" class="mt-1 w-4 h-4 accent-amber-500">
+        <div>
+          <label for="rotar_abc" class="block text-sm font-semibold text-amber-400">🔄 Rotación ABC para no abridores</label>
+          <p class="text-xs text-slate-400 mt-0.5">Si el lead NO abrió su último email, la Lanzadera prepara un reenvío con la SIGUIENTE variante (A→B→C→A) para captar su atención con otro ángulo. Tú confirmas el envío: el sistema solo lo deja listo, nunca lo envía solo.</p>
+        </div>
+      </div>
+      <div x-show="edit.rotar_no_abridores" class="grid sm:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Espera sin apertura (días)</label>
+          <input type="number" x-model.number="edit.rotar_espera_dias" min="1" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Máx. envíos por lead</label>
+          <input type="number" x-model.number="edit.rotar_max_envios" min="2" max="3" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200">
+          <p class="text-xs text-slate-500 mt-0.5">Tras el máximo sin abrir → se deja de contactar.</p>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Plantilla del reenvío</label>
+          <select x-model.number="edit.rotar_plantilla_id" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200">
+            <option :value="0">— Usar la del Paso 1 —</option>
+            <template x-for="t in plantillas" :key="t.id"><option :value="t.id" x-text="t.nombre"></option></template>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-700/50">
+      <span x-show="msg" class="text-sm" :class="msgOk ? 'text-emerald-400' : 'text-rose-400'" x-text="msg"></span>
+      <button @click="guardar()" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition flex items-center gap-1.5">
+        <i data-lucide="save" class="w-4 h-4"></i> Guardar secuencia
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ ASISTENTE IA DE PLANTILLAS (modal) ═══════════ -->
+<div x-show="iaTplOpen" x-cloak @click.self="iaTplOpen=false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+  <div class="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden">
+    <div class="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
+      <i data-lucide="sparkles" class="w-5 h-5 text-amber-400"></i>
+      <span class="text-base font-semibold text-slate-100">Asistente IA de Plantillas</span>
+      <span class="text-xs text-slate-400 ml-auto">Genera y rellena este formulario</span>
+      <button @click="iaTplOpen=false" class="ml-1 p-1 rounded hover:bg-slate-800 transition" title="Cerrar"><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
+    <div class="p-4 space-y-3 overflow-y-auto">
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-semibold text-slate-300 mb-1">Categoría</label>
+          <select x-model="iaTpl.categoria" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
+            <option value="01 Prospección">01 Prospección</option>
+            <option value="02 Seguimiento">02 Seguimiento</option>
+            <option value="03 Respuestas">03 Respuestas</option>
+            <option value="">Sin categoría (genérica)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-300 mb-1">Ángulo (ramal)</label>
+          <select x-model="iaTpl.ramal" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
+            <option value="">Equilibrado</option>
+            <option value="general">A · General / Producto</option>
+            <option value="identidad">B · Identidad / Cantera</option>
+            <option value="financiero">C · Financiero / Rentabilidad</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-300 mb-1">Tono</label>
+          <select x-model="iaTpl.tono" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
+            <option value="profesional">Profesional</option>
+            <option value="cercano">Cercano</option>
+            <option value="directo">Directo</option>
+            <option value="formal">Formal</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-300 mb-1">Longitud</label>
+          <select x-model="iaTpl.longitud" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
+            <option value="corta">Corta (~60 palabras)</option>
+            <option value="media" selected>Media (~110 palabras)</option>
+            <option value="larga">Larga (~180 palabras)</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-300 mb-1">Instrucción adicional (opcional)</label>
+        <textarea x-model="iaTpl.instruccion" rows="3" placeholder="Ej: menciona que no hay pedido mínimo, enfatiza el escudo del club, haz una pregunta de respuesta sí/no..." class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/50"></textarea>
+      </div>
+      <div x-show="iaTplMsg" class="text-sm rounded-lg px-3 py-2" :class="iaTplMsgOk ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'" x-text="iaTplMsg"></div>
+    </div>
+    <div class="flex items-center justify-end gap-3 px-4 py-3 border-t border-slate-800">
+      <button @click="generarPlantillaIA(true)" :disabled="iaTplGenerando" class="px-4 py-2 bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded-lg text-sm font-semibold hover:bg-purple-500/30 transition disabled:opacity-50 flex items-center gap-1.5">
+        <i data-lucide="shuffle" class="w-4 h-4"></i>
+        <span x-show="!iaTplGenerando">Generar A/B/C</span>
+        <span x-show="iaTplGenerando">Generando…</span>
+      </button>
+      <button @click="generarPlantillaIA(false)" :disabled="iaTplGenerando" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-sm font-semibold hover:bg-amber-500/30 transition disabled:opacity-50 flex items-center gap-1.5">
+        <i data-lucide="sparkles" class="w-4 h-4"></i>
+        <span x-show="!iaTplGenerando">✨ Generar</span>
+        <span x-show="iaTplGenerando">Generando…</span>
+      </button>
+    </div>
+  </div>
+</div>
 

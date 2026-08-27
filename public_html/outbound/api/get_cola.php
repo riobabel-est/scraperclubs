@@ -37,7 +37,20 @@ $tieneWhatsapp = ($_GET['habilitar_whatsapp'] ?? '0') === '1';
 $idTplEmail    = (int)($_GET['id_plantilla_email'] ?? 0);
 $idTplWa       = (int)($_GET['id_plantilla_wa'] ?? 0);
 $randomMode    = ($_GET['random_mode'] ?? '0') === '1';  // 🎲 anti-detección
+$esRotacion    = ($_GET['rotacion'] ?? '0') === '1';     // 🔄 rotación ABC para no abridores
 $idCampana     = (int)($_GET['campaign_id'] ?? $_GET['id_campana'] ?? 0);
+
+// Selección manual desde Seguimiento (acciones en lote): lista de IDs exactos.
+// Cuando vienen IDs, se ignoran los filtros de estado/federación (el comercial
+// seleccionó la lista concreta de leads).
+$idsSeleccion = [];
+$idsRaw = trim($_GET['ids'] ?? '');
+if ($idsRaw !== '') {
+    foreach (explode(',', $idsRaw) as $v) {
+        $v = (int)$v;
+        if ($v > 0) { $idsSeleccion[] = $v; }
+    }
+}
 
 // ─── VALIDAR DATOS DE ENTRADA ────────────────────────────────────────────────
 try {
@@ -90,11 +103,88 @@ try {
               }, $estadosSupresion)) . "')";
 
 
+    // ─── 3b. MODO ROTACIÓN ABC (rotacion=1) ───────────────────────────────────
+    // Cola preparada para reenviar con la SIGUIENTE variante (A→B→C→A) a los
+    // leads que NO abrieron su último email y aún tienen intentos disponibles.
+    // Ignora los filtros de estado/federación: la lógica de rotación es la fuente.
+    $rotacionInfo = null;
+    if ($esRotacion) {
+        if ($idCampana <= 0) {
+            ob_clean();
+            echo json_encode(['ok' => false, 'error' => 'Selecciona una campaña para cargar la rotación ABC.']);
+            exit;
+        }
+        $sec = $db->querySingle("SELECT * FROM secuencias WHERE campaign_id = {$idCampana} AND activo = 1 AND rotar_no_abridores = 1 ORDER BY id DESC LIMIT 1", true);
+        if (!$sec) {
+            ob_clean();
+            echo json_encode(['ok' => false, 'error' => 'No hay secuencia con rotación ABC activa para esta campaña. Actívala en Plantillas y Campañas → Secuencia.']);
+            exit;
+        }
+        $esperaRot = max(1, (int)$sec['rotar_espera_dias']);
+        $maxEnviosRot = max(2, (int)$sec['rotar_max_envios']);
+        $tplRot = (int)$sec['rotar_plantilla_id'];
+        if ($tplRot <= 0) {
+            $tplRot = (int)$db->querySingle("SELECT plantilla_id FROM secuencia_pasos WHERE secuencia_id = " . (int)$sec['id'] . " AND paso = 1 AND activo = 1 ORDER BY id LIMIT 1");
+        }
+        $inSup = "'" . implode("','", array_map(function ($e) use ($db) { return $db->escapeString($e); }, $estadosSupresion)) . "'";
+
+        $sqlRot = "SELECT c.id, c.nombre_club, c.email, c.federacion, c.persona_contacto, c.telefono_movil, c.tiene_whatsapp, c.telefono_fijo,
+                          (SELECT COUNT(*) FROM envios e WHERE e.lead_id = c.id AND e.campaign_id = {$idCampana} AND COALESCE(e.es_test,0) = 0 AND e.estado IN ('enviado','abierto')) AS n_envios
+                   FROM clubes_crm c
+                   WHERE c.id IN (
+                           SELECT e.lead_id FROM envios e
+                           WHERE e.campaign_id = {$idCampana} AND COALESCE(e.es_test,0) = 0 AND e.estado IN ('enviado','abierto')
+                             AND e.lead_id IS NOT NULL
+                       )
+                     AND c.email IS NOT NULL AND c.email != ''
+                     AND c.es_duplicado = 0
+                     AND c.estado_lead NOT IN ({$inSup})
+                     AND NOT EXISTS (SELECT 1 FROM respuestas r WHERE r.lead_id = c.id)
+                     AND NOT EXISTS (SELECT 1 FROM aperturas a
+                                     WHERE a.tracking_id IN (SELECT e2.tracking_id FROM envios e2 WHERE e2.lead_id = c.id AND e2.campaign_id = {$idCampana}))
+                     AND (SELECT COUNT(*) FROM envios e3 WHERE e3.lead_id = c.id AND e3.campaign_id = {$idCampana} AND COALESCE(e3.es_test,0) = 0 AND e3.estado IN ('enviado','abierto')) < {$maxEnviosRot}
+                     AND (SELECT MAX(e4.fecha_envio) FROM envios e4 WHERE e4.lead_id = c.id AND e4.campaign_id = {$idCampana} AND COALESCE(e4.es_test,0) = 0 AND e4.estado IN ('enviado','abierto')) <= datetime('now', '-{$esperaRot} days')
+                   ORDER BY c.nombre_club ASC";
+
+        $leads = [];
+        $resRot = $db->query($sqlRot);
+        while ($l = $resRot->fetchArray(SQLITE3_ASSOC)) {
+            $ultVar = $db->querySingle("SELECT variant FROM envios WHERE lead_id = " . (int)$l['id'] . " AND campaign_id = {$idCampana} AND es_rotacion = 1 ORDER BY id DESC LIMIT 1");
+            if (!$ultVar) $ultVar = asignarVariante((int)$l['id'], $idCampana);
+            $l['variante_anterior'] = strtoupper((string)$ultVar);
+            $l['variante_siguiente'] = siguienteVariante($l['variante_anterior']);
+            $l['intento'] = (int)$l['n_envios'] + 1;
+            $l['rotacion_plantilla_id'] = $tplRot;
+            $leads[] = $l;
+        }
+        $rotacionInfo = [
+            'secuencia_id'   => (int)$sec['id'],
+            'secuencia_nombre' => $sec['nombre'],
+            'espera_dias'    => $esperaRot,
+            'max_envios'     => $maxEnviosRot,
+            'plantilla_id'   => $tplRot,
+            'plantilla_nombre' => $tplRot > 0 ? ($db->querySingle("SELECT nombre FROM plantillas WHERE id = {$tplRot}") ?: '') : '',
+        ];
+        $estadoLead = '';
+        $federacion = '';
+    } else {
+
+
     // AISLAMIENTO TEST/REAL (FASE 6F.6): si se filtra por campaña, la cola solo
     // devuelve leads compatibles (campaña TEST → sólo leads TEST; campaña no TEST
     // → nunca leads TEST). Filtrado en servidor/SQL, no confiar en JS.
-    if ($idCampana > 0 && $db->querySingle("SELECT COUNT(*) FROM pipelines WHERE id = " . $idCampana) > 0) {
+    if ($idCampana > 0 && empty($idsSeleccion) && $db->querySingle("SELECT COUNT(*) FROM pipelines WHERE id = " . $idCampana) > 0) {
         $where .= sqlFiltroCompatibilidadLeadCampana($db, $idCampana);
+    }
+
+    // Selección manual (Seguimiento → acciones en lote): si vienen IDs exactos,
+    // se fuerzan y se ignoran los filtros de estado/federación/campaña
+    // (la lista manual es la autoridad; la campaña se elige en el envío).
+    if (!empty($idsSeleccion)) {
+        $where .= " AND c.id IN (" . implode(',', $idsSeleccion) . ")";
+        $estadoLead = '';
+        $federacion = '';
+        $idCampana = 0;
     }
 
     if ($estadoLead !== '') {
@@ -118,6 +208,7 @@ try {
     while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
         $leads[] = $r;
     }
+    } // fin else — modo cola normal (no rotación)
 
     // ─── 4. Asignación SMTP (Round Robin o Aleatoria según 🎲) ──────────────────
     $cuentaIndex = 0;
@@ -201,7 +292,10 @@ try {
         // función real asignarVariante(). Solo cuando hay campaña; si no, null.
         // Permite a la lanzadera seleccionar leads que cubran A/B/C sin duplicar
         // la lógica de asignación en JavaScript.
-        $lead['variante_ab'] = $idCampana > 0 ? asignarVariante((int)$lead['id'], $idCampana) : null;
+        $lead['variante_ab'] = $esRotacion
+            ? ($lead['variante_siguiente'] ?? 'A')
+            : ($idCampana > 0 ? asignarVariante((int)$lead['id'], $idCampana) : null);
+        $lead['es_rotacion'] = $esRotacion ? 1 : 0;
 
         $cola[] = $lead;
 
@@ -259,6 +353,7 @@ try {
         'kpi_envios_hoy'  => $enviosHoyKpi,
         'federaciones'    => obtenerFederacionesUnicas($db),
         'categorias'      => obtenerCategoriasPlantillas($db),
+        'rotacion'        => $rotacionInfo,
     ]);
 
 } catch (\Exception $e) {

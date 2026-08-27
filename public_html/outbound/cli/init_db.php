@@ -736,6 +736,166 @@ EOT2;
         echo "      {$row['estado_lead']}: {$row['cnt']}\n";
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // 3. REORGANIZACIÓN DE PLANTILLAS POR FUNCIÓN/OBJETIVO (asesor 2026-08-26)
+    //    Categorías finales numeradas:
+    //      01 Prospección · 02 Seguimiento · 03 Respuestas
+    //    WhatsApp se deja SIN categoría (genérica) hasta integrar su flujo.
+    //    Idempotente: los UPDATE solo actúan sobre categorías legacy o nombres
+    //    intermedios; los INSERT son condicionales por nombre.
+    // ─────────────────────────────────────────────────────────────────────
+    echo "\n  Reorganización de plantillas (categorías numeradas)...\n";
+
+    // 3.1 Renombrado de categorías legacy (BD fresca) + nombres intermedios → finales.
+    $mapaCategorias = [
+        // Legacy (BD fresca / preseed)
+        '01 Sin Contactar'   => '01 Prospección',
+        '02 Contactado'      => '02 Seguimiento',
+        '03 Respondió'       => '03 Respuestas',
+        '03 En Conversación' => '03 Respuestas',
+        'respuesta_modelo'   => '03 Respuestas',
+        'prospeccion'        => '01 Prospección',
+        'seguimiento'        => '02 Seguimiento',
+        'whatsapp'           => '',
+        // Nombres intermedios (BD ya migrada a la convención anterior)
+        '[Prospección] Clubes Fútbol Base' => '01 Prospección',
+        '[Seguimiento] Leads Interesados / Alta Apertura' => '02 Seguimiento',
+        '[Respuestas] Manejo de Objeciones' => '03 Respuestas',
+        '[WhatsApp] Primer Contacto' => '',
+    ];
+    foreach ($mapaCategorias as $vieja => $nueva) {
+        $stmt = $db->prepare("UPDATE plantillas SET categoria = :nueva WHERE categoria = :vieja");
+        $stmt->bindValue(':nueva', $nueva, SQLITE3_TEXT);
+        $stmt->bindValue(':vieja', $vieja, SQLITE3_TEXT);
+        $stmt->execute();
+        if ($db->changes() > 0) {
+            echo "   Categoría '{$vieja}' → " . ($nueva === '' ? '(sin categoría)' : "'{$nueva}'") . ' (' . $db->changes() . " plantilla(s))\n";
+        }
+    }
+
+    // 3.2 Mover "Respuesta - Sí simple" a Respuestas (estaba en Seguimiento).
+    $stmt = $db->prepare("UPDATE plantillas SET categoria = '03 Respuestas' WHERE nombre = :n AND categoria = '02 Seguimiento'");
+    $stmt->bindValue(':n', 'Respuesta - Sí simple - Siguiente paso', SQLITE3_TEXT);
+    $stmt->execute();
+    if ($db->changes() > 0) {
+        echo "   Movida 'Respuesta - Sí simple' → '03 Respuestas'\n";
+    }
+
+    // 3.3 Plantilla "Seguimiento - Paso 2 - Recordatorio corto (48h)" si no existe.
+    $nombrePaso2 = 'Seguimiento - Paso 2 - Recordatorio corto (48h)';
+    $existePaso2 = (int)$db->querySingle("SELECT COUNT(*) FROM plantillas WHERE nombre = '" . $db->escapeString($nombrePaso2) . "'");
+    if ($existePaso2 === 0) {
+        $cuerpoPaso2 = '<p>Hola, equipo de {{CLUB}}:</p>'
+            . '<p>Te escribía por si querías echarle un vistazo a nuestras <strong>espinilleras personalizadas</strong> para {{CLUB}}. ¿Te parece bien que te pase el catálogo con los precios para vuestro volumen?</p>'
+            . '<p>Solo te llevará un minuto y sin compromiso.</p>'
+            . '<p>Un saludo,<br>{{CONTACTO}}<br>Equipo FutProtec<br><a href="https://getfutprotec.com">https://getfutprotec.com</a></p>';
+        $stmt = $db->prepare(
+            "INSERT INTO plantillas (nombre, asunto, cuerpo, tipo, categoria, activo, test_ab, fecha_creacion)
+             VALUES (:n, :a, :c, 'html', '02 Seguimiento', 1, 0, CURRENT_TIMESTAMP)"
+        );
+        $stmt->bindValue(':n', $nombrePaso2, SQLITE3_TEXT);
+        $stmt->bindValue(':a', '¿Te llegó bien la información de {{CLUB}}?', SQLITE3_TEXT);
+        $stmt->bindValue(':c', $cuerpoPaso2, SQLITE3_TEXT);
+        $stmt->execute();
+        echo "   Plantilla creada: {$nombrePaso2}\n";
+    } else {
+        echo "   Plantilla '{$nombrePaso2}' ya existe (sin cambios)\n";
+    }
+
+    // 3.4 Plantilla "Seguimiento Caliente" (alta apertura sin respuesta) si no existe.
+    $nombreCaliente = 'Seguimiento Caliente - Paso 3 (Alta Apertura)';
+    $existeCaliente = (int)$db->querySingle("SELECT COUNT(*) FROM plantillas WHERE nombre = '" . $db->escapeString($nombreCaliente) . "'");
+    if ($existeCaliente === 0) {
+        $cuerpoCaliente = '<p>Hola, equipo de {{CLUB}}:</p>'
+            . '<p>Vi que le echaron un ojo a las espinilleras personalizadas que les envié hace unos días. Para no hacerles perder tiempo, ¿les gustaría que les prepare un <strong>boceto digital rápido y gratuito</strong> con el escudo de su club para ver cómo quedarían?</p>'
+            . '<p>Solo necesito que me confirmen si el logo de su web es el correcto. ¿Les cuadra?</p>'
+            . '<p>Un saludo,<br>{{CONTACTO}}<br>Equipo FutProtec<br><a href="https://getfutprotec.com">https://getfutprotec.com</a></p>';
+        $stmt = $db->prepare(
+            "INSERT INTO plantillas (nombre, asunto, cuerpo, tipo, categoria, activo, test_ab, fecha_creacion)
+             VALUES (:n, :a, :c, 'html', '02 Seguimiento', 1, 0, CURRENT_TIMESTAMP)"
+        );
+        $stmt->bindValue(':n', $nombreCaliente, SQLITE3_TEXT);
+        $stmt->bindValue(':a', 'Un detalle rápido para {{CLUB}}', SQLITE3_TEXT);
+        $stmt->bindValue(':c', $cuerpoCaliente, SQLITE3_TEXT);
+        $stmt->execute();
+        echo "   Plantilla creada: {$nombreCaliente}\n";
+    } else {
+        echo "   Plantilla '{$nombreCaliente}' ya existe (sin cambios)\n";
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 4. SECUENCIAS CONDICIONALES (O-1 — ramificación por ramal ABC)
+    //    Plan: docs/PLAN_RAMIFICACION_SECUENCIAS_ABC.md
+    //    Idempotente: CREATE IF NOT EXISTS + ALTER con chequeo + índice único.
+    // ─────────────────────────────────────────────────────────────────────
+    $db->exec("CREATE TABLE IF NOT EXISTS secuencias (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL,
+        nombre      TEXT NOT NULL,
+        modo_auto   INTEGER NOT NULL DEFAULT 0,
+        activo      INTEGER NOT NULL DEFAULT 1,
+        creado_el   DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(campaign_id, nombre)
+    )");
+    $db->exec("CREATE TABLE IF NOT EXISTS secuencia_pasos (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        secuencia_id INTEGER NOT NULL,
+        paso        INTEGER NOT NULL,
+        plantilla_id INTEGER NOT NULL,
+        espera_dias INTEGER NOT NULL DEFAULT 2,
+        ramal       VARCHAR(1) NOT NULL DEFAULT '',
+        activo      INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(secuencia_id, paso)
+    )");
+    $colsEnvios = [];
+    $resEnv = $db->query("PRAGMA table_info(envios)");
+    if ($resEnv) { while ($rowE = $resEnv->fetchArray(SQLITE3_ASSOC)) $colsEnvios[] = $rowE['name']; }
+    if (!in_array('secuencia_id', $colsEnvios, true)) {
+        $db->exec("ALTER TABLE envios ADD COLUMN secuencia_id INTEGER DEFAULT NULL");
+        echo "   Migración: columna 'secuencia_id' añadida a envios\n";
+    }
+    if (!in_array('paso_secuencia', $colsEnvios, true)) {
+        $db->exec("ALTER TABLE envios ADD COLUMN paso_secuencia INTEGER DEFAULT NULL");
+        echo "   Migración: columna 'paso_secuencia' añadida a envios\n";
+    }
+    $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_envios_sec_paso ON envios(lead_id, campaign_id, paso_secuencia) WHERE paso_secuencia IS NOT NULL");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 4b. ROTACIÓN ABC PARA NO ABRIDORES (O-1b)
+    //     El índice único (lead_id, campaign_id) pasa a incluir es_rotacion para
+    //     permitir un envío de rotación (es_rotacion=1) junto al envío base
+    //     (es_rotacion=0) sin colisionar. Idempotente (DROP+CREATE seguros).
+    // ─────────────────────────────────────────────────────────────────────
+    $colsEnvs = [];
+    $resEnvs = $db->query("PRAGMA table_info(envios)");
+    if ($resEnvs) { while ($rowE = $resEnvs->fetchArray(SQLITE3_ASSOC)) $colsEnvs[] = $rowE['name']; }
+    if (!in_array('es_rotacion', $colsEnvs, true)) {
+        $db->exec("ALTER TABLE envios ADD COLUMN es_rotacion INTEGER NOT NULL DEFAULT 0");
+        echo "   Migración: columna 'es_rotacion' añadida a envios\n";
+    }
+    $db->exec("DROP INDEX IF EXISTS idx_envios_lead_campaign");
+    $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_envios_lead_campaign ON envios(lead_id, campaign_id, es_rotacion) WHERE campaign_id IS NOT NULL");
+    echo "   Índice de envíos ampliado con es_rotacion\n";
+
+    // Configuración de la rotación por secuencia (panel del configurador).
+    $colsSec = [];
+    $resSec = $db->query("PRAGMA table_info(secuencias)");
+    if ($resSec) { while ($rowS = $resSec->fetchArray(SQLITE3_ASSOC)) $colsSec[] = $rowS['name']; }
+    $colsRot = [
+        'rotar_no_abridores' => "ALTER TABLE secuencias ADD COLUMN rotar_no_abridores INTEGER NOT NULL DEFAULT 0",
+        'rotar_espera_dias'  => "ALTER TABLE secuencias ADD COLUMN rotar_espera_dias INTEGER NOT NULL DEFAULT 3",
+        'rotar_max_envios'   => "ALTER TABLE secuencias ADD COLUMN rotar_max_envios INTEGER NOT NULL DEFAULT 2",
+        'rotar_plantilla_id' => "ALTER TABLE secuencias ADD COLUMN rotar_plantilla_id INTEGER NOT NULL DEFAULT 0",
+    ];
+    foreach ($colsRot as $colRot => $sqlRot) {
+        if (!in_array($colRot, $colsSec, true)) {
+            $db->exec($sqlRot);
+            echo "   Migración: columna 'secuencias.{$colRot}' añadida\n";
+        }
+    }
+
+    echo "   Tablas de secuencias verificadas\n";
+
     $db->close();
     echo "\nBase de datos inicializada correctamente: {$dbPath}\n";
 

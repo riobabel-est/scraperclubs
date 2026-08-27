@@ -63,7 +63,7 @@
                 <!-- 1.3 Seleccionar Plantilla -->
                 <div>
                     <label class="block text-xs uppercase tracking-wider text-slate-400 mb-1.5">3. Seleccionar Plantilla</label>
-                    <select x-model="lzIdPlantillaEmail" :disabled="!lzEstadoLead"
+                    <select x-model="lzIdPlantillaEmail" :disabled="!lzEstadoLead && !(lzBulkIds && lzBulkIds.length > 0)" @change="lzOnPlantillaChange()"
                         class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50 transition disabled:opacity-40 disabled:cursor-not-allowed">
                         <option value="">Seleccionar plantilla...</option>
                         <template x-for="tpl in lzTemplatesEmail" :key="tpl.id">
@@ -403,6 +403,12 @@
         </div>
 
         <!-- BLOQUE 2 DER: COLA DE ENVÍOS EN ESPERA + BOTÓN CARGAR + INFINITE SCROLL -->
+        <!-- Aviso de selección en lote desde Seguimiento -->
+        <div x-show="lzBulkIds && lzBulkIds.length > 0" x-cloak class="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5 text-sm text-amber-400">
+            <i data-lucide="mouse-pointer-click" class="w-4 h-4 inline mr-1"></i>
+            <strong x-text="lzBulkIds.length"></strong> lead(s) seleccionados desde Seguimiento.
+            Elige una <strong class="text-amber-300">plantilla</strong> y pulsa <strong class="text-amber-300">Cargar Cola</strong> para gestionar el envío.
+        </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col">
             <div class="flex items-center justify-between mb-3">
                 <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
@@ -410,6 +416,14 @@
                 </h5>
                 <div class="flex items-center gap-2">
                     <span class="text-xs text-slate-400" x-text="'(' + lzCola.length + ' candidatos)'"></span>
+                    <button @click="cargarRotacion()" :disabled="!lzCampaignId || lzMotorEstado === 'ACTIVO'"
+                        class="px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5
+                               bg-amber-500/20 text-amber-400 hover:bg-amber-500/30
+                               disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Prepara en la cola el reenvío con la SIGUIENTE variante (A→B→C→A) para los leads que NO abrieron. Tú confirmas el envío.">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                        🔄 Rotación ABC
+                    </button>
                     <button @click="cargarCola()" :disabled="!puedeCargarCola() || lzMotorEstado === 'ACTIVO'"
                         class="px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5
                                bg-blue-500/20 text-blue-400 hover:bg-blue-500/30
@@ -418,6 +432,22 @@
                         🔵 Cargar Cola
                     </button>
                 </div>
+            </div>
+
+            <!-- Banner de rotación ABC -->
+            <div x-show="lzRotacionInfo" class="mb-3 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                <div class="flex items-center gap-2 mb-1">
+                    <i data-lucide="refresh-cw" class="w-4 h-4 text-amber-400"></i>
+                    <span class="text-sm font-semibold text-amber-400">🔄 Rotación ABC activa</span>
+                    <span class="text-xs text-slate-400" x-text="'· Secuencia: ' + (lzRotacionInfo?.secuencia_nombre || '')"></span>
+                </div>
+                <p class="text-xs text-slate-400">
+                    Reenvío con la <strong class="text-amber-300">siguiente variante (A→B→C→A)</strong> para los leads que NO abrieron.
+                    Espera <span class="text-amber-300 font-semibold" x-text="lzRotacionInfo?.espera_dias + ' días'"></span> ·
+                    Máx. <span class="text-amber-300 font-semibold" x-text="lzRotacionInfo?.max_envios + ' envíos por lead'"></span> ·
+                    Plantilla: <span class="text-amber-300" x-text="lzRotacionInfo?.plantilla_nombre || '(la del Paso 1)'"></span>.
+                    <strong class="text-slate-200">Tú confirmas el envío.</strong>
+                </p>
             </div>
 
             <!-- Explicación inequívoca: candidatos disponibles ≠ envíos de esta ejecución -->
@@ -467,6 +497,9 @@
                                 <td class="px-2 py-1.5">
                                     <span class="font-normal text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-300' : 'text-slate-200'" x-text="item.nombre_club"></span>
                                     <span class="text-xs block" :class="lzColaCompletados[item.id] ? 'text-slate-400' : 'text-slate-400'" x-text="item.federacion?.substring(0, 25) || ''"></span>
+                                    <span x-show="item.es_rotacion" class="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                        🔄 <span x-text="'Var. ' + (item.variante_anterior || '?') + '→' + (item.variante_siguiente || '?') + ' (intento ' + (item.intento || '?') + ')'"></span>
+                                    </span>
                                 </td>
                                 <td class="px-2 py-1.5 hidden sm:table-cell">
                                     <code class="text-xs" :class="lzColaCompletados[item.id] ? 'text-slate-400' : 'text-slate-400'" x-text="item.email"></code>
