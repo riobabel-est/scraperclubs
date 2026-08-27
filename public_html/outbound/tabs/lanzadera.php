@@ -517,7 +517,7 @@
                                     </span>
                                     <span x-show="lzColaCompletados[item.id] && lzColaResultados[item.id] && !lzColaResultados[item.id].ok"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30 cursor-help"
-                                        :title="lzColaResultados[item.id].error || 'Error desconocido'">
+                                        :title="(lzColaResultados[item.id]?.error) || 'Error desconocido'">
                                         <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> ERROR
                                     </span>
                                 </td>
