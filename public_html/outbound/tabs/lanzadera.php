@@ -406,7 +406,7 @@
         <!-- Aviso de selección en lote desde Seguimiento -->
         <div x-show="lzBulkIds && lzBulkIds.length > 0" x-cloak class="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5 text-sm text-amber-400">
             <i data-lucide="mouse-pointer-click" class="w-4 h-4 inline mr-1"></i>
-            <strong x-text="lzBulkIds.length"></strong> lead(s) seleccionados desde Seguimiento.
+            <strong x-text="(lzBulkIds?.length || 0)"></strong> lead(s) seleccionados desde Seguimiento.
             Elige una <strong class="text-amber-300">plantilla</strong> y pulsa <strong class="text-amber-300">Cargar Cola</strong> para gestionar el envío.
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col">

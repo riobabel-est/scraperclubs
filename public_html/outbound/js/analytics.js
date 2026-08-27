@@ -20,7 +20,10 @@ function analyticsCampana() {
         },
         async cargar() {
             this.cargando = true; this.error = '';
-            this.metricas = null; this.funnel = []; this.cuello = null;
+            // metricas NUNCA pasa a null: conserva sus valores por defecto (ceros)
+            // para que los templates de analytics.php no lancen errores si el fetch
+            // falla puntualmente. Si llega ok, se sustituye con datos reales.
+            this.funnel = []; this.cuello = null;
             if (!this.campaignId) { this.cargando = false; return; }
             try {
                 const [r1, r2] = await Promise.all([

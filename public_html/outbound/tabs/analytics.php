@@ -6,8 +6,8 @@
   <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center gap-3">
     <i data-lucide="bar-chart-3" class="w-5 h-5 text-amber-400"></i>
     <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Analytics de Campaña</h5>
-    <span class="text-xs text-slate-400 ml-auto" x-show="metricas && metricas.campaña"
-      x-text="'Estado: ' + (metricas.campaña.estado || '—') + ' · Entorno: ' + (metricas.campaña.entorno || '—')"></span>
+    <span class="text-xs text-slate-400 ml-auto" x-show="metricas?.campaña"
+      x-text="'Estado: ' + (metricas?.campaña?.estado || '—') + ' · Entorno: ' + (metricas?.campaña?.entorno || '—')"></span>
   </div>
 
   <!-- Selector de campaña (el contexto global la preselecciona) -->
@@ -37,7 +37,7 @@
         </div>
         <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
           <div class="text-xs text-slate-400 uppercase tracking-wider">Entregados</div>
-          <div class="text-xl font-bold text-slate-100 mt-0.5" x-text="metricas ? metricas.aceptados : 0"></div>
+          <div class="text-xl font-bold text-slate-100 mt-0.5" x-text="(metricas?.aceptados ?? 0)"></div>
         </div>
         <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
           <div class="text-xs text-slate-400 uppercase tracking-wider">Aperturas</div>
@@ -54,7 +54,7 @@
         <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
           <div class="text-xs text-slate-400 uppercase tracking-wider">Cuello de Botella</div>
           <div class="text-sm font-bold text-rose-400 mt-0.5 leading-tight" x-show="cuello"
-            x-text="cuello.origen + ' → ' + cuello.destino + ' (' + cuello.pct + '%)'"></div>
+            x-text="(cuello?.origen || '') + ' → ' + (cuello?.destino || '') + ' (' + (cuello?.pct ?? 0) + '%)'"></div>
           <div class="text-xs text-slate-500 mt-0.5" x-show="!cuello">Sin datos</div>
         </div>
       </div>
@@ -107,20 +107,20 @@
           <template x-for="v in ['A','B','C']" :key="v">
             <tr class="border-b border-slate-800/50" :class="varianteGanadora === v ? 'bg-emerald-500/5' : ''">
               <td class="px-2 py-2 font-semibold" x-text="v"></td>
-              <td class="px-2 py-2 text-right" x-text="metricas.variantes[v].aceptados"></td>
-              <td class="px-2 py-2 text-right text-cyan-400" x-text="metricas.variantes[v].aperturas"></td>
+              <td class="px-2 py-2 text-right" x-text="(metricas?.variantes?.[v]?.aceptados ?? 0)"></td>
+              <td class="px-2 py-2 text-right text-cyan-400" x-text="(metricas?.variantes?.[v]?.aperturas ?? 0)"></td>
               <td class="px-2 py-2 text-right">
-                <span class="font-semibold text-cyan-300" x-text="metricas.variantes[v].aperturas_totales"></span>
-                <span class="text-[11px] text-slate-500" x-show="(metricas.variantes[v].aperturas || 0) > 1"
-                  x-text="' ×' + Math.round(metricas.variantes[v].aperturas_totales / metricas.variantes[v].aperturas * 10) / 10"></span>
+                <span class="font-semibold text-cyan-300" x-text="(metricas?.variantes?.[v]?.aperturas_totales ?? 0)"></span>
+                <span class="text-[11px] text-slate-500" x-show="((metricas?.variantes?.[v]?.aperturas ?? 0) > 1)"
+                  x-text="' ×' + Math.round((metricas?.variantes?.[v]?.aperturas_totales ?? 0) / (metricas?.variantes?.[v]?.aperturas ?? 1) * 10) / 10"></span>
               </td>
-              <td class="px-2 py-2 text-right" x-text="metricas.variantes[v].respuestas"></td>
-              <td class="px-2 py-2 text-right text-emerald-400" x-text="metricas.variantes[v].positivas"></td>
-              <td class="px-2 py-2 text-right text-rose-400" x-text="metricas.variantes[v].negativas"></td>
-              <td class="px-2 py-2 text-right" x-text="metricas.variantes[v].neutrales"></td>
-              <td class="px-2 py-2 text-right text-amber-400" x-text="metricas.variantes[v].unsubscribe"></td>
-              <td class="px-2 py-2 text-right" x-text="metricas.variantes[v].ooo"></td>
-              <td class="px-2 py-2 text-right font-semibold" x-text="metricas.variantes[v].prr + '%'"></td>
+              <td class="px-2 py-2 text-right" x-text="(metricas?.variantes?.[v]?.respuestas ?? 0)"></td>
+              <td class="px-2 py-2 text-right text-emerald-400" x-text="(metricas?.variantes?.[v]?.positivas ?? 0)"></td>
+              <td class="px-2 py-2 text-right text-rose-400" x-text="(metricas?.variantes?.[v]?.negativas ?? 0)"></td>
+              <td class="px-2 py-2 text-right" x-text="(metricas?.variantes?.[v]?.neutrales ?? 0)"></td>
+              <td class="px-2 py-2 text-right text-amber-400" x-text="(metricas?.variantes?.[v]?.unsubscribe ?? 0)"></td>
+              <td class="px-2 py-2 text-right" x-text="(metricas?.variantes?.[v]?.ooo ?? 0)"></td>
+              <td class="px-2 py-2 text-right font-semibold" x-text="(metricas?.variantes?.[v]?.prr ?? 0) + '%'"></td>
             </tr>
           </template>
         </tbody>
@@ -134,12 +134,12 @@
         <h5 class="text-sm font-semibold uppercase tracking-wider text-slate-200">Clasificación de Respuestas (IA)</h5>
       </div>
       <div class="flex flex-wrap gap-2 text-sm">
-        <span class="bg-emerald-500/15 text-emerald-400 px-2.5 py-1 rounded-lg">POSITIVE <span class="font-bold" x-text="metricas.positive"></span></span>
-        <span class="bg-rose-500/15 text-rose-400 px-2.5 py-1 rounded-lg">NEGATIVE <span class="font-bold" x-text="metricas.negative"></span></span>
-        <span class="bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg">NEUTRAL <span class="font-bold" x-text="metricas.neutral"></span></span>
-        <span class="bg-amber-500/15 text-amber-400 px-2.5 py-1 rounded-lg">UNSUBSCRIBE <span class="font-bold" x-text="metricas.unsubscribe"></span></span>
-        <span class="bg-cyan-500/15 text-cyan-400 px-2.5 py-1 rounded-lg">OOO <span class="font-bold" x-text="metricas.ooo"></span></span>
-        <span class="bg-slate-800 text-slate-400 px-2.5 py-1 rounded-lg">PENDING <span class="font-bold" x-text="metricas.pending"></span></span>
+        <span class="bg-emerald-500/15 text-emerald-400 px-2.5 py-1 rounded-lg">POSITIVE <span class="font-bold" x-text="(metricas?.positive ?? 0)"></span></span>
+        <span class="bg-rose-500/15 text-rose-400 px-2.5 py-1 rounded-lg">NEGATIVE <span class="font-bold" x-text="(metricas?.negative ?? 0)"></span></span>
+        <span class="bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg">NEUTRAL <span class="font-bold" x-text="(metricas?.neutral ?? 0)"></span></span>
+        <span class="bg-amber-500/15 text-amber-400 px-2.5 py-1 rounded-lg">UNSUBSCRIBE <span class="font-bold" x-text="(metricas?.unsubscribe ?? 0)"></span></span>
+        <span class="bg-cyan-500/15 text-cyan-400 px-2.5 py-1 rounded-lg">OOO <span class="font-bold" x-text="(metricas?.ooo ?? 0)"></span></span>
+        <span class="bg-slate-800 text-slate-400 px-2.5 py-1 rounded-lg">PENDING <span class="font-bold" x-text="(metricas?.pending ?? 0)"></span></span>
       </div>
     </div>
   </div>

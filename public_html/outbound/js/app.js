@@ -1,3 +1,9 @@
+// Respaldo de scope para directivas Alpine: `rsSyncing` se usa en tabs/respuestas.php
+// dentro del scope x-data="app()". Si por cualquier motivo el componente no provee
+// la variable (fallo de scope/timing), definirla en window evita el error
+// "rsSyncing is not defined" (el scope del componente tiene prioridad si existe).
+window.rsSyncing = false;
+
 var app = function() {
     console.log('[DEBUG] app() INVOCADO. Iniciando construcción del objeto Alpine...');
     try {
