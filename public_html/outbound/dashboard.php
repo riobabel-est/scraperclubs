@@ -370,6 +370,49 @@ if ($action === 'get_charla_lead') {
     echo json_encode(charlaLead($db, $leadId, $cid));
     exit;
 }
+if ($action === 'conversacion_accion') {
+    header('Content-Type: application/json; charset=utf-8');
+    $leadId = (int)($_POST['lead_id'] ?? 0);
+    $accion = trim((string)($_POST['accion'] ?? ''));
+    $dias = max(1, (int)($_POST['dias'] ?? 1));
+    if ($leadId <= 0) {
+        echo json_encode(['ok' => false, 'error' => 'lead_id inválido']);
+        exit;
+    }
+    $acciones = ['atender', 'espera', 'archivar', 'restaurar', 'borrar', 'snooze'];
+    if (!in_array($accion, $acciones, true)) {
+        echo json_encode(['ok' => false, 'error' => 'Acción inválida']);
+        exit;
+    }
+    try {
+        // El estado del HILO se aplica a todas las respuestas del lead para que
+        // la conversación sea coherente (una sola fila no rompe el hilo).
+        switch ($accion) {
+            case 'atender':
+                $db->exec("UPDATE respuestas SET estado_conversacion='requiere_respuesta', snooze_until=NULL, atendido_en=CURRENT_TIMESTAMP, borrado_en=NULL, archivado_en=NULL WHERE lead_id={$leadId} AND COALESCE(es_rebote,0)=0");
+                break;
+            case 'espera':
+                $db->exec("UPDATE respuestas SET estado_conversacion='en_espera', snooze_until=NULL WHERE lead_id={$leadId}");
+                break;
+            case 'archivar':
+                $db->exec("UPDATE respuestas SET estado_conversacion='archivado', archivado_en=CURRENT_TIMESTAMP, borrado_en=NULL WHERE lead_id={$leadId}");
+                break;
+            case 'restaurar':
+                $db->exec("UPDATE respuestas SET estado_conversacion='requiere_respuesta', archivado_en=NULL, borrado_en=NULL, snooze_until=NULL WHERE lead_id={$leadId}");
+                break;
+            case 'borrar':
+                $db->exec("UPDATE respuestas SET estado_conversacion='borrado', borrado_en=CURRENT_TIMESTAMP WHERE lead_id={$leadId}");
+                break;
+            case 'snooze':
+                $db->exec("UPDATE respuestas SET estado_conversacion='en_espera', snooze_until=datetime('now', '+{$dias} days') WHERE lead_id={$leadId}");
+                break;
+        }
+        echo json_encode(['ok' => true]);
+    } catch (\Throwable $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
 if ($action === 'ia_analizar_lead') {
     header('Content-Type: application/json; charset=utf-8');
     $leadId = (int)($_POST['lead_id'] ?? 0);

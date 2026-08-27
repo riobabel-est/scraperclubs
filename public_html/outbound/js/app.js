@@ -101,6 +101,8 @@ var app = function() {
         // Respuesta asistida por IA (asunto + borrador) y flags de la caja rápida.
         rsAsuntoResp: '',
         rsGenerandoIA: false,
+        // Triaje de la Bandeja: pestaña activa (requiere_respuesta | rebotes | archivados | borrados | todos).
+        rsTabTriaje: 'requiere_respuesta',
         // Búsqueda por nombre de club en el panel izquierdo.
         rsBusqueda: '',
         // Filtro de clasificación (Todas / Interesado / Duda Precio / Baja).
@@ -1780,6 +1782,7 @@ var app = function() {
             this.respuestas = [];
             try {
                 const p = new URLSearchParams({ action: 'get_respuestas' });
+                if (this.rsTabTriaje && this.rsTabTriaje !== 'todos') p.append('estado', this.rsTabTriaje);
                 if (this.respuestasFiltro) p.append('clasificacion', this.respuestasFiltro);
                 if (this.respuestasPrioridad) p.append('prioridad', this.respuestasPrioridad);
                 if (window.app && window.app.campanaActual > 0) p.append('campaign_id', window.app.campanaActual);
@@ -2057,6 +2060,42 @@ var app = function() {
                 this.rsGenerandoIA = false;
             }
         },
+        // Cambia la pestaña de triaje de la Bandeja y recarga.
+        rsSetTabTriaje(tab) {
+            if (this.rsTabTriaje === tab) return;
+            this.rsTabTriaje = tab;
+            this.rsSeleccion = null;
+            this.loadRespuestas();
+        },
+        // Aplica una acción de estado a la conversación seleccionada (hilo del lead).
+        async rsAccion(accion, dias = 0) {
+            const conv = this.rsSeleccion;
+            const leadId = (conv && conv.lead_id) || 0;
+            if (!leadId) {
+                this.rsEnvioMsg = 'Selecciona una conversación con lead vinculado.';
+                this.rsEnvioMsgOk = false;
+                return;
+            }
+            const f = new FormData();
+            f.append('action', 'conversacion_accion');
+            f.append('lead_id', leadId);
+            f.append('accion', accion);
+            if (dias > 0) f.append('dias', dias);
+            try {
+                const r = await fetch('?action=conversacion_accion', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) {
+                    this.loadRespuestas();
+                    this.rsSeleccion = null;
+                } else {
+                    this.rsEnvioMsg = j.error || 'Error al aplicar la acción.';
+                    this.rsEnvioMsgOk = false;
+                }
+            } catch (e) {
+                this.rsEnvioMsg = 'Error de conexión al aplicar la acción.';
+                this.rsEnvioMsgOk = false;
+            }
+        },
         // Envía la respuesta redactada por SMTP usando la cuenta del lead.
         async rsEnviarRespuesta() {
             if (!this.rsSeleccion) return;
@@ -2078,6 +2117,8 @@ var app = function() {
                     this.rsEnvioMsgOk = true;
                     this.rsRedaccion = '';
                     this.rsPlantillaRapida = '';
+                    // La conversación pasa a "en espera" (ya respondida).
+                    this.rsAccion('espera');
                     this.loadRespuestas();
                 } else {
                     this.rsEnvioMsg = 'Error: ' + (j.error || 'No se pudo enviar la respuesta.');

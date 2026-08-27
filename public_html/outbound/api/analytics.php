@@ -741,6 +741,9 @@ if ($action === 'get_respuestas') {
                 r.message_id,
                 r.in_reply_to,
                 r.notificado,
+                r.estado_conversacion,
+                r.snooze_until,
+                r.es_rebote,
                 e.club, e.email, e.campaign_id AS envio_campaign_id, e.variant,
                 e.fecha_envio, e.asunto AS asunto_envio, e.tracking_id, e.lead_id AS envio_lead_id,
                 e.cuenta_emision AS cuenta_destino,
@@ -969,6 +972,44 @@ if ($action === 'get_respuestas') {
         // Aplicar filtro de prioridad si viene
         if ($filtroPrioridad !== '' && in_array($filtroPrioridad, ['alta', 'media', 'baja'], true)) {
             $conversaciones = array_values(array_filter($conversaciones, fn($c) => $c['prioridad'] === $filtroPrioridad));
+        }
+
+        // ─── Filtro por ESTADO de conversación (triaje de la Bandeja) ──────────
+        // estados: requiere_respuesta | rebotes | archivados | borrados | todos
+        $filtroEstadoConv = trim($_GET['estado'] ?? '');
+        if ($filtroEstadoConv !== '') {
+            $conversaciones = array_values(array_filter($conversaciones, function ($c) use ($filtroEstadoConv) {
+                $m = $c['mensajes'][0] ?? null;
+                $est = strtolower((string)($m['estado_conversacion'] ?? ''));
+                $reb = (int)($m['es_rebote'] ?? 0);
+                $snooze = (string)($m['snooze_until'] ?? '');
+                switch ($filtroEstadoConv) {
+                    case 'requiere_respuesta':
+                        // No rebote, no archivado/borrado y snooze no vencido (o vencido).
+                        return $reb === 0
+                            && !in_array($est, ['archivado', 'borrado'], true)
+                            && ($snooze === '' || strtotime($snooze) <= time());
+                    case 'rebotes':
+                        return $reb === 1;
+                    case 'archivados':
+                        return $est === 'archivado';
+                    case 'borrados':
+                        return $est === 'borrado';
+                    case 'todos':
+                        return true;
+                    default:
+                        // 'todo' por defecto: excluye borrado y rebotes.
+                        return $est !== 'borrado' && $reb === 0;
+                }
+            }));
+        } elseif (!isset($_GET['estado'])) {
+            // Sin filtro de estado explícito: vista comercial limpia (sin borrados ni rebotes).
+            $conversaciones = array_values(array_filter($conversaciones, function ($c) {
+                $m = $c['mensajes'][0] ?? null;
+                $est = strtolower((string)($m['estado_conversacion'] ?? ''));
+                $reb = (int)($m['es_rebote'] ?? 0);
+                return $est !== 'borrado' && $reb === 0;
+            }));
         }
 
         // Payload normalizado: expone el array de conversaciones bajo múltiples

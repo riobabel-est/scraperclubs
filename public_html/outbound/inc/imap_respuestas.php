@@ -749,14 +749,45 @@ function imap_limpiar_literal_header(string $raw): string
 /**
  * Clasificación inicial de la respuesta (sin IA).
  */
+/**
+ * Detección ROBUSTA de rebotes/NDR. Señales múltiples: remitente, asunto,
+ * cabeceras de diagnóstico y cuerpo con códigos SMTP. Así los mensajes rebotados
+ * NO se confunden con respuestas humanas ("interesados").
+ */
+function imap_es_rebote(array $msg): bool
+{
+    $from    = strtolower((string)($msg['from_email'] ?? $msg['from'] ?? ''));
+    $subject = strtolower((string)($msg['subject'] ?? ''));
+    $cuerpo  = strtolower((string)($msg['cuerpo'] ?? ''));
+    $headers = strtolower((string)($msg['headers_extra'] ?? ''));
+
+    // 1) Remitentes típicos de NDR
+    if (preg_match('/mailer-daemon|postmaster|mail delivery system|mail delivery subsystem|antispam|eximdsn|daemon@/i', $from)) {
+        return true;
+    }
+    // 2) Asuntos típicos de rebote / notificación de entrega
+    if (preg_match('/delivery (status notification|failure|failed|has failed)|undeliverable|message not accepted|returned mail|mail delivery failed|non[- ]delivery|failure notice|permanent error|error de entrega|no se pudo entregar|entrega fallida|fall[oó] de entrega|bounce/i', $subject)) {
+        return true;
+    }
+    // 3) Cabeceras de diagnóstico (NDR de Exchange/Postfix/Sendmail)
+    if (preg_match('/x-failed-recipients|final-recipient|diagnostic-code|action:\s*failed|status:\s*5\.\d/i', $headers . ' ' . $cuerpo)) {
+        return true;
+    }
+    // 4) Cuerpo con texto/códigos de NDR SMTP
+    if (preg_match('/this is the mail system at host|mail delivery system|delivery status notification|permanent error|smtp error|remote mail server|\b(550|554|552|521|550 5\.[0-9]|5\.7\.\d|5\.1\.\d)\b/i', $cuerpo)) {
+        return true;
+    }
+    return false;
+}
+
 function imap_clasificar(array $msg, ?SQLite3 $db = null): string
 {
     $subject = strtolower($msg['subject'] ?? '');
     $from = strtolower($msg['from_email'] ?? '');
     $cuerpo = strtolower($msg['cuerpo'] ?? '');
 
-    // Rebote (mailer-daemon)
-    if (strpos($from, 'mailer-daemon') !== false || strpos($from, 'postmaster') !== false) {
+    // Rebote (NDR / mailer-daemon / códigos SMTP) — detección robusta.
+    if (imap_es_rebote($msg)) {
         return 'rebote';
     }
     // Baja (unsubscribe)
@@ -1062,6 +1093,14 @@ function imap_asegurar_esquema(SQLite3 $db): void
         'carpeta'            => 'TEXT',
         'notificado'         => 'INTEGER DEFAULT 0',
         'kanban_movido'      => 'INTEGER DEFAULT 0',
+        // ─── Gestión de conversación (estado de la Bandeja, 2026-08-27) ───
+        // Estado del hilo: nuevo | requiere_respuesta | en_espera | archivado | borrado
+        'estado_conversacion' => "TEXT DEFAULT 'nuevo'",
+        'es_rebote'           => 'INTEGER DEFAULT 0',
+        'snooze_until'        => 'DATETIME',
+        'atendido_en'         => 'DATETIME',
+        'archivado_en'        => 'DATETIME',
+        'borrado_en'          => 'DATETIME',
     ];
     $existentes = [];
     $res = $db->query('PRAGMA table_info(respuestas)');
@@ -1073,6 +1112,12 @@ function imap_asegurar_esquema(SQLite3 $db): void
             $db->exec("ALTER TABLE respuestas ADD COLUMN {$col} {$tipo}");
         }
     }
+
+    // ─── Retroactivo: marcar rebotes y estado de conversación de filas previas ───
+    // (idempotente y barato; se ejecuta también en cada registro de respuesta)
+    $db->exec("UPDATE respuestas SET es_rebote = 1 WHERE LOWER(COALESCE(clasificacion,'')) = 'rebote'");
+    $db->exec("UPDATE respuestas SET estado_conversacion = 'requiere_respuesta' WHERE estado_conversacion IS NULL OR estado_conversacion = ''");
+    $db->exec("UPDATE respuestas SET estado_conversacion = 'nuevo' WHERE es_rebote = 1 AND estado_conversacion NOT IN ('archivado','borrado')");
 
     // ─── Adjuntos de las respuestas (2026-08-27) ───
     // Almacena los archivos adjuntos que llegan en los correos de los clubes
@@ -1263,12 +1308,12 @@ function imap_insertar_respuesta(SQLite3 $db, array $msg, ?array $envio, string 
          (envio_id, lead_id, campaign_id, id_cuenta_smtp, fecha_respuesta, remitente, destinatario,
           subject, cuerpo, contenido_html, message_id, message_id_original, in_reply_to, \"references\",
           uid_imap, cuenta_uid, hash_auxiliar, carpeta, clasificacion, fecha_clasificacion,
-          estado_procesamiento, creado_el)
+          estado_procesamiento, es_rebote, estado_conversacion, creado_el)
          VALUES
          (:envio_id, :lead_id, :campaign_id, :smtp_id, :fecha, :remitente, :destinatario,
           :subject, :cuerpo, :html, :message_id, :mid_orig, :in_reply_to, :references,
           :uid, :cuenta_uid, :hash, :carpeta, :clasificacion, CURRENT_TIMESTAMP,
-          :estado, CURRENT_TIMESTAMP)"
+          :estado, :es_rebote, :estado_conv, CURRENT_TIMESTAMP)"
     );
 
     $fecha = $msg['date'] ?? date('Y-m-d H:i:s');
@@ -1292,6 +1337,11 @@ function imap_insertar_respuesta(SQLite3 $db, array $msg, ?array $envio, string 
     $stmt->bindValue(':carpeta', $carpeta, SQLITE3_TEXT);
     $stmt->bindValue(':clasificacion', $clasificacion, SQLITE3_TEXT);
     $stmt->bindValue(':estado', 'pendiente', SQLITE3_TEXT);
+    // Estado de conversación de la Bandeja: los rebotes no requieren respuesta;
+    // las respuestas humanas entran en la cola "Requiere respuesta".
+    $esReboteFila = (strtolower($clasificacion) === 'rebote') ? 1 : 0;
+    $stmt->bindValue(':es_rebote', $esReboteFila, SQLITE3_INTEGER);
+    $stmt->bindValue(':estado_conv', $esReboteFila === 1 ? 'nuevo' : 'requiere_respuesta', SQLITE3_TEXT);
 
     try {
         $stmt->execute();

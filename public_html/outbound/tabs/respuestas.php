@@ -71,6 +71,29 @@
             <option value="SIN_REBOTE">Ocultar Rebotes</option>
           </select>
         </div>
+        <!-- Triaje: pestañas por estado de conversación -->
+        <div class="flex items-center gap-1 flex-wrap">
+          <button @click="rsSetTabTriaje('requiere_respuesta')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+                  :class="rsTabTriaje === 'requiere_respuesta' ? 'bg-orange-500/20 text-orange-400 border-orange-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
+            📥 Requiere respuesta
+          </button>
+          <button @click="rsSetTabTriaje('rebotes')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+                  :class="rsTabTriaje === 'rebotes' ? 'bg-rose-500/20 text-rose-400 border-rose-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
+            ⚠️ Rebotados
+          </button>
+          <button @click="rsSetTabTriaje('archivados')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+                  :class="rsTabTriaje === 'archivados' ? 'bg-sky-500/20 text-sky-400 border-sky-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
+            📦 Archivados
+          </button>
+          <button @click="rsSetTabTriaje('borrados')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+                  :class="rsTabTriaje === 'borrados' ? 'bg-slate-500/20 text-slate-300 border-slate-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
+            🗑️ Borrados
+          </button>
+          <button @click="rsSetTabTriaje('todos')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+                  :class="rsTabTriaje === 'todos' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
+            🗂️ Todo
+          </button>
+        </div>
       </div>
 
       <!-- Lista de leads (scroll independiente) -->
@@ -162,6 +185,13 @@
                   <option :value="e" x-text="e"></option>
                 </template>
               </select>
+              <!-- Acciones del hilo (estado de conversación) -->
+              <button @click="rsAccion('atender')" title="Marcar como pendiente de respuesta" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-orange-500/15 text-orange-400 border-orange-500/30 hover:bg-orange-500/25">✉️</button>
+              <button @click="rsAccion('archivar')" title="Archivar conversación" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-sky-500/15 text-sky-400 border-sky-500/30 hover:bg-sky-500/25">📦</button>
+              <button @click="rsAccion('snooze', 1)" title="Posponer 1 día" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25">⏰1d</button>
+              <button @click="rsAccion('snooze', 3)" title="Posponer 3 días" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25">⏰3d</button>
+              <button @click="rsAccion('restaurar')" title="Restaurar (sacar de archivado/borrado)" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25">↩️</button>
+              <button @click="rsAccion('borrar')" title="Borrar conversación" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-rose-500/15 text-rose-400 border-rose-500/30 hover:bg-rose-500/25">🗑️</button>
             </div>
           </div>
           <!-- Mensaje de estado (feedback de actualización) -->
