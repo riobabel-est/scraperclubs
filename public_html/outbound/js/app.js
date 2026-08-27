@@ -31,6 +31,8 @@ var app = function() {
         smtpSel: 0,
         incluirMockup: false,
         incluirProforma: false,
+        adjuntarPresupuesto: false,
+        adjuntarBoceto: false,
         generandoIA: false,
         enviandoAtencion: false,
         atencionMsg: '',
@@ -94,6 +96,9 @@ var app = function() {
         // ─── UNIBOX SPLIT-VIEW (FASE UNIBOX UI) ─────────────────────────────
         // Conversación seleccionada en el panel derecho (visor).
         rsSeleccion: null,
+        // Respuesta asistida por IA (asunto + borrador) y flags de la caja rápida.
+        rsAsuntoResp: '',
+        rsGenerandoIA: false,
         // Búsqueda por nombre de club en el panel izquierdo.
         rsBusqueda: '',
         // Filtro de clasificación (Todas / Interesado / Duda Precio / Baja).
@@ -601,6 +606,7 @@ var app = function() {
             this.emailAsunto = ''; this.emailCuerpo = '';
             this.plantillaSel = 0; this.smtpSel = 0;
             this.incluirMockup = false; this.incluirProforma = false;
+            this.adjuntarPresupuesto = false; this.adjuntarBoceto = false;
             this.atencionMsg = '';
             await this.cargarCharla();
         },
@@ -681,6 +687,8 @@ var app = function() {
                 f.append('asunto', this.emailAsunto);
                 f.append('cuerpo', this.emailCuerpo);
                 f.append('marcar_mockup_enviado', this.incluirMockup ? '1' : '0');
+                f.append('adjuntar_presupuesto', this.adjuntarPresupuesto ? '1' : '0');
+                f.append('adjuntar_boceto', this.adjuntarBoceto ? '1' : '0');
                 const r = await fetch('api/enviar_lote.php', { method: 'POST', body: f });
                 const j = await r.json();
                 if (j.ok) {
@@ -1968,6 +1976,34 @@ var app = function() {
                 this.rsEnvioMsgOk = false;
             }
         },
+        // Genera un borrador de respuesta con la IA leyendo el diálogo completo.
+        async rsGenerarIA() {
+            if (!this.rsSeleccion || !this.rsSeleccion.lead_id) {
+                this.rsEnvioMsg = 'Selecciona una conversación con lead vinculado.'; this.rsEnvioMsgOk = false; return;
+            }
+            this.rsGenerandoIA = true;
+            this.rsEnvioMsg = '';
+            try {
+                const f = new FormData();
+                f.append('action', 'generar_email_ia');
+                f.append('lead_id', this.rsSeleccion.lead_id);
+                f.append('plantilla_id', 0);
+                const r = await fetch('?action=generar_email_ia', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) {
+                    this.rsRedaccion = j.cuerpo || '';
+                    this.rsAsuntoResp = j.asunto || '';
+                    this.rsEnvioMsg = '✨ Borrador generado con la IA — revísalo y edítalo antes de enviar.';
+                    this.rsEnvioMsgOk = true;
+                } else {
+                    this.rsEnvioMsg = j.error || 'No se pudo generar la respuesta.'; this.rsEnvioMsgOk = false;
+                }
+            } catch (e) {
+                this.rsEnvioMsg = 'Error de conexión al generar.'; this.rsEnvioMsgOk = false;
+            } finally {
+                this.rsGenerandoIA = false;
+            }
+        },
         // Envía la respuesta redactada por SMTP usando la cuenta del lead.
         async rsEnviarRespuesta() {
             if (!this.rsSeleccion) return;
@@ -1979,7 +2015,7 @@ var app = function() {
             f.append('lead_id', this.rsSeleccion.lead_id || '');
             f.append('email', this.rsSeleccion.email || this.rsSeleccion.remitente || '');
             f.append('cuerpo', this.rsRedaccion);
-            f.append('asunto', 'Re: ' + (this.rsSeleccion.subject || this.rsSeleccion.asunto_envio || ''));
+            f.append('asunto', this.rsAsuntoResp || 'Re: ' + (this.rsSeleccion.subject || this.rsSeleccion.asunto_envio || ''));
             f.append('envio_id', this.rsSeleccion.envio_id || '');
             try {
                 const r = await fetch('', { method: 'POST', body: f });
@@ -2018,7 +2054,7 @@ var app = function() {
             const ultimo = (conv.mensajes && conv.mensajes.length > 0) ? conv.mensajes[0] : null;
             let cuerpo = '';
             if (ultimo) {
-                cuerpo = ultimo.cuerpo_texto || ultimo.cuerpo || ultimo.contenido_html || '';
+                cuerpo = ultimo.cuerpo_limpio || ultimo.cuerpo_texto || ultimo.cuerpo || ultimo.contenido_html || '';
             }
             if (!cuerpo) cuerpo = conv.cuerpo_texto || conv.cuerpo || conv.snippet || '';
             // Si es HTML, extraer solo el texto visible.

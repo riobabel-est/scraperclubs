@@ -76,6 +76,7 @@ if (!function_exists('enviarSMTPAutenticado')) {
  * @param string $tipoPlantilla 'texto_plano' | 'html'
  * @param string $plainPart     parte text/plain (solo texto_plano)
  * @param string $htmlPart      parte text/html (solo texto_plano)
+ * @param array  $adjuntos      lista de adjuntos: [{nombre, mime, contenido(bytes)}]
  * @return array{ok:bool, error:string}
  */
 function enviarSMTPAutenticado(
@@ -86,7 +87,8 @@ function enviarSMTPAutenticado(
     ?string $messageId = null,
     string $tipoPlantilla = 'texto_plano',
     string $plainPart = '',
-    string $htmlPart = ''
+    string $htmlPart = '',
+    array $adjuntos = []
 ): array {
     $tipoPlantilla = strtolower(trim($tipoPlantilla));
     $esHtml = ($tipoPlantilla === 'html');
@@ -111,6 +113,9 @@ function enviarSMTPAutenticado(
         $opciones['message_id'] = $messageId;
     }
     $opciones['reply_to'] = $cuenta['email'];
+    if (!empty($adjuntos)) {
+        $opciones['adjuntos'] = $adjuntos;
+    }
 
     if ($esHtml) {
         // Plantilla HTML: comportamiento histórico intacto (text/html).

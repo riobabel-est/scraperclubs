@@ -148,6 +148,63 @@ function charlaLead(SQLite3 $db, int $leadId, int $campaignId = 0): array {
 
 
 /**
+ * contextoDialogoCompleto — Construye el DIÁLOGO COMPLETO y estructurado de un
+ * lead (envíos de FutProtec + respuestas del club + aperturas) en orden
+ * cronológico, con el CUERPO REAL de cada mensaje (no solo asunto). Es lo que la
+ * IA necesita para responder con coherencia a la última pregunta del club.
+ */
+function contextoDialogoCompleto(SQLite3 $db, int $leadId): string
+{
+    $lineas = [];
+
+    // Envíos salientes (con cuerpo completo, no solo asunto)
+    $r = $db->query(
+        "SELECT e.fecha_envio, e.asunto, e.cuerpo_mensaje, e.cuenta_emision, e.variant
+         FROM envios e WHERE e.lead_id = {$leadId} AND COALESCE(e.es_test,0) = 0
+         ORDER BY e.id ASC"
+    );
+    if ($r) {
+        while ($e = $r->fetchArray(SQLITE3_ASSOC)) {
+            $cuerpo = atencion_limpiarCuerpoRespuesta((string)($e['cuerpo_mensaje'] ?? ''));
+            $cuerpo = mb_substr($cuerpo, 0, 800);
+            $lineas[] = "[envío {$e['fecha_envio']}] de {$e['cuenta_emision']} · variante " . ($e['variant'] ?? '')
+                . "\nASUNTO: " . trim((string)$e['asunto'])
+                . "\nCUERPO: " . $cuerpo;
+        }
+    }
+
+    // Aperturas (señal de interés)
+    $nApert = (int)$db->querySingle(
+        "SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id
+         WHERE e.lead_id = {$leadId} AND COALESCE(e.es_test,0) = 0"
+    );
+    if ($nApert > 0) {
+        $lineas[] = "[aperturas] {$nApert}";
+    }
+
+    // Respuestas entrantes (con cuerpo completo + clasificación)
+    $r = $db->query(
+        "SELECT r.fecha_respuesta, r.remitente, r.subject, r.cuerpo, r.clasificacion
+         FROM respuestas r WHERE r.lead_id = {$leadId} ORDER BY r.id ASC"
+    );
+    if ($r) {
+        while ($x = $r->fetchArray(SQLITE3_ASSOC)) {
+            $cuerpo = atencion_limpiarCuerpoRespuesta((string)($x['cuerpo'] ?? ''));
+            $cuerpo = mb_substr($cuerpo, 0, 800);
+            $lineas[] = "[respuesta {$x['fecha_respuesta']}] de {$x['remitente']} · clasificación: " . ($x['clasificacion'] ?? '')
+                . "\nASUNTO: " . trim((string)$x['subject'])
+                . "\nCUERPO: " . $cuerpo;
+        }
+    }
+
+    if (empty($lineas)) {
+        return 'Sin historial previo (primer contacto).';
+    }
+    return implode("\n\n", $lineas);
+}
+
+
+/**
  * generarEmailIA — Redacta asunto + cuerpo de seguimiento con el LLM.
  * Reglas: sin inventar nombre de contacto, datos reales del historial,
  * conocimiento de producto, plantilla base opcional. Máx 120 palabras.
@@ -179,25 +236,20 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
         $reglaSaludo = 'NO hay persona de contacto (email genérico). NO inventes nombres: usa "Hola, responsables del club:" o un saludo sin nombre.';
     }
 
-    // Historial resumido (solo datos reales)
-    $lineas = [];
-    foreach ($charla['envios'] as $e) {
-        $lineas[] = "[enviado {$e['fecha_envio']}] variante {$e['variant']} · asunto: " . trim((string)$e['asunto']) . " · remitente: {$e['cuenta_emision']}";
-    }
-    if ($charla['aperturas_total'] > 0) {
-        $lineas[] = "[aperturas] {$charla['aperturas_total']} (primera: {$charla['primera_apertura']})";
-    }
-    foreach ($charla['respuestas'] as $x) {
-        $lineas[] = "[respuesta {$x['fecha_respuesta']}] de {$x['remitente']}: " . trim((string)$x['cuerpo']);
-    }
+    // Diálogo COMPLETO (envíos con cuerpo + respuestas completas + aperturas).
+    $historial = contextoDialogoCompleto($db, (int)$lead['id']);
+
+    // Datos comerciales reales (mockup/presupuesto) como contexto adicional.
+    $contextoExtra = '';
     if ($charla['mockup']) {
-        $lineas[] = "[mockup] estado: {$charla['mockup']['estado']} (solicitado: {$charla['mockup']['solicitado_en']})";
+        $contextoExtra .= "\n[mockup] estado: {$charla['mockup']['estado']} (solicitado: {$charla['mockup']['solicitado_en']})";
     }
     if ($charla['presupuesto']) {
-        $lineas[] = "[presupuesto] v{$charla['presupuesto']['version']} · " . number_format((float)$charla['presupuesto']['importe_total'], 0, ',', '.') . " € · estado: {$charla['presupuesto']['estado']}";
+        $contextoExtra .= "\n[presupuesto] v{$charla['presupuesto']['version']} · " . number_format((float)$charla['presupuesto']['importe_total'], 0, ',', '.') . " € · estado: {$charla['presupuesto']['estado']}";
     }
-    $historial = implode("\n", $lineas);
-    if ($historial === '') $historial = 'Sin historial previo (primer contacto).';
+    if ($contextoExtra !== '') {
+        $historial .= $contextoExtra;
+    }
 
     $plantillaBase = '';
     if ($plantillaId !== null && $plantillaId > 0) {
@@ -207,11 +259,12 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
         }
     }
 
-    $system = "Eres un redactor de ventas B2B de un software de gestión de clubes de fútbol (FutProtec)."
+    $system = "Eres un asistente comercial B2B de FutProtec (software de gestión para clubes de fútbol) que RESPONDE dentro de una conversación por email ya iniciada."
         . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO (úsalo como base):\n" . mb_substr($ctx, 0, 2000) : '')
         . "\n\nREGLA DE SALUDO: {$reglaSaludo}"
-        . ($varianteDom !== '' ? "\nRAMAL DE INTERÉS: el lead validó con sus aperturas el enfoque de la variante {$varianteDom} del test de prospección (A=General/Producto, B=Identidad/Cantera, C=Financiero/Rentabilidad). CONTINÚA exactamente esa misma línea argumental en este seguimiento: no cambies de tema ni mezcles ángulos." : '')
-        . "\nRedacta un email de seguimiento comercial en español, profesional y cercano, máximo 120 palabras, que avance la conversación usando SOLO datos reales del historial (no inventes hechos)."
+        . ($varianteDom !== '' ? "\nRAMAL DE INTERÉS: el lead validó con sus aperturas el enfoque de la variante {$varianteDom} del test de prospección (A=General/Producto, B=Identidad/Cantera, C=Financiero/Rentabilidad). CONTINÚA exactamente esa misma línea argumental: no cambies de tema ni mezcles ángulos." : '')
+        . "\nTAREA: lee el HISTORIAL CRONOLÓGICO del club y responde DIRECTAMENTE a la última pregunta, objeción o solicitud que haya hecho (presupuesto, boceto de espinilleras, dudas, plazos, etc.)."
+        . "\nReglas: no repitas mensajes anteriores ni uses frases de prospección inicial; usa SOLO datos reales del historial (no inventes hechos, precios ni plazos); sé concreto y cercano; máximo 140 palabras."
         . "\nResponde EXACTAMENTE con este formato de dos líneas:\nASUNTO: <texto>\nCUERPO: <texto>";
 
     $user = "CLUB: {$lead['nombre_club']} (" . trim((string)$lead['federacion']) . ")\n"

@@ -31,6 +31,7 @@ $db->exec('PRAGMA busy_timeout=5000');
 
 require_once __DIR__ . '/../inc/eligibilidad.php';
 require_once __DIR__ . '/../inc/mime.php';
+require_once __DIR__ . '/../inc/pdf.php';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FUNCIÓN: Escribir log de envío en archivo
@@ -364,6 +365,33 @@ try {
     // ─── 7. Enviar SMTP usando el contenido ya reservado ────────────────────────
     $asuntoEnvio = $envioRow['asunto'] !== '' ? $envioRow['asunto'] : $asunto;
     $cuerpoEnvio = $envioRow['cuerpo_mensaje'] !== '' ? $envioRow['cuerpo_mensaje'] : $cuerpo;
+
+    // ─── 7.1 Adjuntos PDF (presupuesto + boceto de espinilleras) ────────────────
+    $adjuntos = [];
+    $adjuntarPresupuesto = (($_POST['adjuntar_presupuesto'] ?? '0') === '1') || (($_POST['incluir_proforma'] ?? '0') === '1');
+    $adjuntarBoceto      = (($_POST['adjuntar_boceto'] ?? '0') === '1') || (($_POST['incluir_mockup'] ?? '0') === '1');
+    $slugClub = preg_replace('/[^A-Za-z0-9]+/', '_', $nombreClub);
+    if ($adjuntarPresupuesto) {
+        $presu = $db->querySingle("SELECT importe_total, estado, version FROM presupuestos WHERE lead_id = {$idClub} ORDER BY version DESC LIMIT 1", true);
+        $importe = ($presu && $presu['importe_total']) ? number_format((float)$presu['importe_total'], 0, ',', '.') . ' €' : 'A convenir';
+        $adjuntos[] = [
+            'nombre'    => 'presupuesto_' . $slugClub . '.pdf',
+            'mime'      => 'application/pdf',
+            'contenido' => generarPdfPresupuesto([
+                'club'     => $nombreClub,
+                'importe'  => $importe,
+                'contacto' => $senderName,
+            ]),
+        ];
+    }
+    if ($adjuntarBoceto) {
+        $adjuntos[] = [
+            'nombre'    => 'boceto_espinilleras_' . $slugClub . '.pdf',
+            'mime'      => 'application/pdf',
+            'contenido' => generarPdfBoceto(['club' => $nombreClub]),
+        ];
+    }
+
     $resultado = enviarSMTPAutenticado(
         $cuenta,
         $emailDestino,
@@ -372,7 +400,8 @@ try {
         $envioRow['message_id'] ?? null,
         $tipoPlantilla,
         $plainPart,
-        $htmlPart
+        $htmlPart,
+        $adjuntos
     );
 
 

@@ -178,7 +178,8 @@ if (!function_exists('futprotec_enviarSMTP')) {
             }
 
             // Construir mensaje.
-            $boundary = '--=_FutProtec_' . md5(uniqid((string)time(), true));
+            $adjuntos = $opciones['adjuntos'] ?? []; // [{nombre, mime, contenido(bytes)}]
+            $boundaryAlt = '--=_FutProtec_' . md5(uniqid((string)time(), true) . 'alt');
             $mensaje = "From: {$fromName} <{$fromEmail}>\r\n";
             $mensaje .= "To: <{$destinatario}>\r\n";
             $mensaje .= "Subject: =?UTF-8?B?" . base64_encode($asunto) . "?=\r\n";
@@ -200,28 +201,53 @@ if (!function_exists('futprotec_enviarSMTP')) {
                 }
             }
 
+            // Parte del cuerpo (multipart/alternative con texto+html, o solo html).
+            $cuerpoParte = '';
             if ($textoPlano !== '') {
-                // multipart/alternative.
-                $mensaje .= "Content-Type: multipart/alternative; boundary=\"{$boundary}\"\r\n";
-                $mensaje .= "\r\n";
-                $mensaje .= "--{$boundary}\r\n";
-                $mensaje .= "Content-Type: text/plain; charset=UTF-8\r\n";
-                $mensaje .= "Content-Transfer-Encoding: 8bit\r\n";
-                $mensaje .= "\r\n";
-                $mensaje .= $textoPlano;
-                $mensaje .= "\r\n";
-                $mensaje .= "--{$boundary}\r\n";
-                $mensaje .= "Content-Type: text/html; charset=UTF-8\r\n";
-                $mensaje .= "Content-Transfer-Encoding: 8bit\r\n";
-                $mensaje .= "\r\n";
-                $mensaje .= $cuerpoHTML;
-                $mensaje .= "\r\n";
-                $mensaje .= "--{$boundary}--\r\n";
+                $cuerpoParte .= "Content-Type: multipart/alternative; boundary=\"{$boundaryAlt}\"\r\n";
+                $cuerpoParte .= "\r\n";
+                $cuerpoParte .= "--{$boundaryAlt}\r\n";
+                $cuerpoParte .= "Content-Type: text/plain; charset=UTF-8\r\n";
+                $cuerpoParte .= "Content-Transfer-Encoding: 8bit\r\n";
+                $cuerpoParte .= "\r\n";
+                $cuerpoParte .= $textoPlano;
+                $cuerpoParte .= "\r\n";
+                $cuerpoParte .= "--{$boundaryAlt}\r\n";
+                $cuerpoParte .= "Content-Type: text/html; charset=UTF-8\r\n";
+                $cuerpoParte .= "Content-Transfer-Encoding: 8bit\r\n";
+                $cuerpoParte .= "\r\n";
+                $cuerpoParte .= $cuerpoHTML;
+                $cuerpoParte .= "\r\n";
+                $cuerpoParte .= "--{$boundaryAlt}--\r\n";
             } else {
-                // Solo text/html.
-                $mensaje .= "Content-Type: text/html; charset=UTF-8\r\n";
+                $cuerpoParte .= "Content-Type: text/html; charset=UTF-8\r\n";
+                $cuerpoParte .= "\r\n";
+                $cuerpoParte .= $cuerpoHTML;
+            }
+
+            if (!empty($adjuntos)) {
+                // multipart/mixed: cuerpo + adjuntos.
+                $boundaryMix = '--=_FutProtec_' . md5(uniqid((string)time(), true) . 'mix');
+                $mensaje .= "Content-Type: multipart/mixed; boundary=\"{$boundaryMix}\"\r\n";
                 $mensaje .= "\r\n";
-                $mensaje .= $cuerpoHTML;
+                $mensaje .= "--{$boundaryMix}\r\n";
+                $mensaje .= $cuerpoParte;
+                $mensaje .= "\r\n";
+                foreach ($adjuntos as $adj) {
+                    $fname = basename((string)($adj['nombre'] ?? 'adjunto'));
+                    $mime = (string)($adj['mime'] ?? 'application/octet-stream');
+                    $bin = (string)($adj['contenido'] ?? '');
+                    $mensaje .= "--{$boundaryMix}\r\n";
+                    $mensaje .= "Content-Type: {$mime}; name=\"{$fname}\"\r\n";
+                    $mensaje .= "Content-Transfer-Encoding: base64\r\n";
+                    $mensaje .= "Content-Disposition: attachment; filename=\"{$fname}\"\r\n";
+                    $mensaje .= "\r\n";
+                    $mensaje .= chunk_split(base64_encode($bin)) . "\r\n";
+                }
+                $mensaje .= "--{$boundaryMix}--\r\n";
+            } else {
+                // Sin adjuntos: el cuerpo va directo.
+                $mensaje .= $cuerpoParte;
             }
 
             $mensaje .= "\r\n.\r\n";

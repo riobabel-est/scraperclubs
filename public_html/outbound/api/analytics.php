@@ -50,6 +50,18 @@ function limpiarCuerpoMime(string $cuerpo): string {
     // 3. Decodificar entidades HTML básicas (si el texto quedó escapado).
     $t = html_entity_decode($t, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
+    // 3.5 Si queda HTML puro (tags), extraer solo el texto visible.
+    // Gmail/Outlook envían respuestas text/html; antes este contenido quedaba
+    // como código crudo y el visor no mostraba el mensaje recibido.
+    if (preg_match('/<[a-z][\s\S]*>/i', $t)) {
+        $t = preg_replace('/<style[\s\S]*?<\/style>/i', ' ', $t);
+        $t = preg_replace('/<script[\s\S]*?<\/script>/i', ' ', $t);
+        $t = preg_replace('/<br[^>]*>/i', "\n", $t);
+        $t = preg_replace('/<\/(p|div|tr|li|h[1-6]|blockquote|section|article)>/i', "\n", $t);
+        $t = preg_replace('/<[^>]+>/', ' ', $t);
+        $t = html_entity_decode($t, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+
     // 4. Quitar líneas de cita (>) y firmas de correo repetidas.
     $lineas = preg_split('/\r?\n/', $t);
     $limpias = [];
@@ -652,10 +664,10 @@ function ordenarConversaciones(array $conversaciones): array {
         $pa = $ordenPrio[$a['prioridad']] ?? 1;
         $pb = $ordenPrio[$b['prioridad']] ?? 1;
         if ($pa !== $pb) return $pa <=> $pb;
-        // Dentro de la misma prioridad, la más reciente primero
-        $ta = 0; $tb = 0;
-        foreach ($a['mensajes'] as $m) { $ts = strtotime((string)($m['fecha_respuesta'] ?? '')); if ($ts > $ta) $ta = $ts; }
-        foreach ($b['mensajes'] as $m) { $ts = strtotime((string)($m['fecha_respuesta'] ?? '')); if ($ts > $tb) $tb = $ts; }
+        // Dentro de la misma prioridad, la más reciente primero (por el ÚLTIMO
+        // mensaje real del hilo — envío o respuesta — normalizado con strtotime).
+        $ta = strtotime((string)($a['ultima_fecha'] ?? $a['fecha'] ?? '')) ?: 0;
+        $tb = strtotime((string)($b['ultima_fecha'] ?? $b['fecha'] ?? '')) ?: 0;
         return $tb <=> $ta;
     });
     return $conversaciones;
@@ -907,8 +919,17 @@ if ($action === 'get_respuestas') {
                         ];
                     }
                 }
-                // Ordenar el hilo por fecha DESC (más reciente primero)
-                usort($convC['mensajes'], fn($a, $b) => strcmp((string)($b['fecha'] ?? ''), (string)($a['fecha'] ?? '')));
+                // Ordenar el hilo por fecha DESC (más reciente primero).
+                // IMPORTANTE: los formatos de fecha difieren (envíos "Y-m-d H:i:s" y
+                // respuestas RFC 2822) → hay que normalizar con strtotime, nunca strcmp.
+                usort($convC['mensajes'], function ($a, $b) {
+                    $ta = strtotime((string)($a['fecha'] ?? '')) ?: 0;
+                    $tb = strtotime((string)($b['fecha'] ?? '')) ?: 0;
+                    return $tb <=> $ta; // DESC: más reciente primero
+                });
+                // Fecha del ÚLTIMO mensaje del hilo (envío o respuesta): se usa para
+                // ordenar la lista por actividad real y mostrarla en la tarjeta.
+                $convC['ultima_fecha'] = !empty($convC['mensajes']) ? $convC['mensajes'][0]['fecha'] : ($convC['fecha'] ?? null);
             }
         }
         unset($convC);

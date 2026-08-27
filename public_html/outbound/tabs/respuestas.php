@@ -86,7 +86,7 @@
             <div class="flex items-center justify-between gap-2">
               <span class="font-bold text-slate-50 text-sm truncate"
                     x-text="(conv.nombre_club && conv.nombre_club !== '—') ? (conv.nombre_club || conv.club) : (conv.contacto_nombre || conv.persona_contacto || conv.remitente_email || conv.email || '—')"></span>
-              <span class="text-xs text-slate-400 shrink-0" x-text="rsFmtFecha(conv.fecha || conv.fecha_respuesta || conv.ultima_fecha)"></span>
+              <span class="text-xs text-slate-400 shrink-0" x-text="rsFmtFecha(conv.ultima_fecha || conv.fecha || conv.fecha_respuesta)"></span>
             </div>
             <!-- Fila 2: De / Para (una sola línea compacta) -->
             <div class="flex items-center gap-2 mt-1.5 text-xs font-mono">
@@ -227,6 +227,11 @@
                     class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-orange-500/50 focus:outline-none resize-none"></textarea>
           <!-- Botones de acción -->
           <div class="flex items-center gap-2 mt-2 flex-wrap">
+            <button @click="rsGenerarIA()" :disabled="rsGenerandoIA || !rsSeleccion || !rsSeleccion.lead_id"
+                    class="px-4 py-2 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/30 rounded-lg text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed">
+              <i data-lucide="sparkles" class="w-4 h-4 inline-block mr-1"></i>
+              <span x-text="rsGenerandoIA ? 'Generando...' : '✨ Respuesta IA'"></span>
+            </button>
             <button @click="rsEnviarRespuesta()" :disabled="rsEnviando"
                     class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed">
               <i data-lucide="send" class="w-4 h-4 inline-block mr-1"></i>
