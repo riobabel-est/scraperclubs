@@ -451,3 +451,69 @@ function getEnvioLogicoExistente(SQLite3 $db, int $leadId, int $campaignId, int 
     );
     return $row ?: null;
 }
+
+/**
+ * RECUENTO REAL (E-2/FI-005): nº de envíos de email de una cuenta HOY según
+ * comunicaciones_log (fuente de verdad). La columna cuentas_smtp.enviados_hoy
+ * es solo display/sincronizada y puede quedar desfasada (borrados, reintentos).
+ *
+ * @return int Envíos reales de hoy (0 si no hay registros)
+ */
+function enviadosHoyDeCuenta(SQLite3 $db, int $idCuenta): int
+{
+    if ($idCuenta <= 0) {
+        return 0;
+    }
+    return (int)$db->querySingle(
+        "SELECT COUNT(*) FROM comunicaciones_log
+         WHERE id_cuenta_smtp = {$idCuenta}
+           AND DATE(fecha) = DATE('now')
+           AND tipo_evento = 'envio_email'"
+    );
+}
+
+/**
+ * Sincroniza la columna cuentas_smtp.enviados_hoy con el recuento real de hoy
+ * (E-2/FI-005). Úsalo DESPUÉS de insertar en comunicaciones_log para que la UI
+ * (tabs/smtp.php, lanzadera) muestre el valor real y no un contador acumulado.
+ */
+function sincronizarEnviadosHoyCuenta(SQLite3 $db, int $idCuenta): void
+{
+    if ($idCuenta <= 0) {
+        return;
+    }
+    $real = enviadosHoyDeCuenta($db, $idCuenta);
+    $stmt = $db->prepare("UPDATE cuentas_smtp SET enviados_hoy = :n WHERE id = :id");
+    $stmt->bindValue(':n', $real, SQLITE3_INTEGER);
+    $stmt->bindValue(':id', $idCuenta, SQLITE3_INTEGER);
+    $stmt->execute();
+}
+
+/**
+ * Devuelve la cuenta SMTP activa MÁS DISPONIBLE según el RECUENTO REAL de hoy
+ * (E-2/FI-005): activa y con envíos reales < límite, ordenada por uso real ASC.
+ * Reemplaza las consultas que usaban la columna enviados_hoy (desincronizada).
+ *
+ * @return array|null Fila de cuentas_smtp o null si ninguna está disponible
+ */
+function elegirCuentaSmtpDisponible(SQLite3 $db): ?array
+{
+    $res = $db->query(
+        "SELECT c.* FROM cuentas_smtp c
+         WHERE c.activa = 1
+           AND (SELECT COUNT(*) FROM comunicaciones_log cl
+                WHERE cl.id_cuenta_smtp = c.id
+                  AND DATE(cl.fecha) = DATE('now')
+                  AND cl.tipo_evento = 'envio_email') < c.limite_diario
+         ORDER BY (SELECT COUNT(*) FROM comunicaciones_log cl
+                   WHERE cl.id_cuenta_smtp = c.id
+                     AND DATE(cl.fecha) = DATE('now')
+                     AND cl.tipo_evento = 'envio_email') ASC, c.id ASC
+         LIMIT 1"
+    );
+    if (!$res) {
+        return null;
+    }
+    $row = $res->fetchArray(SQLITE3_ASSOC);
+    return $row ?: null;
+}

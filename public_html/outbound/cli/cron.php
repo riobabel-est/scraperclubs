@@ -244,7 +244,7 @@ function secuencia_programarYEnviar(SQLite3 $db, int $campaignId, int $limite = 
                 $stats['excluidos']++;
                 continue;
             }
-            $cuenta = $db->querySingle("SELECT * FROM cuentas_smtp WHERE activa=1 AND enviados_hoy < limite_diario ORDER BY enviados_hoy ASC, id ASC LIMIT 1", true);
+            $cuenta = elegirCuentaSmtpDisponible($db);
             if (!$cuenta) break;
             $ok = enviarSMTP(
                 $cuenta['host'], (int)$cuenta['puerto'], $cuenta['seguridad'],
@@ -257,13 +257,17 @@ function secuencia_programarYEnviar(SQLite3 $db, int $campaignId, int $limite = 
             );
             if ($ok) {
                 $db->exec("UPDATE envios SET estado='enviado', cuenta_emision='" . $db->escapeString($cuenta['email']) . "', fecha_envio=CURRENT_TIMESTAMP, smtp_id=" . (int)$cuenta['id'] . " WHERE id=" . (int)$envio['id']);
-                $db->exec("UPDATE cuentas_smtp SET enviados_hoy = enviados_hoy + 1, ultimo_uso=CURRENT_TIMESTAMP WHERE id=" . (int)$cuenta['id']);
+                $db->exec("UPDATE cuentas_smtp SET ultimo_uso=CURRENT_TIMESTAMP WHERE id=" . (int)$cuenta['id']);
                 $db->exec("UPDATE clubes_crm SET estado_lead='02 Contactado', ultimo_contacto=CURRENT_TIMESTAMP WHERE id=" . (int)$envio['lead_id']);
                 $db->exec("INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, plantilla_id, id_cuenta_smtp, tipo, resultado, detalles, fecha)
                     VALUES (" . (int)$envio['lead_id'] . "," . (int)$envio['lead_id'] . ",'envio_email'," . (int)$envio['plantilla_id'] . "," . (int)$cuenta['id'] . ",'email','exito','Envío automático de secuencia (paso " . (int)$envio['paso_secuencia'] . ") via " . $cuenta['email'] . "',CURRENT_TIMESTAMP)");
+                // E-2/FI-005: sincronizar DESPUÉS del INSERT en comunicaciones_log.
+                sincronizarEnviadosHoyCuenta($db, (int)$cuenta['id']);
                 $stats['enviados']++;
             } else {
                 $db->exec("UPDATE envios SET estado='error', resultado_envio='FAILED', fecha_resultado_envio=CURRENT_TIMESTAMP WHERE id=" . (int)$envio['id']);
+                // E-2/FI-005: corrige desfases de la columna aunque falle el envío.
+                sincronizarEnviadosHoyCuenta($db, (int)$cuenta['id']);
                 $stats['errores']++;
             }
         }
@@ -338,13 +342,7 @@ if ($tieneSecuencia > 0) {
 // ═════════════════════════════════════════════════════════════════════════════
 // 2. Seleccionar siguiente cuenta SMTP disponible
 // ═════════════════════════════════════════════════════════════════════════════
-$cuentaRow = $db->querySingle(
-    "SELECT * FROM cuentas_smtp 
-     WHERE activa = 1 AND enviados_hoy < limite_diario 
-     ORDER BY enviados_hoy ASC, id ASC 
-     LIMIT 1",
-    true
-);
+$cuentaRow = elegirCuentaSmtpDisponible($db);
 
 if (!$cuentaRow) {
     echo "[" . date('Y-m-d H:i:s') . "] ⚠️ No hay cuentas SMTP disponibles (todas han alcanzado su límite diario o están inactivas).\n";
@@ -573,8 +571,9 @@ if ($enviado) {
     // Actualizar estado del lead
     $db->exec("UPDATE clubes_crm SET estado_lead = '02 Contactado', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadRow['id']}");
 
-    // Incrementar contador de envíos de la cuenta SMTP
-    $db->exec("UPDATE cuentas_smtp SET enviados_hoy = enviados_hoy + 1 WHERE id = {$cuentaRow['id']}");
+    // Incrementar contador de envíos de la cuenta SMTP (recuento real, E-2/FI-005)
+    $db->exec("UPDATE cuentas_smtp SET ultimo_uso = CURRENT_TIMESTAMP WHERE id = {$cuentaRow['id']}");
+    sincronizarEnviadosHoyCuenta($db, (int)$cuentaRow['id']);
 
     echo "[" . date('Y-m-d H:i:s') . "] ✅ Email enviado correctamente a {$leadRow['email']} (tracking: {$trackingId})\n";
     echo "[" . date('Y-m-d H:i:s') . "] Lead #{$leadRow['id']} actualizado a '02 Contactado'\n";
@@ -587,6 +586,8 @@ if ($enviado) {
 
     // Registrar error en la cuenta SMTP
     $db->exec("UPDATE cuentas_smtp SET ultimo_error = '" . $db->escapeString($errorMsg) . "' WHERE id = {$cuentaRow['id']}");
+    // E-2/FI-005: corrige desfases de la columna aunque falle el envío.
+    sincronizarEnviadosHoyCuenta($db, (int)$cuentaRow['id']);
 
     echo "[" . date('Y-m-d H:i:s') . "] ❌ ERROR al enviar a {$leadRow['email']}: {$errorMsg}\n";
     echo "[" . date('Y-m-d H:i:s') . "] Error registrado en cuenta SMTP #{$cuentaRow['id']} (envio_id={$envioRow['id']} queda 'error')\n";

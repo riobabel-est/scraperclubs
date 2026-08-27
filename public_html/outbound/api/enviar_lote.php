@@ -410,7 +410,10 @@ try {
 
     // Actualizar contador de cuenta SMTP
     if ($resultado['ok']) {
-        $db->exec("UPDATE cuentas_smtp SET enviados_hoy = enviados_hoy + 1, ultimo_uso = CURRENT_TIMESTAMP, ultimo_error = NULL WHERE id = {$idSmtp}");
+        $db->exec("UPDATE cuentas_smtp SET ultimo_uso = CURRENT_TIMESTAMP, ultimo_error = NULL WHERE id = {$idSmtp}");
+        // E-2/FI-005: la columna enviados_hoy se sincroniza con el recuento REAL
+        // de comunicaciones_log (fuente de verdad), no con un contador acumulado.
+        sincronizarEnviadosHoyCuenta($db, $idSmtp);
     } else {
         $db->exec("UPDATE cuentas_smtp SET ultimo_error = '" . $db->escapeString($errorMsg) . "', ultimo_uso = CURRENT_TIMESTAMP WHERE id = {$idSmtp}");
     }

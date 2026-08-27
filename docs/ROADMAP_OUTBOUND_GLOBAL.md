@@ -50,7 +50,7 @@
 | ID | Ítem | Estado | Beneficio |
 |---|---|---|---|
 | **E-1** | **FI-002** — Saneamiento de `$cuentasDefault` en `cli/init_db.php` (credenciales en claro en el repo) | ✅ **RESUELTO** (2026-08-27, local): credenciales eliminadas; bootstrap crea cuentas sin password (se configuran por la UI). **Pendiente**: rotar contraseñas SMTP en producción (ya estuvieron en el historial git) | Elimina el último secreto en claro versionado |
-| **E-2** | **FI-005** — Atomicidad de `cuentas_smtp.enviados_hoy` (recuento real unificado) | 🔴 Pendiente | Evita sobre-envíos por cuenta |
+| **E-2** | **FI-005** — Atomicidad de `cuentas_smtp.enviados_hoy` (recuento real unificado) | ✅ **RESUELTO** (2026-08-27, local): nuevos helpers `enviadosHoyDeCuenta()`/`elegirCuentaSmtpDisponible()`/`sincronizarEnviadosHoyCuenta()`; cron (motor + flujo) y `enviar_lote.php` usan recuento real de `comunicaciones_log`; `api/smtp.php` y `get_cola.php` ya lo hacían. **Nota**: `enviarRespuestaSmtpLead()` (dashboard.php, Bandeja) usa columnas inexistentes (`$cuenta['smtp']`/`user`/`pass`) → bug heredado aparte | Evita sobre-envíos por cuenta |
 | **E-3** | **Deliverability**: verificación SPF/DKIM/DMARC por dominio + warmup de cuentas | 🟡 Propuesto | Protege la reputación del remitente (mailing B2B efectivo) |
 | **E-4** | **Gestión de rebotes** endurecida (hard/soft → supresión automática) | 🟡 Propuesto | Protege la reputación y evita bounces repetidos |
 
