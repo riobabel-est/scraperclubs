@@ -931,6 +931,10 @@ if ($action === 'get_respuestas') {
                 );
                 if ($resEnv) {
                     while ($ev = $resEnv->fetchArray(SQLITE3_ASSOC)) {
+                        // Adjuntos de este envío saliente (tabla envios_adjuntos).
+                        $adjuntosEnv = [];
+                        $resAdjEnv = $db->query("SELECT id, nombre, mime, tamano FROM envios_adjuntos WHERE envio_id = " . (int)$ev['id'] . " ORDER BY id");
+                        if ($resAdjEnv) { while ($aEnv = $resAdjEnv->fetchArray(SQLITE3_ASSOC)) $adjuntosEnv[] = $aEnv; }
                         $convC['mensajes'][] = [
                             'id'           => 'env-' . (int)$ev['id'],
                             'sentido'      => 'saliente', // lo enviamos nosotros
@@ -944,6 +948,7 @@ if ($action === 'get_respuestas') {
                             'variant'      => (string)($ev['variant'] ?? ''),
                             'estado_envio' => (string)($ev['estado'] ?? ''),
                             'clasificacion'=> '',
+                            'adjuntos'     => $adjuntosEnv,
                         ];
                     }
                 }

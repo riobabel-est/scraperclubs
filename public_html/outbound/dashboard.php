@@ -637,7 +637,19 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
         . nl2br(htmlspecialchars($cuerpo, ENT_QUOTES, 'UTF-8'))
         . '</div>';
 
-    $opciones = ['reply_to' => $cuenta['email']];
+    // Message-ID propio: permite emparejar la respuesta con el hilo IMAP
+    // (In-Reply-To/References) y trazarlo en la bandeja.
+    $trackingId = 'fut_' . dechex(time()) . '_' . bin2hex(random_bytes(6));
+    $messageId  = '<' . $trackingId . '@getfutprotec.com>';
+
+    $opciones = [
+        'reply_to'    => $cuenta['email'],
+        // Multipart/alternative con texto plano + HTML: mejora la deliverability
+        // (los envíos masivos que sí llegan usan texto_plano) y evita el filtro
+        // anti-spam de correos "solo HTML".
+        'texto_plano' => $cuerpo,
+        'message_id'  => $messageId,
+    ];
     if (!empty($adjuntos)) {
         // Adjuntos: [{nombre, mime, contenido(bytes)}] → multipart/mixed.
         $opciones['adjuntos'] = $adjuntos;
@@ -660,10 +672,9 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
     sincronizarEnviadosHoyCuenta($db, (int)$cuenta['id']);
 
     // Registrar en envios para trazabilidad (usa lead_id para vincular la respuesta).
-    $trackingId = 'fut_' . dechex(time()) . '_' . bin2hex(random_bytes(6));
     $stmt = $db->prepare(
-        'INSERT INTO envios (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje, lead_id)
-         VALUES (:club, :email, :fed, :cuenta, :estado, :tid, :asunto, :cuerpo, :lead_id)'
+        'INSERT INTO envios (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje, lead_id, message_id, resultado_envio, fecha_resultado_envio)
+         VALUES (:club, :email, :fed, :cuenta, :estado, :tid, :asunto, :cuerpo, :lead_id, :mid, :res, CURRENT_TIMESTAMP)'
     );
     $stmt->bindValue(':club',   $leadId > 0 ? ('Lead #' . $leadId) : $email, SQLITE3_TEXT);
     $stmt->bindValue(':email',  $email, SQLITE3_TEXT);
@@ -674,7 +685,27 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
     $stmt->bindValue(':asunto', $asunto, SQLITE3_TEXT);
     $stmt->bindValue(':cuerpo', $cuerpoHtml, SQLITE3_TEXT);
     $stmt->bindValue(':lead_id', $leadId > 0 ? $leadId : null, SQLITE3_INTEGER);
+    $stmt->bindValue(':mid',    $messageId, SQLITE3_TEXT);
+    $stmt->bindValue(':res',    'ACCEPTED', SQLITE3_TEXT);
     $stmt->execute();
+    $envioId = (int)$db->lastInsertRowID();
+
+    // Guardar los adjuntos salientes para trazabilidad y mostrarlos en el hilo.
+    if ($envioId > 0 && !empty($adjuntos)) {
+        $stmtA = $db->prepare(
+            'INSERT INTO envios_adjuntos (envio_id, nombre, mime, tamano, datos)
+             VALUES (:e, :n, :m, :t, :d)'
+        );
+        foreach ($adjuntos as $adj) {
+            $bin = (string)($adj['contenido'] ?? '');
+            $stmtA->bindValue(':e', $envioId, SQLITE3_INTEGER);
+            $stmtA->bindValue(':n', (string)($adj['nombre'] ?? 'adjunto'), SQLITE3_TEXT);
+            $stmtA->bindValue(':m', (string)($adj['mime'] ?? 'application/octet-stream'), SQLITE3_TEXT);
+            $stmtA->bindValue(':t', strlen($bin), SQLITE3_INTEGER);
+            $stmtA->bindValue(':d', $bin, SQLITE3_BLOB);
+            $stmtA->execute();
+        }
+    }
 
     return ['ok' => true, 'tracking_id' => $trackingId];
 }

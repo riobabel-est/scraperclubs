@@ -1143,6 +1143,21 @@ function imap_asegurar_esquema(SQLite3 $db): void
     ");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_ra_respuesta ON respuestas_adjuntos(respuesta_id)");
 
+    // ─── Adjuntos de los ENVÍOS SALIENTES (2026-08-27) ───
+    // Guarda los archivos que FutProtec adjunta al responder (para trazabilidad
+    // y para mostrarlos en el hilo de la Bandeja como chips descargables).
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS envios_adjuntos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            envio_id INTEGER NOT NULL,
+            nombre TEXT NOT NULL,
+            mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+            tamano INTEGER NOT NULL DEFAULT 0,
+            datos BLOB NOT NULL
+        )
+    ");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_ea_envio ON envios_adjuntos(envio_id)");
+
     // ─── Análisis IA del lead (AI Command Center, 2026-08-27) ───
     // Guarda el resumen ejecutivo de la conversación + intención comercial con
     // confianza + próxima acción sugerida por la IA. Evita re-llamar al LLM.

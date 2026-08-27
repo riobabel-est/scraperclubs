@@ -2141,7 +2141,13 @@ var app = function() {
             f.append('lead_id', this.rsSeleccion.lead_id || '');
             f.append('email', this.rsSeleccion.email || this.rsSeleccion.remitente || '');
             f.append('cuerpo', this.rsRedaccion);
-            f.append('asunto', this.rsAsuntoResp || 'Re: ' + (this.rsSeleccion.subject || this.rsSeleccion.asunto_envio || ''));
+            // Asunto de la respuesta: si no hay IA/plantilla, "Re: <asunto original>"
+            // pero limpiando placeholders sin resolver ({{\u2026}}) y evitando "Re:" vacío.
+            const asuntoBase = String(this.rsSeleccion.subject || this.rsSeleccion.asunto_envio || '')
+                .replace(/\{\{[^}]+\}\}/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            f.append('asunto', this.rsAsuntoResp || ('Re: ' + (asuntoBase || 'Espinilleras personalizadas')));
             f.append('envio_id', this.rsSeleccion.envio_id || '');
             // Adjuntos seleccionados (archivos locales) → multipart/mixed.
             for (const a of (this.rsAdjuntos || [])) {
