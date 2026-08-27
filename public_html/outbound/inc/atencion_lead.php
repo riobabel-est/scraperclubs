@@ -284,3 +284,122 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
 
     return ['asunto' => $asunto, 'cuerpo' => $cuerpo];
 }
+
+/**
+ * IA ANALIZA EL LEAD (AI Command Center): lee TODA la conversación (envíos con
+ * cuerpo, respuestas completas, aperturas, mockup, presupuesto) y devuelve un
+ * análisis ejecutivo: resumen, intención comercial con % de confianza, motivo y
+ * la próxima acción sugerida. Persiste en ia_lead_analisis.
+ *
+ * @return array|null {resumen, intencion, confianza, proxima_accion, motivo}
+ */
+function ia_analizar_lead(SQLite3 $db, int $leadId, int $campaignId = 0): ?array
+{
+    // Asegurar esquema (idempotente): la tabla puede no existir si el sync
+    // IMAP aún no ha corrido en este entorno.
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS ia_lead_analisis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id INTEGER NOT NULL,
+            resumen TEXT DEFAULT '',
+            intencion TEXT DEFAULT '',
+            confianza REAL DEFAULT 0,
+            proxima_accion TEXT DEFAULT '',
+            motivo TEXT DEFAULT '',
+            creado_el DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_ila_lead ON ia_lead_analisis(lead_id)");
+
+    $charla = charlaLead($db, $leadId, $campaignId);
+    if (empty($charla['ok']) || empty($charla['lead'])) return null;
+    $lead = $charla['lead'];
+
+    $historial = contextoDialogoCompleto($db, $leadId);
+    $ctx = atencion_contextoProducto($db);
+
+    $extra = '';
+    if ($charla['mockup']) {
+        $extra .= "\n[mockup] estado: {$charla['mockup']['estado']} (solicitado: {$charla['mockup']['solicitado_en']})";
+    }
+    if ($charla['presupuesto']) {
+        $extra .= "\n[presupuesto] v{$charla['presupuesto']['version']} · " . number_format((float)$charla['presupuesto']['importe_total'], 0, ',', '.') . " € · estado: {$charla['presupuesto']['estado']}";
+    }
+    if ($charla['aperturas_total'] > 0) {
+        $extra .= "\n[aperturas] {$charla['aperturas_total']}";
+    }
+
+    $system = "Eres el ANALISTA SENIOR DE VENTAS B2B de FutProtec (software de gestión para clubes de fútbol)."
+        . " Lee el HISTORIAL COMPLETO de la conversación de un club y produce un análisis ejecutivo accionable."
+        . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO:\n" . mb_substr($ctx, 0, 1500) : '')
+        . "\n\nResponde SOLO con un JSON válido (sin texto fuera), con estas claves exactas:"
+        . "\n- resumen: 2-3 frases ejecutivas de qué está pasando en la conversación."
+        . "\n- intencion: una de [interesado, duda_precio, baja, neutral, no_interesa, otro, pendiente]. Usa 'pendiente' si NO hay información suficiente para decidir."
+        . "\n- confianza: número 0.0 a 1.0 con tu seguridad en la intención (si dudas, <= 0.5)."
+        . "\n- proxima_accion: UNA acción concreta y accionable (p.ej. 'Enviar presupuesto con plazos', 'Llamar para resolver la duda de precio', 'Agradecer y esperar', 'Confirmar baja')."
+        . "\n- motivo: UNA frase que explique la intención basándote en hechos del historial (nunca inventes)."
+        . "\nEjemplo: {\"resumen\":\"...\",\"intencion\":\"duda_precio\",\"confianza\":0.85,\"proxima_accion\":\"...\",\"motivo\":\"...\"}";
+
+    $user = "CLUB: {$lead['nombre_club']} (" . trim((string)$lead['federacion']) . ")\n"
+        . "CONTACTO: {$charla['contacto_real']}\n"
+        . "EMAIL: {$lead['email']}\n"
+        . ($campaignId > 0 ? "CAMPAÑA: {$campaignId}\n" : '')
+        . "\nHISTORIAL COMPLETO:\n{$historial}{$extra}";
+
+    $texto = llm_chat($db, $system, $user, 700, 0.2);
+    if ($texto === null) return null;
+
+    // Extraer el JSON de la respuesta (robusto ante texto extra).
+    $json = '';
+    if (preg_match('/\{[^{}]*\}/s', $texto, $m)) {
+        $json = $m[0];
+    } elseif (preg_match('/\{.*\}/s', $texto, $m)) {
+        $json = $m[0];
+    } else {
+        $json = $texto;
+    }
+    $datos = json_decode($json, true);
+    if (!is_array($datos)) return null;
+
+    $resultado = [
+        'resumen'       => (string)($datos['resumen'] ?? ''),
+        'intencion'     => (string)($datos['intencion'] ?? 'pendiente'),
+        'confianza'     => max(0, min(1, (float)($datos['confianza'] ?? 0))),
+        'proxima_accion'=> (string)($datos['proxima_accion'] ?? ''),
+        'motivo'        => (string)($datos['motivo'] ?? ''),
+    ];
+    $validas = ['interesado', 'duda_precio', 'baja', 'neutral', 'no_interesa', 'otro', 'pendiente'];
+    if (!in_array($resultado['intencion'], $validas, true)) {
+        $resultado['intencion'] = 'pendiente';
+    }
+
+    // Persistir (se lee siempre el análisis más reciente por lead).
+    $stmt = $db->prepare(
+        "INSERT INTO ia_lead_analisis (lead_id, resumen, intencion, confianza, proxima_accion, motivo)
+         VALUES (:l, :r, :i, :c, :p, :m)"
+    );
+    $stmt->bindValue(':l', $leadId, SQLITE3_INTEGER);
+    $stmt->bindValue(':r', $resultado['resumen'], SQLITE3_TEXT);
+    $stmt->bindValue(':i', $resultado['intencion'], SQLITE3_TEXT);
+    $stmt->bindValue(':c', $resultado['confianza'], SQLITE3_FLOAT);
+    $stmt->bindValue(':p', $resultado['proxima_accion'], SQLITE3_TEXT);
+    $stmt->bindValue(':m', $resultado['motivo'], SQLITE3_TEXT);
+    $stmt->execute();
+
+    return $resultado;
+}
+
+/**
+ * Devuelve el análisis IA más reciente de un lead (si existe).
+ */
+function ia_analisis_reciente(SQLite3 $db, int $leadId): ?array
+{
+    if ($leadId <= 0) return null;
+    $row = $db->querySingle(
+        "SELECT resumen, intencion, confianza, proxima_accion, motivo, creado_el
+         FROM ia_lead_analisis WHERE lead_id = {$leadId} ORDER BY id DESC LIMIT 1",
+        true
+    );
+    return $row ?: null;
+}
+

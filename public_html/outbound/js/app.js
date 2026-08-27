@@ -35,6 +35,8 @@ var app = function() {
         adjuntarBoceto: false,
         generandoIA: false,
         enviandoAtencion: false,
+        analisisIA: null,
+        analizandoIA: false,
         atencionMsg: '',
         atencionMsgTipo: 'ok',
 
@@ -607,6 +609,7 @@ var app = function() {
             this.plantillaSel = 0; this.smtpSel = 0;
             this.incluirMockup = false; this.incluirProforma = false;
             this.adjuntarPresupuesto = false; this.adjuntarBoceto = false;
+            this.analisisIA = null; this.analizandoIA = false;
             this.atencionMsg = '';
             await this.cargarCharla();
         },
@@ -652,6 +655,49 @@ var app = function() {
             } finally {
                 this.generandoIA = false;
             }
+        },
+        // 🧠 AI Command Center: la IA lee TODA la conversación y devuelve
+        // resumen + intención con confianza + motivo + próxima acción.
+        async analizarLeadIA() {
+            if (!this.atencionLead) return;
+            this.analizandoIA = true;
+            this.atencionMsg = '';
+            try {
+                const f = new FormData();
+                f.append('action', 'ia_analizar_lead');
+                f.append('lead_id', this.atencionLead.id);
+                const cid = (typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? window._campanaActual : 0;
+                f.append('campaign_id', cid);
+                const r = await fetch('?action=ia_analizar_lead', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j.ok) {
+                    this.analisisIA = j.analisis;
+                    this.atencionMsg = '🧠 Análisis generado con la IA.';
+                    this.atencionMsgTipo = 'ok';
+                } else {
+                    this.atencionMsg = j.error || 'No se pudo analizar.';
+                    this.atencionMsgTipo = 'error';
+                }
+            } catch (e) {
+                this.atencionMsg = 'Error de conexión al analizar.';
+                this.atencionMsgTipo = 'error';
+            } finally {
+                this.analizandoIA = false;
+            }
+        },
+        // Etiquetas y colores del análisis IA (Command Center).
+        iaIntencionLabel(i) {
+            const m = { interesado: '😊 Interesado', duda_precio: '💶 Duda Precio', baja: '🚫 Baja', neutral: '😐 Neutral', no_interesa: '🙅 No interesa', otro: '📄 Otro', pendiente: '❓ Revisar' };
+            return m[i] || i || '—';
+        },
+        iaIntencionColor(i) {
+            const m = { interesado: 'bg-emerald-500/15 text-emerald-400', duda_precio: 'bg-amber-500/15 text-amber-400', baja: 'bg-rose-500/15 text-rose-400', neutral: 'bg-slate-500/15 text-slate-300', no_interesa: 'bg-rose-500/15 text-rose-400', otro: 'bg-slate-500/15 text-slate-300', pendiente: 'bg-fuchsia-500/15 text-fuchsia-400' };
+            return m[i] || 'bg-slate-500/15 text-slate-300';
+        },
+        iaConfianzaColor(c) {
+            if (c >= 0.7) return 'bg-emerald-500';
+            if (c >= 0.5) return 'bg-amber-500';
+            return 'bg-rose-500';
         },
         elegirPlantilla() {
             if (!this.charla || !this.plantillaSel) return;

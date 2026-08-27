@@ -1088,6 +1088,23 @@ function imap_asegurar_esquema(SQLite3 $db): void
         )
     ");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_ra_respuesta ON respuestas_adjuntos(respuesta_id)");
+
+    // ─── Análisis IA del lead (AI Command Center, 2026-08-27) ───
+    // Guarda el resumen ejecutivo de la conversación + intención comercial con
+    // confianza + próxima acción sugerida por la IA. Evita re-llamar al LLM.
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS ia_lead_analisis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id INTEGER NOT NULL,
+            resumen TEXT DEFAULT '',
+            intencion TEXT DEFAULT '',
+            confianza REAL DEFAULT 0,
+            proxima_accion TEXT DEFAULT '',
+            motivo TEXT DEFAULT '',
+            creado_el DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_ila_lead ON ia_lead_analisis(lead_id)");
 }
 
 /**

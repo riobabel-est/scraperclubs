@@ -245,6 +245,28 @@
               </template>
             </select>
           </div>
+          <!-- 🧠 AI COMMAND CENTER: análisis ejecutivo de la conversación -->
+          <button @click="analizarLeadIA()" :disabled="analizandoIA" class="w-full px-3 py-1.5 bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/30 rounded-lg text-sm font-semibold hover:bg-fuchsia-500/30 transition disabled:opacity-50">
+            <span x-show="!analizandoIA">🧠 Analizar conversación con IA</span>
+            <span x-show="analizandoIA" class="flex items-center justify-center gap-1.5"><span class="w-3 h-3 border-2 border-fuchsia-400 border-t-transparent rounded-full animate-spin inline-block"></span> Analizando…</span>
+          </button>
+          <div x-show="analisisIA" x-cloak class="border border-fuchsia-500/30 bg-fuchsia-500/5 rounded-lg p-3 space-y-2">
+            <div class="text-xs font-bold uppercase tracking-wider text-fuchsia-400 flex items-center gap-2">🧠 Análisis IA</div>
+            <p class="text-sm text-slate-200 leading-relaxed" x-text="analisisIA.resumen"></p>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="px-2 py-0.5 rounded-full text-xs font-semibold" :class="iaIntencionColor(analisisIA.intencion)" x-text="iaIntencionLabel(analisisIA.intencion)"></span>
+              <div class="flex-1 min-w-[100px] h-2 bg-slate-700 rounded-full overflow-hidden">
+                <div class="h-2 rounded-full transition-all" :class="iaConfianzaColor(analisisIA.confianza)" :style="'width:' + Math.round(analisisIA.confianza * 100) + '%'"></div>
+              </div>
+              <span class="text-xs text-slate-400" x-text="Math.round(analisisIA.confianza * 100) + '% confianza'"></span>
+            </div>
+            <p class="text-xs text-slate-400" x-text="'¿Por qué? ' + (analisisIA.motivo || '—')"></p>
+            <div class="flex items-start gap-2">
+              <span class="text-sm shrink-0">➡️</span>
+              <span class="text-sm text-emerald-400 font-medium leading-snug" x-text="analisisIA.proxima_accion"></span>
+            </div>
+            <button @click="generarEmailIA()" class="w-full px-3 py-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-sm font-semibold hover:bg-emerald-500/30 transition">✉️ Redactar respuesta con esta acción</button>
+          </div>
           <div>
             <label class="block text-sm font-semibold text-slate-300 mb-1">Asunto</label>
             <input type="text" x-model="emailAsunto" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">

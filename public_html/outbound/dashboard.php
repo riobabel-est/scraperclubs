@@ -370,6 +370,22 @@ if ($action === 'get_charla_lead') {
     echo json_encode(charlaLead($db, $leadId, $cid));
     exit;
 }
+if ($action === 'ia_analizar_lead') {
+    header('Content-Type: application/json; charset=utf-8');
+    $leadId = (int)($_POST['lead_id'] ?? 0);
+    $cid = max(0, (int)($_POST['campaign_id'] ?? $_SESSION['campana_actual'] ?? 0));
+    try {
+        $analisis = ia_analizar_lead($db, $leadId, $cid);
+        if ($analisis === null) {
+            echo json_encode(['ok' => false, 'error' => 'No se pudo analizar (¿API key de IA configurada?)']);
+            exit;
+        }
+        echo json_encode(['ok' => true, 'analisis' => $analisis]);
+    } catch (\Throwable $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
 if ($action === 'generar_email_ia') {
     header('Content-Type: application/json; charset=utf-8');
     $leadId = (int)($_POST['lead_id'] ?? 0);
