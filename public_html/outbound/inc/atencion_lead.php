@@ -118,17 +118,16 @@ function charlaLead(SQLite3 $db, int $leadId, int $campaignId = 0): array {
     $r = $db->query("SELECT id, email FROM cuentas_smtp WHERE activa = 1 ORDER BY email");
     if ($r) { while ($x = $r->fetchArray(SQLITE3_ASSOC)) $cuentas[] = $x; }
 
-    // Plantillas de la campaña activa (para el selector del modal + prefill A)
+    // Plantillas para el selector del modal: TODAS las de email activas
+    // (prospección, seguimiento, respuestas) para elegir cualquier formato.
     $plantillas = [];
-    if ($campaignId > 0) {
-        $r = $db->query("SELECT p.id, p.nombre, p.asunto, p.cuerpo FROM campaign_plantillas cp JOIN plantillas p ON p.id = cp.plantilla_id WHERE cp.campaign_id = {$campaignId} AND p.activo = 1 ORDER BY p.nombre");
-        if ($r) { while ($x = $r->fetchArray(SQLITE3_ASSOC)) $plantillas[] = $x; }
-    }
-    // Fallback: si la campaña no tiene plantillas asociadas, listar las activas.
-    if (count($plantillas) === 0) {
-        $r = $db->query("SELECT id, nombre, asunto, cuerpo FROM plantillas WHERE activo = 1 ORDER BY nombre LIMIT 20");
-        if ($r) { while ($x = $r->fetchArray(SQLITE3_ASSOC)) $plantillas[] = $x; }
-    }
+    $r = $db->query(
+        "SELECT p.id, p.nombre, p.asunto, p.cuerpo
+         FROM plantillas p
+         WHERE p.activo = 1 AND p.tipo != 'whatsapp'
+         ORDER BY p.categoria, p.nombre"
+    );
+    if ($r) { while ($x = $r->fetchArray(SQLITE3_ASSOC)) $plantillas[] = $x; }
 
     return [
         'ok'              => true,
