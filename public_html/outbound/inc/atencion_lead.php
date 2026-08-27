@@ -106,10 +106,15 @@ function charlaLead(SQLite3 $db, int $leadId, int $campaignId = 0): array {
 
     // Respuestas recibidas (las 10 últimas, cuerpo limpio y truncado)
     $respuestas = [];
-    $r = $db->query("SELECT r.id, r.fecha_respuesta, r.remitente, r.subject, r.cuerpo, r.clasificacion FROM respuestas r WHERE r.lead_id = {$leadId} ORDER BY r.id DESC LIMIT 10");
+    $r = $db->query("SELECT r.id, r.fecha_respuesta, r.remitente, r.subject, r.cuerpo, r.clasificacion, COALESCE(r.es_rebote,0) AS es_rebote FROM respuestas r WHERE r.lead_id = {$leadId} ORDER BY r.id DESC LIMIT 10");
     if ($r) {
         while ($x = $r->fetchArray(SQLITE3_ASSOC)) {
             $x['cuerpo'] = mb_substr(atencion_limpiarCuerpoRespuesta((string)$x['cuerpo']), 0, 600);
+            // Adjuntos de la respuesta (metadatos para el hilo; descarga autenticada).
+            $adjuntos = [];
+            $rA = $db->query("SELECT id, nombre, mime, tamano FROM respuestas_adjuntos WHERE respuesta_id = " . (int)$x['id'] . " ORDER BY id");
+            if ($rA) { while ($xA = $rA->fetchArray(SQLITE3_ASSOC)) $adjuntos[] = $xA; }
+            $x['adjuntos'] = $adjuntos;
             $respuestas[] = $x;
         }
     }

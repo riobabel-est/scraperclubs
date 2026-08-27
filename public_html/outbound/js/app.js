@@ -39,6 +39,8 @@ var app = function() {
         analizandoIA: false,
         atencionMsg: '',
         atencionMsgTipo: 'ok',
+        // Adjuntos manuales del modal de atención (File objects).
+        atencionAdjuntos: [],
 
         // Tab Inicio
         inicio: { kpis: { pendientes_hoy: 0, respuestas_sin_atender: 0, mockups_pendientes: 0, proformas_por_presentar: 0, acciones_vencidas: 0 }, acciones: [], conseguir: [], bandeja: [], vencidas: [], horas: [] },
@@ -614,7 +616,36 @@ var app = function() {
             this.adjuntarPresupuesto = false; this.adjuntarBoceto = false;
             this.analisisIA = null; this.analizandoIA = false;
             this.atencionMsg = '';
+            this.atencionAdjuntos = [];
             await this.cargarCharla();
+        },
+        // Hilo cronológico de la charla (estilo Bandeja): combina envíos
+        // salientes y respuestas entrantes, ordenado del más reciente al más viejo.
+        charlaHilo() {
+            const env = (this.charla && this.charla.envios || []).map(e => ({
+                id: 'e' + e.id,
+                sentido: 'saliente',
+                fecha: e.fecha_envio,
+                asunto: e.asunto,
+                cuerpo: e.cuerpo_charla,
+                adjuntos: [],
+            }));
+            const res = (this.charla && this.charla.respuestas || []).map(r => ({
+                id: 'r' + r.id,
+                sentido: 'entrante',
+                fecha: r.fecha_respuesta,
+                remitente: r.remitente,
+                subject: r.subject,
+                cuerpo: r.cuerpo,
+                clasificacion: r.clasificacion,
+                es_rebote: r.es_rebote,
+                adjuntos: r.adjuntos || [],
+            }));
+            return [...env, ...res].sort((a, b) => {
+                const ta = Date.parse(a.fecha) || 0;
+                const tb = Date.parse(b.fecha) || 0;
+                return tb - ta;
+            });
         },
         async cargarCharla() {
             this.cargandoCharla = true;
@@ -715,6 +746,24 @@ var app = function() {
             this.emailAsunto = rep(p.asunto);
             this.emailCuerpo = rep(p.cuerpo);
         },
+        // Añade los archivos seleccionados como adjuntos del envío a medida.
+        atencionAdjuntarArchivos(ev) {
+            const files = ev && ev.target ? Array.from(ev.target.files || []) : [];
+            if (!files.length) return;
+            const actual = (this.atencionAdjuntos || []).reduce((a, x) => a + (x.size || 0), 0);
+            let total = actual;
+            let aviso = '';
+            for (const f of files) {
+                if (!f.name || f.size <= 0) continue;
+                total += f.size;
+                if (total > 8 * 1024 * 1024) { aviso = 'El total de adjuntos no puede superar 8 MB.'; continue; }
+                this.atencionAdjuntos.push(f);
+            }
+            if (aviso) { this.atencionMsg = aviso; this.atencionMsgTipo = 'error'; }
+            if (ev.target) ev.target.value = '';
+        },
+        // Quita un adjunto pendiente del envío a medida.
+        atencionQuitarAdjunto(i) { this.atencionAdjuntos.splice(i, 1); },
         async enviarAtencion() {
             // Auto-seleccionar la primera cuenta SMTP activa si no hay ninguna
             // elegida (evita el fallo SILENCIOSO que dejaba el envío sin registrar).
@@ -753,12 +802,17 @@ var app = function() {
                 f.append('marcar_mockup_enviado', this.incluirMockup ? '1' : '0');
                 f.append('adjuntar_presupuesto', this.adjuntarPresupuesto ? '1' : '0');
                 f.append('adjuntar_boceto', this.adjuntarBoceto ? '1' : '0');
+                // Adjuntos manuales seleccionados en el modal.
+                for (const a of (this.atencionAdjuntos || [])) {
+                    f.append('adjunto[]', a, a.name);
+                }
                 const r = await fetch('api/enviar_lote.php', { method: 'POST', body: f });
                 const j = await r.json();
                 if (j.ok) {
                     this.atencionMsg = '✅ Enviado a medida' + (this.incluirMockup ? ' · mockup marcado como enviado' : '');
                     this.atencionMsgTipo = 'ok';
                     this.modalAtencion = false;
+                    this.atencionAdjuntos = [];
                     await this.resolverPropuestasLead();
                     if (window._segApp) window._segApp.cargarPropuestas();
                     if (window._segApp) window._segApp.load();
@@ -2502,6 +2556,10 @@ var app = function() {
         rsCargarTemplates: function () {},
         rsAdjuntarArchivos: function () {},
         rsQuitarAdjunto: function () {},
+        // Métodos del modal de atención
+        atencionAdjuntarArchivos: function () {},
+        atencionQuitarAdjunto: function () {},
+        charlaHilo: function () { return []; },
         // Métodos de Lista Negra
         blBuscar: function () {},
         blAgregar: function () {},

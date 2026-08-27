@@ -1,4 +1,24 @@
 <!-- ═══════════ SEGUIMIENTO — Operativa de leads (sin métricas ejecutivas) ═══════════ -->
+<!-- ═══════════ CSS DE SOPORTE (CLASES ARBITRARIAS TAILWIND) ═══════════
+     El tailwind.min.css precompilado NO incluye las clases arbitrarias que usa
+     el MODAL DE ATENCIÓN (max-h-[92vh], min-h-0, max-w-5xl, etc.). Sin ellas el
+     modal no limita su altura y la 💬 Charla pierde el scroll. Mismo patrón que
+     tabs/respuestas.php (compatible SiteGround, sin Node.js). -->
+<style>
+  .max-h-\[92vh\] { max-height: 92vh; }
+  .max-w-5xl { max-width: 64rem; }
+  .min-h-0 { min-height: 0; }
+  .min-h-\[150px\] { min-height: 150px; }
+  .min-w-\[180px\] { min-width: 180px; }
+  .min-w-\[220px\] { min-width: 220px; }
+  .min-w-\[200px\] { min-width: 200px; }
+  .max-w-\[150px\] { max-width: 150px; }
+  @media (min-width: 1024px) {
+    .lg\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .lg\:border-b-0 { border-bottom-width: 0; }
+    .lg\:border-r { border-right-width: 1px; }
+  }
+</style>
 <div x-data="seguimientoApp()" x-init="load()" class="space-y-4">
 
   <!-- Barra de herramientas y filtros (sticky) -->
@@ -201,26 +221,43 @@
         <!-- IZQUIERDA: LA CHARLA -->
         <div class="border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col min-h-0">
           <div class="px-4 py-2 border-b border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-300">💬 Charla con el club</div>
-          <div class="p-3 space-y-2 overflow-y-auto flex-1 min-h-0 max-h-[280px] lg:max-h-[60vh] text-sm">
-            <template x-for="e in (charla ? charla.envios : [])" :key="'e'+e.id">
-              <div class="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5">
-                <div class="text-xs text-slate-400">📤 <span x-text="(e.fecha_envio || '').slice(0,16)"></span> · variante <span x-text="e.variant || 'A'"></span> · <span x-text="e.cuenta_emision"></span></div>
-                <div class="text-slate-200 text-xs font-semibold mt-1" x-text="e.asunto"></div>
-                <div class="text-slate-300 text-xs mt-1 whitespace-pre-wrap" x-show="e.cuerpo_charla && e.cuerpo_charla.trim()" x-text="e.cuerpo_charla"></div>
-                <div class="text-slate-500 italic text-xs mt-1" x-show="!e.cuerpo_charla || !e.cuerpo_charla.trim()">(correo sin cuerpo extraíble)</div>
+          <div class="p-3 space-y-2 overflow-y-auto flex-1 min-h-0 text-sm">
+            <!-- Hilo cronológico (estilo Bandeja): salientes a la derecha, entrantes a la izquierda -->
+            <template x-for="m in charlaHilo()" :key="(m.sentido === 'saliente' ? 'e' : 'r') + m.id">
+              <div class="flex" :class="m.sentido === 'saliente' ? 'justify-end' : 'justify-start'">
+                <div class="max-w-[88%] rounded-lg p-2.5 border"
+                     :class="m.sentido === 'saliente' ? 'bg-slate-800/70 border-slate-700 text-slate-200' : 'bg-slate-800/40 border-slate-700/50 text-slate-200'">
+                  <div class="flex items-center gap-2 flex-wrap text-[11px]">
+                    <span class="font-bold uppercase tracking-wider"
+                          :class="m.sentido === 'saliente' ? 'text-orange-400' : 'text-slate-400'"
+                          x-text="m.sentido === 'saliente' ? 'FutProtec' : (m.remitente || 'Club')"></span>
+                    <span class="text-slate-400" x-text="(m.fecha || '').slice(0,16)"></span>
+                    <span x-show="m.sentido === 'entrante' && m.clasificacion" class="px-1.5 py-0.5 rounded-full font-semibold"
+                          :class="String(m.clasificacion).toLowerCase() === 'humana' ? 'bg-emerald-500/15 text-emerald-400' : (String(m.clasificacion).toLowerCase() === 'rebote' ? 'bg-rose-500/15 text-rose-400' : 'bg-amber-500/15 text-amber-400')"
+                          x-text="m.clasificacion"></span>
+                    <span x-show="m.es_rebote" class="px-1.5 py-0.5 rounded-full bg-rose-500/15 text-rose-400 font-semibold">⚠ REBOTE</span>
+                  </div>
+                  <div class="text-slate-300 font-semibold mt-0.5" x-show="m.asunto || m.subject" x-text="m.asunto || m.subject"></div>
+                  <div class="text-slate-300 mt-1 whitespace-pre-wrap" x-show="m.cuerpo || m.cuerpo_charla" x-text="m.cuerpo || m.cuerpo_charla"></div>
+                  <div class="text-slate-500 italic mt-1" x-show="!m.cuerpo && !m.cuerpo_charla">(correo sin cuerpo extraíble)</div>
+                  <!-- Adjuntos (igual que en la Bandeja: chips descargables) -->
+                  <div x-show="m.adjuntos && m.adjuntos.length" class="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                    <template x-for="a in (m.adjuntos || [])" :key="'chadj' + a.id">
+                      <a :href="'api/adjunto.php?id=' + a.id" target="_blank" rel="noopener"
+                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition font-semibold"
+                         :title="a.mime">
+                        📎 <span x-text="a.nombre"></span>
+                        <span class="text-slate-400" x-text="(a.tamano ? (a.tamano/1024).toFixed(1) + ' KB' : '')"></span>
+                      </a>
+                    </template>
+                  </div>
+                </div>
               </div>
             </template>
             <div x-show="charla && (charla.aperturas_total || 0) > 0" class="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5 text-xs">
               👁 <span class="text-emerald-400 font-semibold" x-text="charla.aperturas_total + ' aperturas'"></span>
               <span class="text-slate-400" x-text="'· primera: ' + (charla.primera_apertura || '')"></span>
             </div>
-            <template x-for="r in (charla ? charla.respuestas : [])" :key="'r'+r.id">
-              <div class="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5">
-                <div class="text-xs text-slate-400">📥 <span x-text="(r.fecha_respuesta || '').slice(0,16)"></span> · <span x-text="r.remitente"></span></div>
-                <div class="text-slate-300 text-xs mt-1 whitespace-pre-wrap" x-text="r.cuerpo"></div>
-                <div class="text-xs text-violet-400 mt-0.5" x-show="r.clasificacion" x-text="'Clasificación IA: ' + r.clasificacion"></div>
-              </div>
-            </template>
             <div x-show="charla && charla.mockup" class="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5 text-xs">
               🎨 Mockup: <span class="text-slate-300 font-semibold" x-text="charla.mockup.estado"></span>
               <span class="text-slate-400" x-text="charla.mockup.solicitado_en ? ' · solicitado: ' + (charla.mockup.solicitado_en || '').slice(0,10) : ''"></span>
@@ -276,6 +313,25 @@
           <div class="flex-1">
             <label class="block text-sm font-semibold text-slate-300 mb-1">Cuerpo (editable)</label>
             <textarea x-model="emailCuerpo" rows="9" class="w-full h-full min-h-[150px] bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50 resize-y"></textarea>
+          </div>
+          <!-- Adjuntar archivos manuales (igual que en la Bandeja) -->
+          <div>
+            <label class="block text-sm font-semibold text-slate-300 mb-1">Adjuntos</label>
+            <div class="flex items-center gap-2 flex-wrap">
+              <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm font-semibold text-slate-300 hover:text-slate-100 hover:border-slate-600 transition cursor-pointer">
+                <i data-lucide="paperclip" class="w-4 h-4"></i> Adjuntar
+                <input type="file" multiple class="hidden" @change="atencionAdjuntarArchivos($event)"
+                       accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.zip,.txt">
+              </label>
+              <template x-for="(a, i) in (atencionAdjuntos || [])" :key="'aat' + i">
+                <span class="inline-flex items-center gap-1 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-300">
+                  📎 <span class="truncate max-w-[150px]" x-text="a.name"></span>
+                  <span class="text-slate-400 shrink-0" x-text="(a.size / 1024).toFixed(1) + ' KB'"></span>
+                  <button @click="atencionQuitarAdjunto(i)" title="Quitar adjunto"
+                          class="text-rose-400 hover:text-rose-300 font-bold leading-none">✕</button>
+                </span>
+              </template>
+            </div>
           </div>
           <div class="border-t border-slate-800 pt-3 space-y-2.5">
             <div>

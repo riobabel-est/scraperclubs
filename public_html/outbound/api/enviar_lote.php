@@ -392,6 +392,33 @@ try {
         ];
     }
 
+    // Adjuntos MANUALES subidos en el modal de atención (input file 'adjunto[]').
+    if (!empty($_FILES['adjunto'])) {
+        $fA = $_FILES['adjunto'];
+        $names = is_array($fA['name'] ?? null) ? $fA['name'] : (isset($fA['name']) ? [$fA['name']] : []);
+        $tmps  = is_array($fA['tmp_name'] ?? null) ? $fA['tmp_name'] : (isset($fA['tmp_name']) ? [$fA['tmp_name']] : []);
+        $mimes = is_array($fA['type'] ?? null) ? $fA['type'] : (isset($fA['type']) ? [$fA['type']] : []);
+        $errs  = is_array($fA['error'] ?? null) ? $fA['error'] : (isset($fA['error']) ? [$fA['error']] : []);
+        $totalA = 0;
+        foreach ($names as $i => $nombre) {
+            if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
+            $tmpP = (string)($tmps[$i] ?? '');
+            if ($tmpP === '' || !is_uploaded_file($tmpP)) continue;
+            $bin = (string)file_get_contents($tmpP);
+            $totalA += strlen($bin);
+            if ($totalA > 8 * 1024 * 1024) {
+                ob_clean();
+                echo json_encode(['ok' => false, 'error' => 'El total de adjuntos no puede superar 8 MB.']);
+                exit;
+            }
+            $adjuntos[] = [
+                'nombre'    => basename((string)$nombre),
+                'mime'      => (string)($mimes[$i] ?? 'application/octet-stream'),
+                'contenido' => $bin,
+            ];
+        }
+    }
+
     $resultado = enviarSMTPAutenticado(
         $cuenta,
         $emailDestino,
