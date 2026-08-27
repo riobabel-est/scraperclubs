@@ -115,12 +115,8 @@ var app = function() {
         rsEnviando: false,
         rsEnvioMsg: '',
         rsEnvioMsgOk: false,
-        // Plantillas rápidas de respuesta.
-        rsPlantillasRapidas: [
-            { id: 'muestra', label: 'Enviar Muestra Física', cuerpo: 'Hola {{CONTACTO}}, gracias por tu interés. Te enviamos una muestra física de las espinilleras para que podáis valorarlas en persona. ¿Nos confirmas la dirección de envío del club?' },
-            { id: 'tarifas', label: 'Enviar PDF Tarifas', cuerpo: 'Hola {{CONTACTO}}, adjuntamos el PDF con nuestras tarifas por volumen. Para un pedido de {{VOLUMEN}} pares el precio B2B es muy competitivo. ¿Te parece bien que te lo enviemos?' },
-            { id: 'llamada', label: 'Agendar Llamada', cuerpo: 'Hola {{CONTACTO}}, encantados de hablar con vosotros. ¿Qué día y hora os viene mejor para una llamada de 10 minutos y resolver todas las dudas?' }
-        ],
+        // Adjuntos pendientes de adjuntar a la respuesta (File objects).
+        rsAdjuntos: [],
         // Estados del lead disponibles para el desplegable del header.
         rsEstadosLead: [
             '01 Sin Contactar', '02 Contactado', '03 En Conversación',
@@ -140,7 +136,8 @@ var app = function() {
             PENDING: { label: 'NEUTRAL', color: 'bg-amber-500/20 text-amber-400' },
             OOO: { label: 'NEUTRAL', color: 'bg-amber-500/20 text-amber-400' }
         },
-        // Plantillas de respuesta rápida disponibles (cargadas desde BD).
+        // Plantillas de respuesta REALES (cargadas desde la BD vía get_templates,
+        // las mismas que se editan en la pestaña Plantillas; sin las de WhatsApp).
         rsTemplatesRapidas: [],
 
         // Cuenta SMTP activa para el envío de respuesta.
@@ -383,6 +380,10 @@ var app = function() {
             // llegar al final del scroll.
             setTimeout(() => this.initObservadoresColumnas(), 300);
             try { await this.loadGestor(); } catch (e) { console.error('boot: loadGestor falló', e); }
+
+            // Plantillas reales para la caja de respuesta de la Bandeja (problema:
+            // antes eran 3 plantillas hardcodeadas que no coincidían con el editor).
+            try { await this.rsCargarTemplates(); } catch (e) { console.error('boot: rsCargarTemplates falló', e); }
 
             try { await this.loadSmtp(); } catch (e) { console.error('boot: loadSmtp falló', e); }
             try { await this.bootLanzadera(); } catch (e) { console.error('boot: bootLanzadera falló', e); }
@@ -2001,14 +2002,47 @@ var app = function() {
             const texto = 'Hola%20' + contacto + ',%20vi%20tu%20respuesta%20sobre%20las%20espinilleras...';
             return 'https://wa.me/34' + num[1] + '?text=' + texto;
         },
-        // Aplica una plantilla rápida al editor de respuesta.
+        // Carga las plantillas de respuesta REALES desde la BD (get_templates),
+        // filtrando las de WhatsApp (el selector de la Bandeja es solo email).
+        async rsCargarTemplates() {
+            try {
+                const r = await fetch('?action=get_templates');
+                const j = await r.json();
+                if (j.ok && Array.isArray(j.templates)) {
+                    this.rsTemplatesRapidas = j.templates.filter(t => (t.tipo || '') !== 'whatsapp');
+                }
+            } catch (e) { console.error('rsCargarTemplates:', e); }
+        },
+        // Añade los archivos seleccionados como adjuntos pendientes de la respuesta.
+        rsAdjuntarArchivos(ev) {
+            const files = ev && ev.target ? Array.from(ev.target.files || []) : [];
+            if (!files.length) return;
+            const actual = (this.rsAdjuntos || []).reduce((a, x) => a + (x.size || 0), 0);
+            let total = actual;
+            let aviso = '';
+            for (const f of files) {
+                if (!f.name || f.size <= 0) continue;
+                total += f.size;
+                if (total > 8 * 1024 * 1024) { aviso = 'El total de adjuntos no puede superar 8 MB.'; continue; }
+                this.rsAdjuntos.push(f);
+            }
+            if (aviso) { this.rsEnvioMsg = aviso; this.rsEnvioMsgOk = false; }
+            if (ev.target) ev.target.value = '';
+        },
+        // Quita un adjunto pendiente de la respuesta.
+        rsQuitarAdjunto(i) { this.rsAdjuntos.splice(i, 1); },
+        // Aplica una plantilla real de la BD al editor de respuesta.
         rsAplicarPlantillaRapida() {
-            const tpl = (this.rsPlantillasRapidas || []).find(t => t.id === this.rsPlantillaRapida);
+            const tpl = (this.rsTemplatesRapidas || []).find(t => String(t.id) === String(this.rsPlantillaRapida));
             if (!tpl || !this.rsSeleccion) return;
             const conv = this.rsSeleccion;
-            this.rsRedaccion = tpl.cuerpo
+            this.rsRedaccion = (tpl.cuerpo || '')
                 .replace(/{{CONTACTO}}/g, conv.contacto_nombre || conv.persona_contacto || 'responsable')
-                .replace(/{{VOLUMEN}}/g, conv.volumen_equipos || conv.volumen_estimado || '');
+                .replace(/{{VOLUMEN}}/g, conv.volumen_equipos || conv.volumen_estimado || '')
+                .replace(/{{CLUB}}/g, conv.nombre_club || conv.club || '')
+                .replace(/\[\[SENDER_NAME\]\]/g, '')
+                .replace(/\[\[SENDER_TITLE\]\]/g, '');
+            if (tpl.asunto) this.rsAsuntoResp = tpl.asunto;
         },
         // Actualiza el estado del lead en clubes_crm en tiempo real.
         async rsActualizarEstadoLead() {
@@ -2109,6 +2143,10 @@ var app = function() {
             f.append('cuerpo', this.rsRedaccion);
             f.append('asunto', this.rsAsuntoResp || 'Re: ' + (this.rsSeleccion.subject || this.rsSeleccion.asunto_envio || ''));
             f.append('envio_id', this.rsSeleccion.envio_id || '');
+            // Adjuntos seleccionados (archivos locales) → multipart/mixed.
+            for (const a of (this.rsAdjuntos || [])) {
+                f.append('adjunto[]', a, a.name);
+            }
             try {
                 const r = await fetch('', { method: 'POST', body: f });
                 const j = await r.json();
@@ -2117,6 +2155,7 @@ var app = function() {
                     this.rsEnvioMsgOk = true;
                     this.rsRedaccion = '';
                     this.rsPlantillaRapida = '';
+                    this.rsAdjuntos = [];
                     // La conversación pasa a "en espera" (ya respondida).
                     this.rsAccion('espera');
                     this.loadRespuestas();
@@ -2439,6 +2478,9 @@ var app = function() {
         rsSeleccionar: function () {},
         rsEnviarRespuesta: function () {},
         rsCerrarVisor: function () {},
+        rsCargarTemplates: function () {},
+        rsAdjuntarArchivos: function () {},
+        rsQuitarAdjunto: function () {},
         // Métodos de Lista Negra
         blBuscar: function () {},
         blAgregar: function () {},

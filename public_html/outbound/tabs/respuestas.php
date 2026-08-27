@@ -256,20 +256,36 @@
 
         <!-- Footer: Caja de Respuesta Inmediata -->
         <div class="px-4 py-3 border-t border-slate-800 bg-slate-800/40 shrink-0">
-          <!-- Selector de plantillas rápidas -->
+          <!-- Selector de plantillas (las REALES que se editan en Plantillas) -->
           <div class="flex items-center gap-2 mb-2 flex-wrap">
             <label class="text-sm text-slate-400">Plantilla:</label>
             <select x-model="rsPlantillaRapida" @change="rsAplicarPlantillaRapida()"
                     class="flex-1 min-w-[200px] bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-orange-500/50 focus:outline-none">
-              <option value="">— Seleccionar plantilla rápida —</option>
-              <template x-for="t in rsPlantillasRapidas" :key="t.id">
-                <option :value="t.id" x-text="t.label"></option>
+              <option value="">— Seleccionar plantilla —</option>
+              <template x-for="t in rsTemplatesRapidas" :key="'rt' + t.id">
+                <option :value="t.id" x-text="(t.categoria ? t.categoria + ' · ' : '') + t.nombre"></option>
               </template>
             </select>
           </div>
           <!-- Editor de respuesta -->
-          <textarea x-model="rsRedaccion" rows="3" placeholder="Escribe tu respuesta aquí..."
+          <textarea x-model="rsRedaccion" rows="3" placeholder="Escribe tu respuesta aquí... (o usa la IA / una plantilla)"
                     class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-orange-500/50 focus:outline-none resize-none"></textarea>
+          <!-- Adjuntos de la respuesta (archivos a enviar) -->
+          <div class="flex items-center gap-2 mt-2 flex-wrap">
+            <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-semibold text-slate-300 hover:text-slate-100 hover:border-slate-600 transition cursor-pointer">
+              <i data-lucide="paperclip" class="w-4 h-4"></i> Adjuntar
+              <input type="file" multiple class="hidden" @change="rsAdjuntarArchivos($event)"
+                     accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.zip,.txt">
+            </label>
+            <template x-for="(a, i) in (rsAdjuntos || [])" :key="'rsadj' + i">
+              <span class="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300">
+                📎 <span class="truncate max-w-[150px]" x-text="a.name"></span>
+                <span class="text-slate-400 shrink-0" x-text="(a.size / 1024).toFixed(1) + ' KB'"></span>
+                <button @click="rsQuitarAdjunto(i)" title="Quitar adjunto"
+                        class="text-rose-400 hover:text-rose-300 font-bold leading-none">✕</button>
+              </span>
+            </template>
+          </div>
           <!-- Botones de acción -->
           <div class="flex items-center gap-2 mt-2 flex-wrap">
             <button @click="rsGenerarIA()" :disabled="rsGenerandoIA || !rsSeleccion || !rsSeleccion.lead_id"

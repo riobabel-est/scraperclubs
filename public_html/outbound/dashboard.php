@@ -605,7 +605,7 @@ function actualizarEstadoLeadUnibox($db, int $id, string $estado): array {
  * activa con rotación y límite diario, y registra el envío en `envios`.
  * Devuelve ['ok'=>true,'tracking_id'=>...] o ['ok'=>false,'error'=>...].
  */
-function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo, string $asunto): array {
+function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo, string $asunto, array $adjuntos = []): array {
     if ($email === '' || $cuerpo === '') {
         return ['ok' => false, 'error' => 'Faltan destinatario o cuerpo del mensaje'];
     }
@@ -637,12 +637,18 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
         . nl2br(htmlspecialchars($cuerpo, ENT_QUOTES, 'UTF-8'))
         . '</div>';
 
+    $opciones = ['reply_to' => $cuenta['email']];
+    if (!empty($adjuntos)) {
+        // Adjuntos: [{nombre, mime, contenido(bytes)}] → multipart/mixed.
+        $opciones['adjuntos'] = $adjuntos;
+    }
+
     $resultado = futprotec_enviarSMTP(
         $cuentaNormalizada,
         $email,
         $asunto,
         $cuerpoHtml,
-        ['reply_to' => $cuenta['email']]
+        $opciones
     );
 
     if (!$resultado['ok']) {
@@ -717,8 +723,35 @@ if ($action === 'enviar_respuesta_smtp') {
     $email   = trim((string)($_POST['email'] ?? ''));
     $cuerpo  = trim((string)($_POST['cuerpo'] ?? ''));
     $asunto  = trim((string)($_POST['asunto'] ?? 'Re: FutProtec'));
+
+    // Adjuntos opcionales (input file multiple → 'adjunto[]').
+    $adjuntos = [];
+    if (!empty($_FILES['adjunto'])) {
+        $f = $_FILES['adjunto'];
+        $nombres = is_array($f['name'] ?? null) ? $f['name'] : (isset($f['name']) ? [$f['name']] : []);
+        $tmp     = is_array($f['tmp_name'] ?? null) ? $f['tmp_name'] : (isset($f['tmp_name']) ? [$f['tmp_name']] : []);
+        $tipos   = is_array($f['type'] ?? null) ? $f['type'] : (isset($f['type']) ? [$f['type']] : []);
+        $errores = is_array($f['error'] ?? null) ? $f['error'] : (isset($f['error']) ? [$f['error']] : []);
+        $totalBytes = 0;
+        foreach ($nombres as $i => $nombre) {
+            if (($errores[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
+            $tmpPath = (string)($tmp[$i] ?? '');
+            if ($tmpPath === '' || !is_uploaded_file($tmpPath)) continue;
+            $contenido = (string)file_get_contents($tmpPath);
+            $totalBytes += strlen($contenido);
+            if ($totalBytes > 8 * 1024 * 1024) {
+                echo json_encode(['ok' => false, 'error' => 'El total de adjuntos no puede superar 8 MB.']);
+                exit;
+            }
+            $adjuntos[] = [
+                'nombre'    => basename((string)$nombre),
+                'mime'      => (string)($tipos[$i] ?? 'application/octet-stream'),
+                'contenido' => $contenido,
+            ];
+        }
+    }
     try {
-        echo json_encode(enviarRespuestaSmtpLead($db, $leadId, $email, $cuerpo, $asunto));
+        echo json_encode(enviarRespuestaSmtpLead($db, $leadId, $email, $cuerpo, $asunto, $adjuntos));
     } catch (\Exception $e) {
         echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
     }

@@ -1121,6 +1121,13 @@ function imap_asegurar_esquema(SQLite3 $db): void
     $db->exec("UPDATE respuestas SET estado_conversacion = 'requiere_respuesta' WHERE COALESCE(es_rebote,0) = 0 AND estado_conversacion = 'nuevo'");
     $db->exec("UPDATE respuestas SET estado_conversacion = 'nuevo' WHERE es_rebote = 1 AND estado_conversacion NOT IN ('archivado','borrado')");
 
+    // ─── Coherencia Bandeja ↔ Kanban: un lead con respuesta HUMANA (no rebote)
+    // no puede seguir en '01 Sin Contactar' / '02 Contactado'. Se avanza a
+    // '03 En Conversación' (idempotente; respeta estados posteriores manuales). ───
+    $db->exec("UPDATE clubes_crm SET estado_lead = '03 En Conversación'
+               WHERE estado_lead IN ('01 Sin Contactar','02 Contactado')
+                 AND id IN (SELECT DISTINCT lead_id FROM respuestas WHERE COALESCE(es_rebote,0) = 0 AND lead_id > 0)");
+
     // ─── Adjuntos de las respuestas (2026-08-27) ───
     // Almacena los archivos adjuntos que llegan en los correos de los clubes
     // (logos, PDFs, imágenes, etc.) para poder verlos/descargarlos en la Bandeja.
