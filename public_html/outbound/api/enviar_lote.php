@@ -32,6 +32,39 @@ $db->exec('PRAGMA busy_timeout=5000');
 require_once __DIR__ . '/../inc/eligibilidad.php';
 require_once __DIR__ . '/../inc/mime.php';
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCIÓN: Escribir log de envío en archivo
+// Definida ANTES de su uso (línea 410) porque al estar envuelta en un guard
+// condicional PHP NO registra la función en tiempo de compilación (sin hoisting).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if (!function_exists('escribirLogEnvio')) {
+/**
+ * Escribe una línea de log de envío en el archivo diario.
+ * Formato: [YYYY-MM-DD HH:MM:SS] RESULTADO | CLUB | EMAIL | CUENTA_SMTP | TRACKING_ID | ERROR (si aplica)
+ */
+function escribirLogEnvio(string $logDir, string $resultado, string $club, string $email, string $cuentaSmtp, string $trackingId, string $error): void
+{
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0755, true);
+    }
+    $archivo = $logDir . '/envios_' . date('Y-m-d') . '.log';
+    $icono   = $resultado === 'OK' ? '✅' : '❌';
+    $linea   = sprintf(
+        "[%s] %s %s | Club: %s | Email: %s | SMTP: %s | Tracking: %s%s\n",
+        date('Y-m-d H:i:s'),
+        $icono,
+        $resultado,
+        $club,
+        $email,
+        $cuentaSmtp,
+        $trackingId,
+        $error ? ' | Error: ' . $error : ''
+    );
+    @file_put_contents($archivo, $linea, FILE_APPEND | LOCK_EX);
+}
+}
+
 // ─── PARÁMETROS ──────────────────────────────────────────────────────────────
 $idClub     = (int)($_POST['id_club'] ?? 0);
 $idPlantilla = (int)($_POST['id_plantilla'] ?? 0);
@@ -438,36 +471,6 @@ try {
 
 $db->close();
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// FUNCIÓN: Escribir log de envío en archivo
-// ═══════════════════════════════════════════════════════════════════════════════
-
-if (!function_exists('escribirLogEnvio')) {
-/**
- * Escribe una línea de log de envío en el archivo diario.
- * Formato: [YYYY-MM-DD HH:MM:SS] RESULTADO | CLUB | EMAIL | CUENTA_SMTP | TRACKING_ID | ERROR (si aplica)
- */
-function escribirLogEnvio(string $logDir, string $resultado, string $club, string $email, string $cuentaSmtp, string $trackingId, string $error): void
-{
-    if (!is_dir($logDir)) {
-        @mkdir($logDir, 0755, true);
-    }
-    $archivo = $logDir . '/envios_' . date('Y-m-d') . '.log';
-    $icono   = $resultado === 'OK' ? '✅' : '❌';
-    $linea   = sprintf(
-        "[%s] %s %s | Club: %s | Email: %s | SMTP: %s | Tracking: %s%s\n",
-        date('Y-m-d H:i:s'),
-        $icono,
-        $resultado,
-        $club,
-        $email,
-        $cuentaSmtp,
-        $trackingId,
-        $error ? ' | Error: ' . $error : ''
-    );
-    @file_put_contents($archivo, $linea, FILE_APPEND | LOCK_EX);
-}
-}
-
 // Las funciones convertirContenidoAHtml() y enviarSMTPAutenticado() se definen
-// en inc/mime.php (incluido arriba). Se mantienen aquí SOLO escribirLogEnvio().
+// en inc/mime.php (incluido arriba). La función escribirLogEnvio() se define al
+// inicio del archivo para que esté disponible antes de su primer uso.

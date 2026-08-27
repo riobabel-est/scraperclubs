@@ -12,6 +12,14 @@ ob_start();
 error_reporting(0);
 ini_set('display_errors', 0);
 
+// ─── ANTI-CACHÉ (crítico) ────────────────────────────────────────────────────
+// La cola es 100% dinámica. El caché dinámico de SiteGround cacheó URLs con
+// query string y devolvía colas obsoletas (leads ya enviados volvían a salir).
+// Se fuerza revalidación en cada petición (headers estándar de no-cache).
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
+
 $DB_PATH = __DIR__ . '/../data/stats.db';
 
 if (!file_exists($DB_PATH)) {
@@ -302,7 +310,16 @@ try {
     }
 
     // ─── 5. Calcular hora estimada ────────────────────────────────────────────
-    $delay = (int)($db->querySingle("SELECT valor FROM config WHERE clave = 'lanzadera_delay'") ?: 5);
+    // Rango de retardo aleatorio (lanzadera_delay_min/max) con fallback al valor
+    // histórico lanzadera_delay (retardo fijo). La hora estimada usa la MEDIA.
+    $delayMin = (int)($db->querySingle("SELECT valor FROM config WHERE clave = 'lanzadera_delay_min'") ?: 0);
+    $delayMax = (int)($db->querySingle("SELECT valor FROM config WHERE clave = 'lanzadera_delay_max'") ?: 0);
+    $delayLegacy = (int)($db->querySingle("SELECT valor FROM config WHERE clave = 'lanzadera_delay'") ?: 5);
+    if ($delayMin <= 0 || $delayMax <= 0 || $delayMin > $delayMax) {
+        $delayMin = max(1, $delayLegacy);
+        $delayMax = max($delayMin, $delayLegacy);
+    }
+    $delay = (int)round(($delayMin + $delayMax) / 2);
     $horaBase = time();
     foreach ($cola as $i => &$item) {
         $item['posicion'] = $i + 1;
@@ -348,6 +365,8 @@ try {
         'plantilla_email' => $plantillaEmail,
         'plantilla_wa'    => $plantillaWa,
         'delay_segundos'  => $delay,
+        'delay_min_segundos' => $delayMin,
+        'delay_max_segundos' => $delayMax,
         'kpi_clubes'      => $totalClubes,
         'kpi_smtp_activas'=> $smtpActivas,
         'kpi_envios_hoy'  => $enviosHoyKpi,

@@ -56,6 +56,8 @@ var app = function() {
         se: 0,
         sp: false,
         randomMode: false,
+        // 🔄 SMTP aleatorio: get_cola.php baraja las cuentas por lead (independiente del retardo).
+        smtpRandom: false,
         sf: { email: '', host: 'mail.getfutprotec.com', puerto: 465, usuario: '', password: '', seguridad: 'ssl', limite_diario: 50, nombre_emisor: '', cargo_emisor: '' },
 
         // Add Lead
@@ -214,6 +216,9 @@ var app = function() {
         // Lanzadera v2
         lzMotorEstado: 'PAUSADO',
         lzDelay: 5,
+        // 🕒 Rango de retardo aleatorio (segundos). 5s - 300s (5 min).
+        lzDelayMin: 5,
+        lzDelayMax: 300,
         lzInterval: null,
         lzAbortController: null,
         testEmails: '',
@@ -419,7 +424,7 @@ var app = function() {
             await fetch('', { method: 'POST', body: f });
         },
         toggleRandom() {
-            this.randomMode = !this.randomMode;
+            this.smtpRandom = !this.smtpRandom;
         },
 
         // ─── Kanban Drag & Drop ─────────────────────────────────────────────
@@ -1147,13 +1152,15 @@ var app = function() {
 
         async bootLanzadera() {
             try { const r = await fetch('api/leads.php?action=get_config&key=lanzadera_delay'); const j = await r.json(); if (j.ok && j.valor) this.lzDelay = parseInt(j.valor) || 5; } catch (e) { this.lzDelay = 5; }
+            try { const r = await fetch('api/leads.php?action=get_config&key=lanzadera_delay_min'); const j = await r.json(); if (j.ok && j.valor) this.lzDelayMin = parseInt(j.valor) || 5; } catch (e) { this.lzDelayMin = 5; }
+            try { const r = await fetch('api/leads.php?action=get_config&key=lanzadera_delay_max'); const j = await r.json(); if (j.ok && j.valor) this.lzDelayMax = parseInt(j.valor) || 300; } catch (e) { this.lzDelayMax = 300; }
             try { const r = await fetch('api/leads.php?action=get_config&key=test_emails'); const j = await r.json(); if (j.ok && j.valor) this.testEmails = j.valor; } catch (e) {}
             try { const r = await fetch('?action=get_piloto_campanas'); const j = await r.json(); if (j.ok) this.lzCampanas = j.campanas || []; } catch (e) {}
             // Hereda la campaña del contexto global del panel (P0 navegación).
             if (window.app && window.app.campanaActual > 0 && !this.lzCampaignId) {
                 this.lzCampaignId = String(window.app.campanaActual);
             }
-            try { const r = await fetch('api/get_cola.php'); const j = await r.json();
+            try { const r = await fetch('api/get_cola.php?_ts=' + Date.now()); const j = await r.json();
                 if (j.ok) { this.lzFederaciones = j.federaciones || []; this.lzCuentasSmtp = j.cuentas_smtp || []; this.lzKpiClubes = j.kpi_clubes || 0; this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0; this.lzKpiEnviosHoy = j.kpi_envios_hoy || 0; }
             } catch (e) {}
         },
@@ -1332,7 +1339,9 @@ var app = function() {
             }
             this.lzCola = []; this.lzColaPaginada = []; this.lzColaPageCurrent = 0; this.lzColaIndex = 0;
             this.lzColaCompletados = {}; this.lzColaResultados = {}; this.lzLogEnviados = []; this.lzLogEnviadosPaginados = []; this.lzLogPageCurrent = 0; this.lzMotorEstado = 'PAUSADO';
-            const params = new URLSearchParams({ estado_lead: this.lzEstadoLead, federacion: this.lzFederacion, id_plantilla_email: this.lzIdPlantillaEmail, id_plantilla_wa: this.lzIdPlantillaWa, habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0', random_mode: this.randomMode ? '1' : '0', campaign_id: this.lzCampaignId || '' });
+            const params = new URLSearchParams({ estado_lead: this.lzEstadoLead, federacion: this.lzFederacion, id_plantilla_email: this.lzIdPlantillaEmail, id_plantilla_wa: this.lzIdPlantillaWa, habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0', random_mode: this.smtpRandom ? '1' : '0', campaign_id: this.lzCampaignId || '' });
+            // ANTI-CACHÉ: URL única por petición (el caché de SiteGround devolvía colas obsoletas).
+            params.set('_ts', Date.now());
             if (this.lzModoRotacion) { params.set('rotacion', '1'); params.delete('estado_lead'); params.delete('id_plantilla_email'); }
             if (this.lzBulkIds && this.lzBulkIds.length > 0) params.set('ids', this.lzBulkIds.join(','));
             try { const r = await fetch('api/get_cola.php?' + params.toString()); const j = await r.json();
@@ -1340,6 +1349,8 @@ var app = function() {
                 this.lzCola = j.cola || [];
                 if (this.lzCola.length > 0) { this.lzColaPaginada = this.lzCola.slice(0, Math.min(this.lzColaPageSize, this.lzCola.length)); this.lzColaPageCurrent = 1; }
                 this.lzCuentasSmtp = j.cuentas_smtp || []; this.lzKpiClubes = j.kpi_clubes || 0; this.lzKpiSmtpActivas = j.kpi_smtp_activas || 0; this.lzKpiEnviosHoy = j.kpi_envios_hoy || 0; this.lzDelay = j.delay_segundos || 5;
+                if (j.delay_min_segundos) this.lzDelayMin = j.delay_min_segundos;
+                if (j.delay_max_segundos) this.lzDelayMax = j.delay_max_segundos;
                 if (this.lzCola.length === 0) { alert(this.lzModoRotacion ? 'No hay leads no abridores pendientes de rotación (revisa espera/máx. envíos en la secuencia).' : 'No hay leads pendientes con los filtros seleccionados.'); }
                 this.lzRotacionInfo = j.rotacion || null;
                 // La selección en lote se consume en la carga (vuelve al modo normal).
@@ -1442,8 +1453,8 @@ var app = function() {
                 // ─── Salvaguarda tras cada envío: parar al alcanzar el lote ───
                 if (this.lzSendCalls >= batchSize) { this.lzMotorEstado = 'PAUSADO'; break; }
                 if (i < this.lzCola.length - 1 && this.lzMotorEstado === 'ACTIVO') {
-                    const baseMs = this.lzDelay * 1000; const ms = this.randomMode ? baseMs + Math.floor(Math.random() * this.lzDelay * 1000) - (this.lzDelay * 500) : baseMs;
-                    await this.delay(Math.max(500, ms));
+                    // 🕒 Retardo aleatorio dentro del rango configurado (5s - 5min).
+                    await this.delay(this.lzRandomDelay());
                 }
             }
             if (this.lzMotorEstado === 'ACTIVO') { this.lzMotorEstado = 'PAUSADO'; }
@@ -1456,7 +1467,36 @@ var app = function() {
         lzLoadMoreCola() { const next = (this.lzColaPageCurrent + 1) * this.lzColaPageSize; if (next >= this.lzColaPaginada.length) { const end = Math.min(this.lzCola.length, (this.lzColaPageCurrent + 1) * this.lzColaPageSize + this.lzColaPageSize); const start = this.lzColaPageCurrent * this.lzColaPageSize; if (start < this.lzCola.length) { this.lzColaPaginada.push(...this.lzCola.slice(start, end)); this.lzColaPageCurrent++; } } },
         lzOnLogScroll() { const el = document.getElementById('lzLogScroll'); if (!el) return; if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && this.lzLogEnviadosPaginados.length < this.lzLogEnviados.length) { this.lzLoadMoreLog(); } },
         lzLoadMoreLog() { const start = this.lzLogPageCurrent * this.lzLogPageSize; if (start < this.lzLogEnviados.length) { this.lzLogEnviadosPaginados.push(...this.lzLogEnviados.slice(start, Math.min(this.lzLogEnviados.length, start + this.lzLogPageSize))); this.lzLogPageCurrent++; } },
-        async lzSaveDelay() { const f = new FormData(); f.append('action', 'update_config'); f.append('key', 'lanzadera_delay'); f.append('value', this.lzDelay); await fetch('', { method: 'POST', body: f }); },
+        async lzSaveDelay() {
+            // Guarda el rango de retardo (min/max) + la media en lanzadera_delay (compatibilidad).
+            const min = Math.max(1, parseInt(this.lzDelayMin) || 5);
+            const max = Math.max(min, parseInt(this.lzDelayMax) || 300);
+            this.lzDelayMin = min; this.lzDelayMax = max;
+            this.lzDelay = Math.round((min + max) / 2);
+            const guardar = async (key, val) => { const f = new FormData(); f.append('action', 'update_config'); f.append('key', key); f.append('value', val); await fetch('', { method: 'POST', body: f }); };
+            await guardar('lanzadera_delay_min', min);
+            await guardar('lanzadera_delay_max', max);
+            await guardar('lanzadera_delay', this.lzDelay);
+        },
+        // 🕒 Valor aleatorio del retardo (ms) dentro del rango configurado.
+        lzRandomDelay() {
+            const min = Math.max(1, parseInt(this.lzDelayMin) || 5);
+            const max = Math.max(min, parseInt(this.lzDelayMax) || 300);
+            return Math.max(500, Math.floor(min * 1000 + Math.random() * (max - min) * 1000));
+        },
+        // Formatea segundos como "45s", "2m", "2m 30s".
+        lzFmtDelay(s) {
+            s = parseInt(s) || 0;
+            if (s < 60) return s + 's';
+            const m = Math.floor(s / 60), r = s % 60;
+            return r ? (m + 'm ' + r + 's') : (m + 'm');
+        },
+        lzOnDelayMinChange() {
+            if (this.lzDelayMin > this.lzDelayMax) this.lzDelayMax = this.lzDelayMin;
+        },
+        lzOnDelayMaxChange() {
+            if (this.lzDelayMax < this.lzDelayMin) this.lzDelayMin = this.lzDelayMax;
+        },
 
         // ─── Envío dirigido (1 lead) + tamaño de lote ─────────────────────────
         async lzSaveBatchSize() {
@@ -2139,9 +2179,11 @@ var app = function() {
                         id_plantilla_email: this.lzIdPlantillaEmail || '',
                         id_plantilla_wa: this.lzIdPlantillaWa || '',
                         habilitar_whatsapp: this.lzWhatsappOn ? '1' : '0',
-                        random_mode: this.randomMode ? '1' : '0',
+                        random_mode: this.smtpRandom ? '1' : '0',
                         campaign_id: this.lzCampaignId || ''
                     });
+                    // ANTI-CACHÉ: URL única por petición (el caché de SiteGround devolvía colas obsoletas).
+                    params.set('_ts', Date.now());
                     const resp = await fetch('api/get_cola.php?' + params.toString());
                     const j = await resp.json();
                     if (j && j.ok) this.lzCola = j.cola || [];

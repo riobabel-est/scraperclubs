@@ -40,6 +40,221 @@ $db->exec('PRAGMA busy_timeout=5000');
 require_once __DIR__ . '/../inc/eligibilidad.php';
 
 // ═════════════════════════════════════════════════════════════════════════════
+// FUNCIÓN AUXILIAR: envío SMTP con autenticación vía socket
+// ═════════════════════════════════════════════════════════════════════════════
+
+if (!function_exists('enviarSMTP')) {
+/**
+ * Envía un email usando SMTP con autenticación vía socket directo.
+ *
+ * @return bool true si el envío fue exitoso
+ */
+function enviarSMTP(
+    string $host, int $port, string $secure,
+    string $user, string $pass,
+    string $from, string $to,
+    string $subject, string $body, array $headers
+): bool {
+    // Normalizar la cuenta para el transporte centralizado.
+    $cuenta = [
+        'email'     => $from,
+        'host'      => $host,
+        'puerto'    => (int)$port,
+        'usuario'   => $user,
+        'password'  => $pass,
+        'seguridad' => $secure,
+    ];
+
+    // Extraer Message-ID de los headers si existe.
+    $messageId = '';
+    foreach ($headers as $k => $v) {
+        if (strtolower($k) === 'message-id') {
+            $messageId = $v;
+            break;
+        }
+    }
+
+    $opciones = [
+        'reply_to' => $from,
+    ];
+    if ($messageId !== '') {
+        $opciones['message_id'] = $messageId;
+    }
+
+    // Delegar en el transporte SMTP centralizado.
+    $resultado = futprotec_enviarSMTP($cuenta, $to, $subject, $body, $opciones);
+
+    if (!$resultado['ok']) {
+        trigger_error($resultado['error'], E_USER_WARNING);
+        return false;
+    }
+    return true;
+}
+}
+
+/**
+ * secuencia_programarYEnviar — Motor de secuencias condicionales (O-1).
+ * Plan: docs/PLAN_RAMIFICACION_SECUENCIAS_ABC.md
+ *
+ * 1) Programa los pasos que tocan: paso 1 (descubrimiento) y pasos N>1
+ *    (seguimiento por ramal; modo_auto=1 → envio pendiente, modo_auto=0 →
+ *    sugerencia en propuestas_ia).
+ * 2) Envía hasta $limite filas pendientes de secuencia con el transporte SMTP.
+ * Regla de ramal: el paso solo se dispara si su ramal coincide con la variante
+ * dominante del lead (más aperturas) o si es genérico (ramal='').
+ */
+function secuencia_programarYEnviar(SQLite3 $db, int $campaignId, int $limite = 10): array
+{
+    $stats = ['paso1' => 0, 'pasoN' => 0, 'sugerencias' => 0, 'enviados' => 0, 'errores' => 0, 'excluidos' => 0];
+    $filtroComp = sqlFiltroCompatibilidadLeadCampana($db, $campaignId);
+    $placeholders = ['{{CLUB}}', '{{CONTACTO}}', '{{FEDERACION}}', '{{ANIO}}'];
+
+    $resSec = $db->query("SELECT id, campaign_id, nombre, modo_auto, activo FROM secuencias WHERE campaign_id = {$campaignId} AND activo = 1 ORDER BY id");
+    if (!$resSec) return $stats;
+    while ($sec = $resSec->fetchArray(SQLITE3_ASSOC)) {
+        $secId = (int)$sec['id'];
+        $modoAuto = (int)$sec['modo_auto'];
+
+        $pasos = [];
+        $resPasos = $db->query("SELECT * FROM secuencia_pasos WHERE secuencia_id = {$secId} AND activo = 1 ORDER BY paso ASC");
+        if (!$resPasos) continue;
+        while ($p = $resPasos->fetchArray(SQLITE3_ASSOC)) $pasos[] = $p;
+        if (empty($pasos)) continue;
+
+        foreach ($pasos as $paso) {
+            $numPaso = (int)$paso['paso'];
+            $espera = max(0, (int)$paso['espera_dias']);
+            $plantillaId = (int)$paso['plantilla_id'];
+            $ramal = strtoupper((string)$paso['ramal']);
+
+            if ($numPaso === 1) {
+                // ── PASO 1 (descubrimiento): leads sin envío en la campaña ──
+                $resLeads = $db->query("SELECT c.* FROM clubes_crm c
+                    LEFT JOIN envios e ON LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.estado='enviado'
+                    WHERE c.estado_lead='01 Sin Contactar' AND c.email IS NOT NULL AND c.email != '' AND e.id IS NULL {$filtroComp}
+                    ORDER BY c.creado_el ASC LIMIT 25");
+                if (!$resLeads) continue;
+                while ($lead = $resLeads->fetchArray(SQLITE3_ASSOC)) {
+                    $elig = esElegibleParaEnvio($db, (int)$lead['id'], $campaignId);
+                    if (!$elig['ok']) { $stats['excluidos']++; continue; }
+                    $tpl = $db->querySingle("SELECT * FROM plantillas WHERE id={$plantillaId} AND activo=1", true);
+                    if (!$tpl) continue;
+                    $variant = asignarVariante((int)$lead['id'], $campaignId);
+                    $contenido = resolverContenidoVariante($tpl, $variant);
+                    $vals = [$lead['nombre_club'], $lead['persona_contacto'] ?: 'responsable', $lead['federacion'] ?? '', date('Y')];
+                    $asunto = str_replace($placeholders, $vals, $contenido['asunto']);
+                    $cuerpo = str_replace($placeholders, $vals, $contenido['cuerpo']);
+                    if ($modoAuto === 1) {
+                        // Automático: el cron programa el primer contacto.
+                        $tracking = 'trk_' . bin2hex(random_bytes(8));
+                        $esTest = esLeadTest($lead) ? 1 : 0;
+                        $db->exec("INSERT INTO envios (club,email,federacion,cuenta_emision,estado,tracking_id,asunto,cuerpo_mensaje,lead_id,campaign_id,variant,plantilla_id,es_test,secuencia_id,paso_secuencia,message_id)
+                            VALUES ('" . $db->escapeString($lead['nombre_club']) . "','" . $db->escapeString($lead['email']) . "','" . $db->escapeString($lead['federacion'] ?? '') . "','','pendiente','{$tracking}','" . $db->escapeString($asunto) . "','" . $db->escapeString($cuerpo) . "'," . (int)$lead['id'] . ",{$campaignId},'{$variant}',{$plantillaId},{$esTest},{$secId},1,'')");
+                        $stats['paso1']++;
+                    }
+                    // Modo asistido: el primer contacto lo hace el usuario desde la
+                    // Lanzadera (los pasos 2/3 y la rotación ABC se anclan a ese envío).
+                }
+            } else {
+                // ── PASOS N>1: seguimiento por ramal ──
+                $prevPaso = $numPaso - 1;
+                // Paso previo completado:
+                //  - Paso 2: cuenta un envío de secuencia previo (paso_secuencia=1) O un
+                //    envío MANUAL de la campaña (primer contacto desde la Lanzadera).
+                //  - Pasos >2: solo el paso previo de la secuencia.
+                // Se excluyen los leads ya rotados (es_rotacion=1): su reenvío con otra
+                // variante ya fue su segundo intento (evita doble envío/sugerencia).
+                if ($numPaso === 2) {
+                    $condPrev = "AND (
+                        EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.paso_secuencia=1 AND e.estado='enviado' AND e.fecha_envio <= datetime('now','-" . $espera . " days'))
+                        OR EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.secuencia_id IS NULL AND COALESCE(e.es_rotacion,0)=0 AND e.estado='enviado' AND e.fecha_envio <= datetime('now','-" . $espera . " days'))
+                    )";
+                    $condManualPost = '';
+                } else {
+                    $condPrev = "AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.paso_secuencia={$prevPaso} AND e.estado='enviado' AND e.fecha_envio <= datetime('now','-" . $espera . " days'))";
+                    $condManualPost = "AND NOT EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.secuencia_id IS NULL AND e.campaign_id={$campaignId} AND e.estado='enviado')";
+                }
+                $resLeads = $db->query("SELECT c.* FROM clubes_crm c
+                    WHERE c.email IS NOT NULL AND c.email != ''
+                      {$condPrev}
+                      AND NOT EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.paso_secuencia={$numPaso})
+                      AND NOT EXISTS (SELECT 1 FROM respuestas r WHERE r.lead_id=c.id)
+                      AND NOT EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.es_rotacion=1 AND e.estado='enviado')
+                      {$condManualPost}
+                    {$filtroComp}
+                    ORDER BY c.id ASC LIMIT 25");
+                if (!$resLeads) continue;
+                while ($lead = $resLeads->fetchArray(SQLITE3_ASSOC)) {
+                    $elig = esElegibleParaEnvio($db, (int)$lead['id'], $campaignId);
+                    if (!$elig['ok']) { $stats['excluidos']++; continue; }
+                    // Variante dominante (la que más abrió) → ramal.
+                    $varianteDom = '';
+                    $rV = $db->query("SELECT e.variant, COUNT(a.id) n FROM envios e JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE LOWER(e.email)=LOWER('" . $db->escapeString($lead['email']) . "') AND COALESCE(e.es_test,0)=0 AND e.variant IS NOT NULL AND e.variant!='' GROUP BY e.variant ORDER BY n DESC LIMIT 1");
+                    if ($rV && ($fV = $rV->fetchArray(SQLITE3_ASSOC))) $varianteDom = strtoupper((string)$fV['variant']);
+                    if ($ramal !== '' && $varianteDom !== '' && $ramal !== $varianteDom) continue; // ramal no coincide
+                    $variantPaso = $varianteDom !== '' ? $varianteDom : 'A';
+                    $tpl = $db->querySingle("SELECT * FROM plantillas WHERE id={$plantillaId} AND activo=1", true);
+                    if (!$tpl) continue;
+                    $contenido = resolverContenidoVariante($tpl, $variantPaso);
+                    $vals = [$lead['nombre_club'], $lead['persona_contacto'] ?: 'responsable', $lead['federacion'] ?? '', date('Y')];
+                    $asunto = str_replace($placeholders, $vals, $contenido['asunto']);
+                    $cuerpo = str_replace($placeholders, $vals, $contenido['cuerpo']);
+
+                    if ($modoAuto === 1) {
+                        $tracking = 'trk_' . bin2hex(random_bytes(8));
+                        $esTest = esLeadTest($lead) ? 1 : 0;
+                        $db->exec("INSERT INTO envios (club,email,federacion,cuenta_emision,estado,tracking_id,asunto,cuerpo_mensaje,lead_id,campaign_id,variant,plantilla_id,es_test,secuencia_id,paso_secuencia,message_id)
+                            VALUES ('" . $db->escapeString($lead['nombre_club']) . "','" . $db->escapeString($lead['email']) . "','" . $db->escapeString($lead['federacion'] ?? '') . "','','pendiente','{$tracking}','" . $db->escapeString($asunto) . "','" . $db->escapeString($cuerpo) . "'," . (int)$lead['id'] . ",{$campaignId},'{$variantPaso}',{$plantillaId},{$esTest},{$secId},{$numPaso},'')");
+                        $stats['pasoN']++;
+                    } else {
+                        // Modo asistido → sugerencia pendiente en propuestas_ia.
+                        $existe = (int)$db->querySingle("SELECT COUNT(*) FROM propuestas_ia WHERE lead_id=" . (int)$lead['id'] . " AND tipo='secuencia_paso{$numPaso}' AND estado='pendiente'");
+                        if ($existe === 0) {
+                            $stmtP = $db->prepare("INSERT INTO propuestas_ia (lead_id, campaign_id, tipo, titulo, razon, mensaje_sugerido, prioridad, estado, creado_el)
+                                VALUES (:lid,:cid,:tipo,:tit,:raz,:msg,'Media','pendiente',CURRENT_TIMESTAMP)");
+                            $stmtP->bindValue(':lid', (int)$lead['id'], SQLITE3_INTEGER);
+                            $stmtP->bindValue(':cid', $campaignId, SQLITE3_INTEGER);
+                            $stmtP->bindValue(':tipo', 'secuencia_paso' . $numPaso, SQLITE3_TEXT);
+                            $stmtP->bindValue(':tit', 'Secuencia Paso ' . $numPaso . ' — ' . $lead['nombre_club'], SQLITE3_TEXT);
+                            $stmtP->bindValue(':raz', 'Espera cumplida tras el paso ' . $prevPaso . ' (ramal ' . ($varianteDom ?: 'genérico') . ')', SQLITE3_TEXT);
+                            $stmtP->bindValue(':msg', $asunto . "\n\n" . $cuerpo, SQLITE3_TEXT);
+                            $stmtP->execute();
+                            $stats['sugerencias']++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // ── Envío de las filas pendientes de secuencia (hasta el límite) ──
+    $resPend = $db->query("SELECT * FROM envios WHERE estado='pendiente' AND secuencia_id IS NOT NULL ORDER BY id ASC LIMIT {$limite}");
+    if ($resPend) {
+        while ($envio = $resPend->fetchArray(SQLITE3_ASSOC)) {
+            $cuenta = $db->querySingle("SELECT * FROM cuentas_smtp WHERE activa=1 AND enviados_hoy < limite_diario ORDER BY enviados_hoy ASC, id ASC LIMIT 1", true);
+            if (!$cuenta) break;
+            $ok = enviarSMTP(
+                $cuenta['host'], (int)$cuenta['puerto'], $cuenta['seguridad'],
+                $cuenta['usuario'], $cuenta['password'], $cuenta['email'],
+                $envio['email'], $envio['asunto'], $envio['cuerpo_mensaje'],
+                ['Message-ID' => '', 'X-Tracking-ID' => $envio['tracking_id']]
+            );
+            if ($ok) {
+                $db->exec("UPDATE envios SET estado='enviado', cuenta_emision='" . $db->escapeString($cuenta['email']) . "', fecha_envio=CURRENT_TIMESTAMP, smtp_id=" . (int)$cuenta['id'] . " WHERE id=" . (int)$envio['id']);
+                $db->exec("UPDATE cuentas_smtp SET enviados_hoy = enviados_hoy + 1, ultimo_uso=CURRENT_TIMESTAMP WHERE id=" . (int)$cuenta['id']);
+                $db->exec("UPDATE clubes_crm SET estado_lead='02 Contactado', ultimo_contacto=CURRENT_TIMESTAMP WHERE id=" . (int)$envio['lead_id']);
+                $db->exec("INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, plantilla_id, id_cuenta_smtp, tipo, resultado, detalles, fecha)
+                    VALUES (" . (int)$envio['lead_id'] . "," . (int)$envio['lead_id'] . ",'envio_email'," . (int)$envio['plantilla_id'] . "," . (int)$cuenta['id'] . ",'email','exito','Envío automático de secuencia (paso " . (int)$envio['paso_secuencia'] . ") via " . $cuenta['email'] . "',CURRENT_TIMESTAMP)");
+                $stats['enviados']++;
+            } else {
+                $db->exec("UPDATE envios SET estado='error', resultado_envio='FAILED', fecha_resultado_envio=CURRENT_TIMESTAMP WHERE id=" . (int)$envio['id']);
+                $stats['errores']++;
+            }
+        }
+    }
+    return $stats;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // 0. CAMPAÑA OBLIGATORIA (FASE 2C) — cron no envía sin campaña válida y trazable
 // ═════════════════════════════════════════════════════════════════════════════
 $opts = getopt('', ['campaign-id:', 'campaign:']);
@@ -364,217 +579,3 @@ $db->close();
 echo "[" . date('Y-m-d H:i:s') . "] Ciclo completado.\n";
 exit(0);
 
-// ═════════════════════════════════════════════════════════════════════════════
-// FUNCIÓN AUXILIAR: envío SMTP con autenticación vía socket
-// ═════════════════════════════════════════════════════════════════════════════
-
-if (!function_exists('enviarSMTP')) {
-/**
- * Envía un email usando SMTP con autenticación vía socket directo.
- *
- * @return bool true si el envío fue exitoso
- */
-function enviarSMTP(
-    string $host, int $port, string $secure,
-    string $user, string $pass,
-    string $from, string $to,
-    string $subject, string $body, array $headers
-): bool {
-    // Normalizar la cuenta para el transporte centralizado.
-    $cuenta = [
-        'email'     => $from,
-        'host'      => $host,
-        'puerto'    => (int)$port,
-        'usuario'   => $user,
-        'password'  => $pass,
-        'seguridad' => $secure,
-    ];
-
-    // Extraer Message-ID de los headers si existe.
-    $messageId = '';
-    foreach ($headers as $k => $v) {
-        if (strtolower($k) === 'message-id') {
-            $messageId = $v;
-            break;
-        }
-    }
-
-    $opciones = [
-        'reply_to' => $from,
-    ];
-    if ($messageId !== '') {
-        $opciones['message_id'] = $messageId;
-    }
-
-    // Delegar en el transporte SMTP centralizado.
-    $resultado = futprotec_enviarSMTP($cuenta, $to, $subject, $body, $opciones);
-
-    if (!$resultado['ok']) {
-        trigger_error($resultado['error'], E_USER_WARNING);
-        return false;
-    }
-    return true;
-}
-}
-
-/**
- * secuencia_programarYEnviar — Motor de secuencias condicionales (O-1).
- * Plan: docs/PLAN_RAMIFICACION_SECUENCIAS_ABC.md
- *
- * 1) Programa los pasos que tocan: paso 1 (descubrimiento) y pasos N>1
- *    (seguimiento por ramal; modo_auto=1 → envio pendiente, modo_auto=0 →
- *    sugerencia en propuestas_ia).
- * 2) Envía hasta $limite filas pendientes de secuencia con el transporte SMTP.
- * Regla de ramal: el paso solo se dispara si su ramal coincide con la variante
- * dominante del lead (más aperturas) o si es genérico (ramal='').
- */
-function secuencia_programarYEnviar(SQLite3 $db, int $campaignId, int $limite = 10): array
-{
-    $stats = ['paso1' => 0, 'pasoN' => 0, 'sugerencias' => 0, 'enviados' => 0, 'errores' => 0, 'excluidos' => 0];
-    $filtroComp = sqlFiltroCompatibilidadLeadCampana($db, $campaignId);
-    $placeholders = ['{{CLUB}}', '{{CONTACTO}}', '{{FEDERACION}}', '{{ANIO}}'];
-
-    $resSec = $db->query("SELECT id, campaign_id, nombre, modo_auto, activo FROM secuencias WHERE campaign_id = {$campaignId} AND activo = 1 ORDER BY id");
-    if (!$resSec) return $stats;
-    while ($sec = $resSec->fetchArray(SQLITE3_ASSOC)) {
-        $secId = (int)$sec['id'];
-        $modoAuto = (int)$sec['modo_auto'];
-
-        $pasos = [];
-        $resPasos = $db->query("SELECT * FROM secuencia_pasos WHERE secuencia_id = {$secId} AND activo = 1 ORDER BY paso ASC");
-        if (!$resPasos) continue;
-        while ($p = $resPasos->fetchArray(SQLITE3_ASSOC)) $pasos[] = $p;
-        if (empty($pasos)) continue;
-
-        foreach ($pasos as $paso) {
-            $numPaso = (int)$paso['paso'];
-            $espera = max(0, (int)$paso['espera_dias']);
-            $plantillaId = (int)$paso['plantilla_id'];
-            $ramal = strtoupper((string)$paso['ramal']);
-
-            if ($numPaso === 1) {
-                // ── PASO 1 (descubrimiento): leads sin envío en la campaña ──
-                $resLeads = $db->query("SELECT c.* FROM clubes_crm c
-                    LEFT JOIN envios e ON LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.estado='enviado'
-                    WHERE c.estado_lead='01 Sin Contactar' AND c.email IS NOT NULL AND c.email != '' AND e.id IS NULL {$filtroComp}
-                    ORDER BY c.creado_el ASC LIMIT 25");
-                if (!$resLeads) continue;
-                while ($lead = $resLeads->fetchArray(SQLITE3_ASSOC)) {
-                    $elig = esElegibleParaEnvio($db, (int)$lead['id'], $campaignId);
-                    if (!$elig['ok']) { $stats['excluidos']++; continue; }
-                    $tpl = $db->querySingle("SELECT * FROM plantillas WHERE id={$plantillaId} AND activo=1", true);
-                    if (!$tpl) continue;
-                    $variant = asignarVariante((int)$lead['id'], $campaignId);
-                    $contenido = resolverContenidoVariante($tpl, $variant);
-                    $vals = [$lead['nombre_club'], $lead['persona_contacto'] ?: 'responsable', $lead['federacion'] ?? '', date('Y')];
-                    $asunto = str_replace($placeholders, $vals, $contenido['asunto']);
-                    $cuerpo = str_replace($placeholders, $vals, $contenido['cuerpo']);
-                    if ($modoAuto === 1) {
-                        // Automático: el cron programa el primer contacto.
-                        $tracking = 'trk_' . bin2hex(random_bytes(8));
-                        $esTest = esLeadTest($lead) ? 1 : 0;
-                        $db->exec("INSERT INTO envios (club,email,federacion,cuenta_emision,estado,tracking_id,asunto,cuerpo_mensaje,lead_id,campaign_id,variant,plantilla_id,es_test,secuencia_id,paso_secuencia,message_id)
-                            VALUES ('" . $db->escapeString($lead['nombre_club']) . "','" . $db->escapeString($lead['email']) . "','" . $db->escapeString($lead['federacion'] ?? '') . "','','pendiente','{$tracking}','" . $db->escapeString($asunto) . "','" . $db->escapeString($cuerpo) . "'," . (int)$lead['id'] . ",{$campaignId},'{$variant}',{$plantillaId},{$esTest},{$secId},1,'')");
-                        $stats['paso1']++;
-                    }
-                    // Modo asistido: el primer contacto lo hace el usuario desde la
-                    // Lanzadera (los pasos 2/3 y la rotación ABC se anclan a ese envío).
-                }
-            } else {
-                // ── PASOS N>1: seguimiento por ramal ──
-                $prevPaso = $numPaso - 1;
-                // Paso previo completado:
-                //  - Paso 2: cuenta un envío de secuencia previo (paso_secuencia=1) O un
-                //    envío MANUAL de la campaña (primer contacto desde la Lanzadera).
-                //  - Pasos >2: solo el paso previo de la secuencia.
-                // Se excluyen los leads ya rotados (es_rotacion=1): su reenvío con otra
-                // variante ya fue su segundo intento (evita doble envío/sugerencia).
-                if ($numPaso === 2) {
-                    $condPrev = "AND (
-                        EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.paso_secuencia=1 AND e.estado='enviado' AND e.fecha_envio <= datetime('now','-" . $espera . " days'))
-                        OR EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.secuencia_id IS NULL AND COALESCE(e.es_rotacion,0)=0 AND e.estado='enviado' AND e.fecha_envio <= datetime('now','-" . $espera . " days'))
-                    )";
-                    $condManualPost = '';
-                } else {
-                    $condPrev = "AND EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.paso_secuencia={$prevPaso} AND e.estado='enviado' AND e.fecha_envio <= datetime('now','-" . $espera . " days'))";
-                    $condManualPost = "AND NOT EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.secuencia_id IS NULL AND e.campaign_id={$campaignId} AND e.estado='enviado')";
-                }
-                $resLeads = $db->query("SELECT c.* FROM clubes_crm c
-                    WHERE c.email IS NOT NULL AND c.email != ''
-                      {$condPrev}
-                      AND NOT EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.paso_secuencia={$numPaso})
-                      AND NOT EXISTS (SELECT 1 FROM respuestas r WHERE r.lead_id=c.id)
-                      AND NOT EXISTS (SELECT 1 FROM envios e WHERE LOWER(e.email)=LOWER(c.email) AND e.campaign_id={$campaignId} AND e.es_rotacion=1 AND e.estado='enviado')
-                      {$condManualPost}
-                    {$filtroComp}
-                    ORDER BY c.id ASC LIMIT 25");
-                if (!$resLeads) continue;
-                while ($lead = $resLeads->fetchArray(SQLITE3_ASSOC)) {
-                    $elig = esElegibleParaEnvio($db, (int)$lead['id'], $campaignId);
-                    if (!$elig['ok']) { $stats['excluidos']++; continue; }
-                    // Variante dominante (la que más abrió) → ramal.
-                    $varianteDom = '';
-                    $rV = $db->query("SELECT e.variant, COUNT(a.id) n FROM envios e JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE LOWER(e.email)=LOWER('" . $db->escapeString($lead['email']) . "') AND COALESCE(e.es_test,0)=0 AND e.variant IS NOT NULL AND e.variant!='' GROUP BY e.variant ORDER BY n DESC LIMIT 1");
-                    if ($rV && ($fV = $rV->fetchArray(SQLITE3_ASSOC))) $varianteDom = strtoupper((string)$fV['variant']);
-                    if ($ramal !== '' && $varianteDom !== '' && $ramal !== $varianteDom) continue; // ramal no coincide
-                    $variantPaso = $varianteDom !== '' ? $varianteDom : 'A';
-                    $tpl = $db->querySingle("SELECT * FROM plantillas WHERE id={$plantillaId} AND activo=1", true);
-                    if (!$tpl) continue;
-                    $contenido = resolverContenidoVariante($tpl, $variantPaso);
-                    $vals = [$lead['nombre_club'], $lead['persona_contacto'] ?: 'responsable', $lead['federacion'] ?? '', date('Y')];
-                    $asunto = str_replace($placeholders, $vals, $contenido['asunto']);
-                    $cuerpo = str_replace($placeholders, $vals, $contenido['cuerpo']);
-
-                    if ($modoAuto === 1) {
-                        $tracking = 'trk_' . bin2hex(random_bytes(8));
-                        $esTest = esLeadTest($lead) ? 1 : 0;
-                        $db->exec("INSERT INTO envios (club,email,federacion,cuenta_emision,estado,tracking_id,asunto,cuerpo_mensaje,lead_id,campaign_id,variant,plantilla_id,es_test,secuencia_id,paso_secuencia,message_id)
-                            VALUES ('" . $db->escapeString($lead['nombre_club']) . "','" . $db->escapeString($lead['email']) . "','" . $db->escapeString($lead['federacion'] ?? '') . "','','pendiente','{$tracking}','" . $db->escapeString($asunto) . "','" . $db->escapeString($cuerpo) . "'," . (int)$lead['id'] . ",{$campaignId},'{$variantPaso}',{$plantillaId},{$esTest},{$secId},{$numPaso},'')");
-                        $stats['pasoN']++;
-                    } else {
-                        // Modo asistido → sugerencia pendiente en propuestas_ia.
-                        $existe = (int)$db->querySingle("SELECT COUNT(*) FROM propuestas_ia WHERE lead_id=" . (int)$lead['id'] . " AND tipo='secuencia_paso{$numPaso}' AND estado='pendiente'");
-                        if ($existe === 0) {
-                            $stmtP = $db->prepare("INSERT INTO propuestas_ia (lead_id, campaign_id, tipo, titulo, razon, mensaje_sugerido, prioridad, estado, creado_el)
-                                VALUES (:lid,:cid,:tipo,:tit,:raz,:msg,'Media','pendiente',CURRENT_TIMESTAMP)");
-                            $stmtP->bindValue(':lid', (int)$lead['id'], SQLITE3_INTEGER);
-                            $stmtP->bindValue(':cid', $campaignId, SQLITE3_INTEGER);
-                            $stmtP->bindValue(':tipo', 'secuencia_paso' . $numPaso, SQLITE3_TEXT);
-                            $stmtP->bindValue(':tit', 'Secuencia Paso ' . $numPaso . ' — ' . $lead['nombre_club'], SQLITE3_TEXT);
-                            $stmtP->bindValue(':raz', 'Espera cumplida tras el paso ' . $prevPaso . ' (ramal ' . ($varianteDom ?: 'genérico') . ')', SQLITE3_TEXT);
-                            $stmtP->bindValue(':msg', $asunto . "\n\n" . $cuerpo, SQLITE3_TEXT);
-                            $stmtP->execute();
-                            $stats['sugerencias']++;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // ── Envío de las filas pendientes de secuencia (hasta el límite) ──
-    $resPend = $db->query("SELECT * FROM envios WHERE estado='pendiente' AND secuencia_id IS NOT NULL ORDER BY id ASC LIMIT {$limite}");
-    if ($resPend) {
-        while ($envio = $resPend->fetchArray(SQLITE3_ASSOC)) {
-            $cuenta = $db->querySingle("SELECT * FROM cuentas_smtp WHERE activa=1 AND enviados_hoy < limite_diario ORDER BY enviados_hoy ASC, id ASC LIMIT 1", true);
-            if (!$cuenta) break;
-            $ok = enviarSMTP(
-                $cuenta['host'], (int)$cuenta['puerto'], $cuenta['seguridad'],
-                $cuenta['usuario'], $cuenta['password'], $cuenta['email'],
-                $envio['email'], $envio['asunto'], $envio['cuerpo_mensaje'],
-                ['Message-ID' => '', 'X-Tracking-ID' => $envio['tracking_id']]
-            );
-            if ($ok) {
-                $db->exec("UPDATE envios SET estado='enviado', cuenta_emision='" . $db->escapeString($cuenta['email']) . "', fecha_envio=CURRENT_TIMESTAMP, smtp_id=" . (int)$cuenta['id'] . " WHERE id=" . (int)$envio['id']);
-                $db->exec("UPDATE cuentas_smtp SET enviados_hoy = enviados_hoy + 1, ultimo_uso=CURRENT_TIMESTAMP WHERE id=" . (int)$cuenta['id']);
-                $db->exec("UPDATE clubes_crm SET estado_lead='02 Contactado', ultimo_contacto=CURRENT_TIMESTAMP WHERE id=" . (int)$envio['lead_id']);
-                $db->exec("INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, plantilla_id, id_cuenta_smtp, tipo, resultado, detalles, fecha)
-                    VALUES (" . (int)$envio['lead_id'] . "," . (int)$envio['lead_id'] . ",'envio_email'," . (int)$envio['plantilla_id'] . "," . (int)$cuenta['id'] . ",'email','exito','Envío automático de secuencia (paso " . (int)$envio['paso_secuencia'] . ") via " . $cuenta['email'] . "',CURRENT_TIMESTAMP)");
-                $stats['enviados']++;
-            } else {
-                $db->exec("UPDATE envios SET estado='error', resultado_envio='FAILED', fecha_resultado_envio=CURRENT_TIMESTAMP WHERE id=" . (int)$envio['id']);
-                $stats['errores']++;
-            }
-        }
-    }
-    return $stats;
-}

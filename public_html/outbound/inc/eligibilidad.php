@@ -319,14 +319,17 @@ function plantillaEstaCongelada(SQLite3 $db, int $plantillaId): bool
 /**
  * Reserva el "envío lógico" para (lead, campaña) ANTES de intentar SMTP.
  *
- * Garantiza por índice único parcial idx_envios_lead_campaign que un lead
- * tenga como máximo UN envío lógico por campaña, sin bloquear el intento SMTP.
+ * Idempotencia por índice único parcial idx_envios_lead_campaign: un lead tiene
+ * como máximo UN envío BASE (es_rotacion=0) por campaña, sin bloquear el intento
+ * SMTP. La ROTACIÓN ABC (es_rotacion=1) NO está sujeta a esa unicidad: permite
+ * múltiples filas (una por intento tras cada ventana de espera de la secuencia).
  *
  * Estrategia (distingue envío lógico / intento SMTP / aceptación / error):
  *  - campaignId <= 0: sin restricción de idempotencia (nuevo envío directo).
  *  - campaignId > 0:  INSERT OR IGNORE en estado provisional 'pendiente'.
  *      * nuevo = true  → el llamador hace SMTP y actualiza estado (enviado/error).
- *      * nuevo = false → ya existe; el llamador NO debe crear otro envío lógico.
+ *      * nuevo = false → ya existe (solo aplica al envío base); el llamador NO
+ *                        debe crear otro envío lógico.
  *
  * Estados finales (no reenviar): 'enviado', 'abierto'.
  * Estados retryables (permiten reintento sobre la MISMA fila): 'pendiente', 'error'.

@@ -873,9 +873,12 @@ EOT2;
         $db->exec("ALTER TABLE envios ADD COLUMN es_rotacion INTEGER NOT NULL DEFAULT 0");
         echo "   Migración: columna 'es_rotacion' añadida a envios\n";
     }
+    // UNICIDAD IDEMPOTENTE: SOLO el envío BASE (es_rotacion=0) es único por
+    // (lead_id, campaign_id). La rotación ABC permite múltiples filas (hasta
+    // rotar_max_envios) — una por intento tras cada ventana de espera.
     $db->exec("DROP INDEX IF EXISTS idx_envios_lead_campaign");
-    $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_envios_lead_campaign ON envios(lead_id, campaign_id, es_rotacion) WHERE campaign_id IS NOT NULL");
-    echo "   Índice de envíos ampliado con es_rotacion\n";
+    $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_envios_lead_campaign ON envios(lead_id, campaign_id) WHERE campaign_id IS NOT NULL AND es_rotacion = 0");
+    echo "   Índice de envíos: unicidad solo en envío base (rotación multi-intento)\n";
 
     // Configuración de la rotación por secuencia (panel del configurador).
     $colsSec = [];

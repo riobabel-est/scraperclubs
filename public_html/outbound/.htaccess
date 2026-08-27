@@ -24,3 +24,17 @@ Options -Indexes
 <FilesMatch "^(secret\.php)$">
     Require all denied
 </FilesMatch>
+
+# ─── ANTI-CACHÉ dinámico (2026-08-27) ─────────────────────────────────────────
+# Todo el PHP del outbound es 100% dinámico (colas, envíos, KPIs). El Dynamic
+# Cache de SiteGround cacheó URLs con query string y sirvió colas obsoletas
+# (leads ya enviados volvían a salir). Se fuerza no-cache a nivel de servidor
+# (redundante con los headers que ya emiten get_cola.php y enviar_lote.php).
+<IfModule mod_headers.c>
+    <FilesMatch "\.php$">
+        Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
+</IfModule>
+

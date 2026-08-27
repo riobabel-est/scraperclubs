@@ -87,9 +87,9 @@
             <div class="mt-4 pt-3 border-t border-slate-800 flex items-center gap-3 flex-wrap">
                 <button @click="toggleRandom()" type="button"
                     class="px-4 py-2 rounded-lg text-sm font-semibold transition border flex items-center gap-2"
-                    :class="randomMode ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'">
+                    :class="smtpRandom ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'">
                     <i data-lucide="shuffle" class="w-4 h-4"></i>
-                    <span x-text="randomMode ? '🎲 ALEATORIO ON' : '🎲 ALEATORIO OFF'"></span>
+                    <span x-text="smtpRandom ? '🔄 SMTP ALEATORIO ON' : '🔄 SMTP ALEATORIO OFF'"></span>
                 </button>
                 <button @click="toggleModo()" type="button"
                     class="px-4 py-2 rounded-lg text-sm font-semibold transition border flex items-center gap-2"
@@ -255,15 +255,28 @@
                     </div>
                 </div>
                 <div class="bg-slate-800/50 rounded-lg p-3">
-                    <span class="text-xs text-slate-400 block mb-1">Retardo entre Envíos</span>
-                    <div class="flex items-center gap-2">
-                        <input type="range" x-model.number="lzDelay" min="1" max="60" step="1" @change="lzSaveDelay()"
-                            class="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-400"
-                            :disabled="lzMotorEstado === 'ACTIVO'">
-                        <span class="text-sm font-semibold w-10 text-right"
-                            :style="{color: lzDelay <= 10 ? '#34d399' : (lzDelay <= 30 ? '#fbbf24' : '#f43f5e')}"
-                            x-text="lzDelay + 's'">5s</span>
+                    <span class="text-xs text-slate-400 block mb-1">Retardo entre Envíos (aleatorio)</span>
+                    <div class="space-y-2">
+                        <div>
+                            <div class="flex items-center justify-between text-xs text-slate-400 mb-0.5">
+                                <span>Mín</span>
+                                <span class="text-sm font-semibold text-amber-400" x-text="lzFmtDelay(lzDelayMin)">5s</span>
+                            </div>
+                            <input type="range" x-model.number="lzDelayMin" min="5" max="300" step="5" @change="lzOnDelayMinChange(); lzSaveDelay()"
+                                class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-400"
+                                :disabled="lzMotorEstado === 'ACTIVO'">
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between text-xs text-slate-400 mb-0.5">
+                                <span>Máx</span>
+                                <span class="text-sm font-semibold text-amber-400" x-text="lzFmtDelay(lzDelayMax)">5m</span>
+                            </div>
+                            <input type="range" x-model.number="lzDelayMax" min="5" max="300" step="5" @change="lzOnDelayMaxChange(); lzSaveDelay()"
+                                class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-400"
+                                :disabled="lzMotorEstado === 'ACTIVO'">
+                        </div>
                     </div>
+                    <p class="text-xs text-slate-400 mt-1.5">Aleatorio entre <span class="text-slate-200 font-semibold" x-text="lzFmtDelay(lzDelayMin)">5s</span> y <span class="text-slate-200 font-semibold" x-text="lzFmtDelay(lzDelayMax)">5m</span> por envío</p>
                 </div>
                 <div class="bg-slate-800/50 rounded-lg p-3">
                     <span class="text-xs text-slate-400 block mb-1">Límite Diario</span>
