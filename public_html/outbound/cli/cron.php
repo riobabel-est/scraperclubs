@@ -148,9 +148,11 @@ function secuencia_programarYEnviar(SQLite3 $db, int $campaignId, int $limite = 
                         // Automático: el cron programa el primer contacto.
                         $tracking = 'trk_' . bin2hex(random_bytes(8));
                         $esTest = esLeadTest($lead) ? 1 : 0;
-                        $db->exec("INSERT INTO envios (club,email,federacion,cuenta_emision,estado,tracking_id,asunto,cuerpo_mensaje,lead_id,campaign_id,variant,plantilla_id,es_test,secuencia_id,paso_secuencia,message_id)
+                        // ANTI-DOBLE (F4): INSERT OR IGNORE respeta el índice UNIQUE
+                        // (lead_id, campaign_id, paso_secuencia) ante concurrencia.
+                        $db->exec("INSERT OR IGNORE INTO envios (club,email,federacion,cuenta_emision,estado,tracking_id,asunto,cuerpo_mensaje,lead_id,campaign_id,variant,plantilla_id,es_test,secuencia_id,paso_secuencia,message_id)
                             VALUES ('" . $db->escapeString($lead['nombre_club']) . "','" . $db->escapeString($lead['email']) . "','" . $db->escapeString($lead['federacion'] ?? '') . "','','pendiente','{$tracking}','" . $db->escapeString($asunto) . "','" . $db->escapeString($cuerpo) . "'," . (int)$lead['id'] . ",{$campaignId},'{$variant}',{$plantillaId},{$esTest},{$secId},1,'')");
-                        $stats['paso1']++;
+                        if ($db->changes() > 0) { $stats['paso1']++; }
                     }
                     // Modo asistido: el primer contacto lo hace el usuario desde la
                     // Lanzadera (los pasos 2/3 y la rotación ABC se anclan a ese envío).
@@ -203,9 +205,11 @@ function secuencia_programarYEnviar(SQLite3 $db, int $campaignId, int $limite = 
                     if ($modoAuto === 1) {
                         $tracking = 'trk_' . bin2hex(random_bytes(8));
                         $esTest = esLeadTest($lead) ? 1 : 0;
-                        $db->exec("INSERT INTO envios (club,email,federacion,cuenta_emision,estado,tracking_id,asunto,cuerpo_mensaje,lead_id,campaign_id,variant,plantilla_id,es_test,secuencia_id,paso_secuencia,message_id)
+                        // ANTI-DOBLE (F4): INSERT OR IGNORE respeta el índice UNIQUE
+                        // (lead_id, campaign_id, paso_secuencia) ante concurrencia.
+                        $db->exec("INSERT OR IGNORE INTO envios (club,email,federacion,cuenta_emision,estado,tracking_id,asunto,cuerpo_mensaje,lead_id,campaign_id,variant,plantilla_id,es_test,secuencia_id,paso_secuencia,message_id)
                             VALUES ('" . $db->escapeString($lead['nombre_club']) . "','" . $db->escapeString($lead['email']) . "','" . $db->escapeString($lead['federacion'] ?? '') . "','','pendiente','{$tracking}','" . $db->escapeString($asunto) . "','" . $db->escapeString($cuerpo) . "'," . (int)$lead['id'] . ",{$campaignId},'{$variantPaso}',{$plantillaId},{$esTest},{$secId},{$numPaso},'')");
-                        $stats['pasoN']++;
+                        if ($db->changes() > 0) { $stats['pasoN']++; }
                     } else {
                         // Modo asistido → sugerencia pendiente en propuestas_ia.
                         $existe = (int)$db->querySingle("SELECT COUNT(*) FROM propuestas_ia WHERE lead_id=" . (int)$lead['id'] . " AND tipo='secuencia_paso{$numPaso}' AND estado='pendiente'");
@@ -230,11 +234,24 @@ function secuencia_programarYEnviar(SQLite3 $db, int $campaignId, int $limite = 
     $resPend = $db->query("SELECT * FROM envios WHERE estado='pendiente' AND secuencia_id IS NOT NULL ORDER BY id ASC LIMIT {$limite}");
     if ($resPend) {
         while ($envio = $resPend->fetchArray(SQLITE3_ASSOC)) {
+            // ANTI-DOBLE / ELEGIBILIDAD (F4): re-validar antes de enviar. Entre la
+            // programación del paso y el envío el lead pudo darse de baja, responder,
+            // marcarse duplicado o superar la espera → se excluye sin enviar.
+            $eligPend = esElegibleParaEnvio($db, (int)$envio['lead_id'], $campaignId);
+            $hayRespuesta = (int)$db->querySingle("SELECT COUNT(*) FROM respuestas WHERE lead_id=" . (int)$envio['lead_id']);
+            if (!$eligPend['ok'] || $hayRespuesta > 0) {
+                $db->exec("UPDATE envios SET estado='excluido', resultado_envio='SKIPPED', fecha_resultado_envio=CURRENT_TIMESTAMP WHERE id=" . (int)$envio['id']);
+                $stats['excluidos']++;
+                continue;
+            }
             $cuenta = $db->querySingle("SELECT * FROM cuentas_smtp WHERE activa=1 AND enviados_hoy < limite_diario ORDER BY enviados_hoy ASC, id ASC LIMIT 1", true);
             if (!$cuenta) break;
             $ok = enviarSMTP(
                 $cuenta['host'], (int)$cuenta['puerto'], $cuenta['seguridad'],
-                $cuenta['usuario'], $cuenta['password'], $cuenta['email'],
+                $cuenta['usuario'],
+                // F4: las credenciales SMTP están cifradas FP1: en BD desde 2026-08-25.
+                futprotec_descifrarPassword($cuenta['password'] ?? ''),
+                $cuenta['email'],
                 $envio['email'], $envio['asunto'], $envio['cuerpo_mensaje'],
                 ['Message-ID' => '', 'X-Tracking-ID' => $envio['tracking_id']]
             );

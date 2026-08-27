@@ -1,7 +1,7 @@
 # PLAN — Ramificación por Ramal ABC + Secuencias de Seguimiento (O-1)
 
 **Fecha:** 2026-08-26
-**Estado:** 🟢 **F1-F3 implementados (2026-08-26)** · 🔴 **F4 pendiente** (endurecer elegibilidad anti-doble y activación en producción)
+**Estado:** 🟢 **F1-F3 implementados (2026-08-26)** · 🟢 **F4 endurecido (2026-08-27)** — anti-doble-envío, re-validación de elegibilidad en el envío y descifrado de credenciales SMTP en el motor. **Pendiente**: activación en producción (configurar secuencias desde la UI + cron).
 **Ámbito:** `public_html/outbound/` (`cli/cron.php`, `cli/init_db.php`, `api/campanas.php`, `api/analytics.php`, `tabs/editor.php`, `tabs/seguimiento.php`, `js/app.js`, `js/seguimiento.js`)
 **Objetivo:** Implementar la **secuencia condicional de seguimiento** (IF/THEN) por **ramal del test ABC**: el lead que validó un ángulo (financiero / identidad / general) recibe el siguiente paso en **esa misma línea argumental**, en modo automático (cron) o **asistido** (sugerencias pendientes de aprobación en Seguimiento).
 
@@ -190,7 +190,12 @@ Badge de progreso de secuencia: `Paso 2/3 · Ramal Financiero`.
 - [x] Ningún paso se envía dos veces y ninguna respuesta/opt-out continúa recibiendo pasos — índice UNIQUE `(lead_id, campaign_id, paso_secuencia)` + cláusulas NOT EXISTS de respuesta/supresión.
 - [x] La gestión lead a lead y la Lanzadera manual siguen operativas sin cambios — el modo secuencia es aditivo (solo actúa si la campaña tiene secuencias activas).
 
-**Pendiente F4:** auditoría de elegibilidad en cada paso en producción (test en entorno TEST con `es_test=1` y campaña PILOT) y activación del cron con secuencias definidas desde la UI.
+**F4 (2026-08-27) implementado en local:** endurecida la elegibilidad anti-doble del motor `secuencia_programarYEnviar`:
+- `INSERT OR IGNORE` en Paso 1 y Pasos N (respeta el índice UNIQUE `(lead_id, campaign_id, paso_secuencia)` ante concurrencia; verificado: 0 duplicados en doble ejecución).
+- Re-validación `esElegibleParaEnvio()` + ausencia de respuesta **antes de cada envío** de fila pendiente de secuencia (si el lead se dio de baja/respondió/duplicó tras la programación → `excluido`/`SKIPPED`).
+- **Fix crítico**: las credenciales SMTP se pasan descifradas (`futprotec_descifrarPassword`) en el envío de pendientes (están cifradas `FP1:` en BD desde 2026-08-25; antes se pasaba la cadena cifrada → fallo de autenticación).
+- Probado en clon aislado: modo auto (programa+envía), modo asistido (6 sugerencias en `propuestas_ia`) y anti-doble (2ª ejecución `paso1=0`, 0 duplicados).
+- **Pendiente**: activación en producción (configurar `secuencia_pasos` desde la UI y ejecutar el cron con las secuencias definidas).
 
 ---
 
