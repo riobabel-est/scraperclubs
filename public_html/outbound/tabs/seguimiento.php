@@ -205,7 +205,9 @@
             <template x-for="e in (charla ? charla.envios : [])" :key="'e'+e.id">
               <div class="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5">
                 <div class="text-xs text-slate-400">📤 <span x-text="(e.fecha_envio || '').slice(0,16)"></span> · variante <span x-text="e.variant || 'A'"></span> · <span x-text="e.cuenta_emision"></span></div>
-                <div class="text-slate-200 text-xs mt-1" x-text="e.asunto"></div>
+                <div class="text-slate-200 text-xs font-semibold mt-1" x-text="e.asunto"></div>
+                <div class="text-slate-300 text-xs mt-1 whitespace-pre-wrap" x-show="e.cuerpo_charla && e.cuerpo_charla.trim()" x-text="e.cuerpo_charla"></div>
+                <div class="text-slate-500 italic text-xs mt-1" x-show="!e.cuerpo_charla || !e.cuerpo_charla.trim()">(correo sin cuerpo extraíble)</div>
               </div>
             </template>
             <div x-show="charla && (charla.aperturas_total || 0) > 0" class="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5 text-xs">

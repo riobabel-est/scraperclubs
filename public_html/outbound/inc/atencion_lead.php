@@ -89,21 +89,27 @@ function charlaLead(SQLite3 $db, int $leadId, int $campaignId = 0): array {
 
     $com = "AND COALESCE(e.es_test,0) = 0";
 
-    // Envíos salientes (los 8 últimos)
+    // Envíos salientes (los 20 últimos, con CUERPO limpio para la charla)
     $envios = [];
-    $r = $db->query("SELECT e.id, e.fecha_envio, e.variant, e.asunto, e.cuenta_emision, e.smtp_id, e.estado, e.plantilla_id FROM envios e WHERE e.lead_id = {$leadId} {$com} ORDER BY e.id DESC LIMIT 8");
-    if ($r) { while ($x = $r->fetchArray(SQLITE3_ASSOC)) $envios[] = $x; }
+    $r = $db->query("SELECT e.id, e.fecha_envio, e.variant, e.asunto, e.cuerpo_mensaje, e.cuenta_emision, e.smtp_id, e.estado, e.plantilla_id FROM envios e WHERE e.lead_id = {$leadId} {$com} ORDER BY e.id DESC LIMIT 20");
+    if ($r) {
+        while ($x = $r->fetchArray(SQLITE3_ASSOC)) {
+            $x['cuerpo_charla'] = mb_substr(atencion_limpiarCuerpoRespuesta((string)($x['cuerpo_mensaje'] ?? '')), 0, 600);
+            unset($x['cuerpo_mensaje']); // no exponer el HTML crudo al frontend
+            $envios[] = $x;
+        }
+    }
 
     // Aperturas totales + primera apertura
     $aperturasTotal   = (int)$db->querySingle("SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE e.lead_id = {$leadId} {$com}");
     $primeraApertura  = $db->querySingle("SELECT MIN(a.fecha_apertura) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE e.lead_id = {$leadId} {$com}");
 
-    // Respuestas recibidas (las 5 últimas, cuerpo limpio y truncado)
+    // Respuestas recibidas (las 10 últimas, cuerpo limpio y truncado)
     $respuestas = [];
-    $r = $db->query("SELECT r.id, r.fecha_respuesta, r.remitente, r.subject, r.cuerpo, r.clasificacion FROM respuestas r WHERE r.lead_id = {$leadId} ORDER BY r.id DESC LIMIT 5");
+    $r = $db->query("SELECT r.id, r.fecha_respuesta, r.remitente, r.subject, r.cuerpo, r.clasificacion FROM respuestas r WHERE r.lead_id = {$leadId} ORDER BY r.id DESC LIMIT 10");
     if ($r) {
         while ($x = $r->fetchArray(SQLITE3_ASSOC)) {
-            $x['cuerpo'] = mb_substr(atencion_limpiarCuerpoRespuesta((string)$x['cuerpo']), 0, 300);
+            $x['cuerpo'] = mb_substr(atencion_limpiarCuerpoRespuesta((string)$x['cuerpo']), 0, 600);
             $respuestas[] = $x;
         }
     }
