@@ -258,43 +258,44 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
     // la respuesta al club.
     $formatoReferencia = '';
     $refs = [];
+    $vistas = [];
+
+    // 1) Plantilla BASE concreta (si se seleccionó en el modal): estructura principal.
     if ($plantillaId !== null && $plantillaId > 0) {
-        $p = $db->querySingle("SELECT asunto, cuerpo FROM plantillas WHERE id = {$plantillaId} AND activo = 1", true);
+        $p = $db->querySingle("SELECT id, nombre, asunto, cuerpo FROM plantillas WHERE id = {$plantillaId} AND activo = 1", true);
         if ($p) {
+            $vistas[(int)$p['id']] = true;
             $refs[] = "PLANTILLA BASE (usa esta como estructura principal, adaptada al contexto):\nASUNTO: {$p['asunto']}\nCUERPO: " . mb_substr($p['cuerpo'], 0, 250);
         }
     }
-    $vistas = [];
+
+    // 2) Plantillas de la CAMPAÑA (incluye variantes A/B/C del test de prospección).
     if (!empty($charla['plantillas'])) {
         foreach ($charla['plantillas'] as $tp) {
             $tid = (int)($tp['id'] ?? 0);
-            if ($plantillaId !== null && $tid === (int)$plantillaId) continue;
             if (isset($vistas[$tid])) continue;
             $vistas[$tid] = true;
             $refs[] = "Plantilla '{$tp['nombre']}':\nASUNTO: {$tp['asunto']}\nCUERPO: " . mb_substr((string)$tp['cuerpo'], 0, 200);
-            if (count($refs) >= 4) break;
         }
     }
-    // Plantillas de SEGUIMIENTO/RESPUESTA (el "segundo email" preconfigurado):
-    // se añaden como referencia para que la IA mantenga el mismo estilo del
-    // negocio en la respuesta al club.
-    if (count($refs) < 5) {
-        $resTpl = $db->query(
-            "SELECT id, nombre, asunto, cuerpo FROM plantillas
-             WHERE activo = 1 AND tipo != 'whatsapp'
-               AND categoria IN ('02 Seguimiento','03 Respuestas')
-             ORDER BY categoria, id LIMIT 3"
-        );
-        if ($resTpl) {
-            while ($tp2 = $resTpl->fetchArray(SQLITE3_ASSOC)) {
-                $tid2 = (int)$tp2['id'];
-                if (isset($vistas[$tid2])) continue;
-                $vistas[$tid2] = true;
-                $refs[] = "Plantilla '{$tp2['nombre']}':\nASUNTO: {$tp2['asunto']}\nCUERPO: " . mb_substr((string)$tp2['cuerpo'], 0, 200);
-                if (count($refs) >= 5) break;
-            }
+
+    // 3) TODAS las plantillas de email activas (prospección, seguimiento,
+    //    respuestas) como FORMATO de referencia para la respuesta al club.
+    $resTpl = $db->query(
+        "SELECT id, nombre, asunto, cuerpo FROM plantillas
+         WHERE activo = 1 AND tipo != 'whatsapp'
+         ORDER BY categoria, id LIMIT 10"
+    );
+    if ($resTpl) {
+        while ($tpAll = $resTpl->fetchArray(SQLITE3_ASSOC)) {
+            $tidAll = (int)$tpAll['id'];
+            if (isset($vistas[$tidAll])) continue;
+            $vistas[$tidAll] = true;
+            $refs[] = "Plantilla '{$tpAll['nombre']}':\nASUNTO: {$tpAll['asunto']}\nCUERPO: " . mb_substr((string)$tpAll['cuerpo'], 0, 200);
+            if (count($refs) >= 8) break; // tope razonable para no saturar el prompt
         }
     }
+
     if (!empty($refs)) {
         $formatoReferencia = "FORMATO DE REFERENCIA — imita el tono, la estructura y la cercanía de estas plantillas del negocio (no las copies textualmente; adáptalas al diálogo del club):\n" . implode("\n\n", $refs);
     }
