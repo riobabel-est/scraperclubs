@@ -1215,6 +1215,15 @@ $db->close();
         .ui-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; display: inline-block; }
         .ui-dot-sm { width: 0.375rem; height: 0.375rem; border-radius: 9999px; display: inline-block; }
 
+        /* ── CSS de soporte (clases arbitrarias Tailwind no compiladas) ───── */
+        .top-\[46px\] { top: 46px; }
+        .max-w-\[140px\] { max-width: 140px; }
+        .max-w-\[92vw\] { max-width: 92vw; }
+        .max-h-\[92vh\] { max-height: 92vh; }
+        .z-\[60\] { z-index: 60; }
+        .z-\[80\] { z-index: 80; }
+        .min-h-0 { min-height: 0; }
+
     </style>
 </head>
 <body class="bg-slate-950 text-slate-200 min-h-screen" x-data="app()" x-init="boot()">
@@ -1274,9 +1283,27 @@ $db->close();
                 <i data-lucide="bell" class="w-4 h-4"></i>
                 <span x-show="rsNuevas > 0" x-cloak x-text="rsNuevas" class="absolute -top-1 -right-1 bg-orange-500 text-white text-xs font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1.5 border-2 border-slate-900 shadow-[0_0_10px_rgba(249,115,22,0.5)]"></span>
             </button>
-            <a href="?logout=1" class="text-slate-300 hover:text-slate-100 text-sm transition ml-2">
-                <i data-lucide="log-out" class="w-4 h-4 inline"></i>
-            </a>
+            <!-- Avatar / Menú de perfil (estándar CRM: identidad + cuenta + logout) -->
+            <div class="relative" @click.away="perfilAbierto = false">
+                <button @click="perfilAbierto = !perfilAbierto" class="flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-lg border border-slate-700 bg-slate-950 hover:bg-slate-800 hover:border-slate-600 transition" title="Mi cuenta">
+                    <span class="w-8 h-8 rounded-full bg-amber-500/20 text-amber-300 font-bold text-sm flex items-center justify-center border border-amber-500/40" x-text="perfilIniciales()"></span>
+                    <span class="hidden lg:inline text-sm text-slate-300 font-semibold truncate max-w-[140px]" x-text="(perfilNombre || perfilEmail || 'Perfil')"></span>
+                    <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400"></i>
+                </button>
+                <div x-show="perfilAbierto" x-cloak @click="perfilAbierto = false"
+                     class="absolute right-0 top-[46px] z-[60] w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                    <div class="px-4 py-3 border-b border-slate-700/60 bg-slate-800/60">
+                        <div class="text-sm font-semibold text-slate-200 truncate" x-text="perfilNombre || 'Usuario'"></div>
+                        <div class="text-xs text-slate-400 truncate" x-text="perfilEmail || '—'"></div>
+                    </div>
+                    <button @click="perfilAbierto=false; modalCuenta=true; perfilMsg=''" class="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 transition flex items-center gap-2">
+                        <i data-lucide="shield" class="w-4 h-4 text-amber-400"></i> Mi cuenta y seguridad
+                    </button>
+                    <a href="?logout=1" class="block w-full px-4 py-2.5 text-sm text-rose-400 hover:bg-slate-800 transition flex items-center gap-2">
+                        <i data-lucide="log-out" class="w-4 h-4"></i> Cerrar sesión
+                    </a>
+                </div>
+            </div>
         </div>
 
     </div>
@@ -1424,6 +1451,62 @@ include __DIR__ . '/tabs/modals.php';
         <button @click="rsToastVisible=false; rsToast=''" class="shrink-0 text-slate-400 hover:text-slate-300 transition p-1" title="Cerrar">
             <i data-lucide="x" class="w-4 h-4"></i>
         </button>
+    </div>
+</div>
+
+<!-- ═══════════ MODAL MI CUENTA Y SEGURIDAD (perfil del header) ═══════════ -->
+<div x-show="modalCuenta" x-cloak @click.self="modalCuenta = false" class="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
+            <i data-lucide="shield" class="w-5 h-5 text-amber-400"></i>
+            <h5 class="text-base font-semibold text-slate-200">Mi cuenta y seguridad</h5>
+            <button @click="modalCuenta = false" class="ml-auto p-1 rounded hover:bg-slate-800 transition" title="Cerrar"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div class="p-4 space-y-4 overflow-y-auto min-h-0 text-sm">
+            <!-- Identidad -->
+            <div>
+                <label class="block font-semibold text-slate-300 mb-1.5">Nombre visible</label>
+                <input type="text" x-model="perfilNombre" placeholder="Tu nombre"
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/50">
+            </div>
+            <div>
+                <label class="block font-semibold text-slate-300 mb-1.5">Email (identidad)</label>
+                <input type="email" x-model="perfilEmail" placeholder="tu@email.com"
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/50">
+            </div>
+            <div class="flex justify-end">
+                <button @click="perfilGuardar()" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg font-semibold hover:bg-amber-500/30 transition flex items-center gap-1.5">
+                    <i data-lucide="save" class="w-4 h-4"></i> Guardar perfil
+                </button>
+            </div>
+            <hr class="border-slate-800">
+            <!-- Contraseña -->
+            <div>
+                <h6 class="text-sm font-semibold text-slate-300 mb-2">🔑 Cambiar contraseña</h6>
+                <div class="space-y-2">
+                    <input type="password" x-model="passActual" placeholder="Contraseña actual"
+                        class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/50">
+                    <input type="password" x-model="passNueva" placeholder="Nueva contraseña (mín. 8)"
+                        class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/50">
+                    <input type="password" x-model="passConfirmar" placeholder="Confirmar nueva contraseña"
+                        class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/50">
+                </div>
+                <div class="flex justify-end mt-2">
+                    <button @click="perfilCambiarPass()" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg font-semibold hover:bg-amber-500/30 transition">Cambiar contraseña</button>
+                </div>
+            </div>
+            <hr class="border-slate-800">
+            <!-- Email de recuperación -->
+            <div>
+                <h6 class="text-sm font-semibold text-slate-300 mb-2">📧 Email de recuperación</h6>
+                <input type="email" x-model="resetEmail" placeholder="email de recuperación"
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/50">
+                <div class="flex justify-end mt-2">
+                    <button @click="perfilGuardarEmail()" class="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg font-semibold hover:bg-amber-500/30 transition">Guardar email</button>
+                </div>
+            </div>
+            <div x-show="perfilMsg" class="text-sm rounded-lg px-3 py-2" :class="perfilMsgOk ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'" x-text="perfilMsg"></div>
+        </div>
     </div>
 </div>
 

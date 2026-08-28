@@ -546,5 +546,47 @@
     </div><!-- /columna derecha -->
 </div>
 
+<!-- ═══════════ ÚLTIMAS PRUEBAS (histórico efímero del modo test) ═══════════ -->
+<div class="mt-4 bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="pruebasHistorico()" x-init="cargar()">
+    <div class="flex items-center gap-3 mb-4">
+        <i data-lucide="flask-conical" class="w-5 h-5 text-amber-400"></i>
+        <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">🧪 Últimas pruebas</h5>
+        <span class="text-xs text-slate-400 ml-auto" x-text="'Total: ' + historico.length"></span>
+    </div>
+    <p class="text-xs text-slate-400 mb-3">Envíos realizados en <b>modo test</b> (destinatarios de prueba). Es un registro efímero: límpialo cuando ya no lo necesites.</p>
+    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+        <table class="w-full text-sm">
+            <thead class="sticky top-0 bg-slate-800/50">
+                <tr class="text-slate-300 text-xs uppercase tracking-wider">
+                    <th class="px-3 py-2 text-left font-semibold">ID</th>
+                    <th class="px-3 py-2 text-left font-semibold">Club</th>
+                    <th class="px-3 py-2 text-left font-semibold">Email</th>
+                    <th class="px-3 py-2 text-left font-semibold">Fecha</th>
+                    <th class="px-3 py-2 text-center font-semibold">Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="h in historico" :key="h.id">
+                    <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                        <td class="px-3 py-2 text-slate-400" x-text="h.id"></td>
+                        <td class="px-3 py-2 text-slate-300" x-text="h.club"></td>
+                        <td class="px-3 py-2 text-slate-400" x-text="h.email"></td>
+                        <td class="px-3 py-2 text-slate-400" x-text="h.fecha_envio"></td>
+                        <td class="px-3 py-2 text-center text-slate-400" x-text="h.estado"></td>
+                    </tr>
+                </template>
+                <tr x-show="historico.length === 0">
+                    <td colspan="5" class="px-3 py-6 text-center text-slate-400">Sin envíos de prueba registrados.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800 mt-3">
+        <button @click="limpiar()" class="px-4 py-2 bg-rose-500/15 text-rose-400 border border-rose-500/30 rounded-lg text-sm font-semibold hover:bg-rose-500/25 transition flex items-center gap-2">
+            <i data-lucide="trash" class="w-4 h-4"></i> Limpiar histórico
+        </button>
+    </div>
+</div>
+
 <!-- Re-init de iconos tras pintado Alpine -->
 <div x-init="$nextTick(() => { setTimeout(() => lucide.createIcons(), 200); })"></div>

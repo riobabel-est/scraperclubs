@@ -41,6 +41,20 @@ var app = function() {
         atencionMsgTipo: 'ok',
         // Adjuntos manuales del modal de atención (File objects).
         atencionAdjuntos: [],
+        // ─── Mi cuenta y seguridad (perfil del header, estándar CRM) ───
+        perfilAbierto: false,
+        modalCuenta: false,
+        perfilNombre: '',
+        perfilEmail: '',
+        perfilMsg: '',
+        perfilMsgOk: false,
+        passActual: '',
+        passNueva: '',
+        passConfirmar: '',
+        resetEmail: '',
+        // Sub-tabs internos de las pestañas de configuración (UX moderna).
+        ajTab: 'ia',      // Ajustes: ia | cuentas | pruebas
+        edTab: 'plantillas', // Plantillas y Campañas: plantillas | campanas | secuencias
 
         // Tab Inicio
         inicio: { kpis: { pendientes_hoy: 0, respuestas_sin_atender: 0, mockups_pendientes: 0, proformas_por_presentar: 0, acciones_vencidas: 0 }, acciones: [], conseguir: [], bandeja: [], vencidas: [], horas: [] },
@@ -390,6 +404,70 @@ var app = function() {
             try { await this.loadSmtp(); } catch (e) { console.error('boot: loadSmtp falló', e); }
             try { await this.bootLanzadera(); } catch (e) { console.error('boot: bootLanzadera falló', e); }
             try { await this.loadMockupCapacity(); } catch (e) { console.error('boot: loadMockupCapacity falló', e); }
+            // Perfil del usuario (identidad del header, se carga siempre).
+            try { await this.perfilCargar(); } catch (e) { console.error('boot: perfilCargar falló', e); }
+        },
+
+        // ─── Mi cuenta y seguridad (perfil del header) ─────────────────────────
+        perfilIniciales() {
+            const s = String(this.perfilNombre || this.perfilEmail || 'FP').trim();
+            const p = s.split(/[\s@._-]+/).filter(Boolean);
+            const ini = (p[0] ? p[0][0] : 'F') + (p.length > 1 ? p[p.length - 1][0] : '');
+            return ini.toUpperCase().slice(0, 2);
+        },
+        async perfilCargar() {
+            try {
+                const r = await fetch('?action=get_config&keys=panel_nombre_usuario,panel_email,reset_email');
+                const j = await r.json();
+                if (j.ok && j.config) {
+                    this.perfilNombre = j.config.panel_nombre_usuario || '';
+                    this.perfilEmail = j.config.panel_email || '';
+                    this.resetEmail = j.config.reset_email || '';
+                }
+            } catch (e) { console.error('perfilCargar:', e); }
+        },
+        async perfilGuardar() {
+            this.perfilMsg = '';
+            try {
+                const f1 = new FormData();
+                f1.append('action', 'update_config'); f1.append('key', 'panel_nombre_usuario'); f1.append('value', this.perfilNombre);
+                await fetch('', { method: 'POST', body: f1 });
+                const f2 = new FormData();
+                f2.append('action', 'update_config'); f2.append('key', 'panel_email'); f2.append('value', this.perfilEmail);
+                const r = await fetch('', { method: 'POST', body: f2 });
+                const j = await r.json();
+                this.perfilMsg = j.ok ? '✓ Perfil guardado.' : (j.error || 'Error al guardar el perfil.');
+                this.perfilMsgOk = !!j.ok;
+            } catch (e) { this.perfilMsg = 'Error de conexión al guardar el perfil.'; this.perfilMsgOk = false; }
+        },
+        async perfilCambiarPass() {
+            this.perfilMsg = '';
+            if (this.passNueva.length < 8) { this.perfilMsg = 'La nueva contraseña debe tener al menos 8 caracteres.'; this.perfilMsgOk = false; return; }
+            if (this.passNueva !== this.passConfirmar) { this.perfilMsg = 'Las contraseñas no coinciden.'; this.perfilMsgOk = false; return; }
+            try {
+                const f = new FormData();
+                f.append('action', 'change_password');
+                f.append('password_actual', this.passActual);
+                f.append('password_nueva', this.passNueva);
+                f.append('password_confirmar', this.passConfirmar);
+                const r = await fetch('', { method: 'POST', body: f });
+                const j = await r.json();
+                this.perfilMsg = j.message || (j.ok ? 'Contraseña actualizada.' : 'Error al cambiar la contraseña.');
+                this.perfilMsgOk = !!j.ok;
+                if (j.ok) { this.passActual = ''; this.passNueva = ''; this.passConfirmar = ''; }
+            } catch (e) { this.perfilMsg = 'Error de conexión.'; this.perfilMsgOk = false; }
+        },
+        async perfilGuardarEmail() {
+            this.perfilMsg = '';
+            try {
+                const f = new FormData();
+                f.append('action', 'update_reset_email');
+                f.append('reset_email', this.resetEmail);
+                const r = await fetch('', { method: 'POST', body: f });
+                const j = await r.json();
+                this.perfilMsg = j.message || (j.ok ? 'Email actualizado.' : 'Error al guardar el email.');
+                this.perfilMsgOk = !!j.ok;
+            } catch (e) { this.perfilMsg = 'Error de conexión.'; this.perfilMsgOk = false; }
         },
 
         // ─── Notificador global de background ────────────────────────────────
@@ -2568,6 +2646,12 @@ var app = function() {
         atencionAdjuntarArchivos: function () {},
         atencionQuitarAdjunto: function () {},
         charlaHilo: function () { return []; },
+        // Métodos de perfil / Mi cuenta
+        perfilIniciales: function () { return 'FP'; },
+        perfilCargar: function () {},
+        perfilGuardar: function () {},
+        perfilCambiarPass: function () {},
+        perfilGuardarEmail: function () {},
         // Métodos de Lista Negra
         blBuscar: function () {},
         blAgregar: function () {},
@@ -2701,6 +2785,30 @@ function secuenciaConfig() {
                 else { alert(j.error || 'Error al eliminar'); }
             } catch (e) { alert('Error de conexión'); }
         },
+    };
+}
+
+// ─── Histórico de pruebas (Lanzadera) — registro efímero del modo test ─────
+function pruebasHistorico() {
+    return {
+        historico: [],
+        async cargar() {
+            try {
+                const r = await fetch('?action=get_test_history');
+                const j = await r.json();
+                this.historico = (j && j.ok) ? j.items : [];
+                if (window.lucide) lucide.createIcons();
+            } catch (e) { this.historico = []; }
+        },
+        async limpiar() {
+            const c = prompt('Escribe CONFIRMAR para limpiar el histórico de pruebas. Esta acción es irreversible (se hace backup previo).');
+            if (c !== 'CONFIRMAR') { alert('Operación cancelada.'); return; }
+            const body = new URLSearchParams({ action: 'clear_test_history', confirm: 'CONFIRMAR' });
+            const r = await fetch('?action=clear_test_history', { method: 'POST', body });
+            const j = await r.json();
+            if (j.ok) { alert('Histórico limpiado. Backup: ' + (j.backup || '')); await this.cargar(); }
+            else { alert(j.error || 'Error al limpiar histórico'); }
+        }
     };
 }
 

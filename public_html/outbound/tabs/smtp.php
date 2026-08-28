@@ -1,10 +1,17 @@
-<div class="grid lg:grid-cols-2 gap-4 items-start">
+<div class="space-y-4">
 
-    <!-- ═══════════ COLUMNA IZQUIERDA ═══════════ -->
-    <div class="space-y-4">
+    <!-- ═══════════ SUB-TABS DE AJUSTES (estándar CRM: Settings con sub-navegación) ═══════════ -->
+    <div class="flex items-center gap-1 border-b border-slate-800 pb-2 flex-wrap">
+        <button @click="ajTab='ia'" :class="ajTab === 'ia' ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'"
+            class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition">🧠 IA</button>
+        <button @click="ajTab='cuentas'" :class="ajTab === 'cuentas' ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'"
+            class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition">📧 Cuentas de correo</button>
+        <button @click="ajTab='pruebas'" :class="ajTab === 'pruebas' ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'"
+            class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition">🧪 Pruebas</button>
+    </div>
 
-    <!-- ═══════════ INTELIGENCIA ARTIFICIAL (MULTI-PROVEEDOR) ═══════════ -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="configIA()" x-init="cargar()">
+    <!-- ═══════════ PANEL IA ═══════════ -->
+    <div x-show="ajTab === 'ia'" class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="configIA()" x-init="cargar()">
 
         <div class="flex items-center gap-3 mb-4">
             <i data-lucide="brain-circuit" class="w-5 h-5 text-violet-400"></i>
@@ -13,6 +20,12 @@
         </div>
 
 
+        <!-- ① CONEXIÓN: proveedor + credenciales + modelo -->
+        <div class="flex items-center gap-2 mb-3">
+            <span class="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 text-xs font-bold flex items-center justify-center border border-violet-500/40">1</span>
+            <h6 class="text-sm font-semibold uppercase tracking-wider text-violet-300">Conexión</h6>
+            <span class="text-xs text-slate-400">proveedor · API key · modelo</span>
+        </div>
         <!-- Selector de proveedor -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
@@ -62,6 +75,14 @@
              Aquí se añaden, quitan o editan las reglas que la IA debe cumplir al
              redactar (producto, precios, flujo de venta, tono, firma). Se inyecta
              en el prompt de todos los asistentes (Atender, análisis IA, propuestas). -->
+        <!-- ② REGLAS DE NEGOCIO: lo que la IA debe saber al redactar -->
+        <div class="border-t border-violet-500/20 pt-4 mt-4 mb-3">
+            <div class="flex items-center gap-2">
+                <span class="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 text-xs font-bold flex items-center justify-center border border-violet-500/40">2</span>
+                <h6 class="text-sm font-semibold uppercase tracking-wider text-violet-300">Reglas de negocio</h6>
+                <span class="text-xs text-slate-400">producto · precios · flujo de venta · tono · firma</span>
+            </div>
+        </div>
         <div class="mb-4">
             <label class="block text-sm font-semibold text-slate-300 mb-1.5">🧠 Reglas de negocio para la IA (Conocimiento de producto)</label>
             <textarea x-model="conocimientoProducto" rows="16" placeholder="Añade, quita o edita aquí cualquier regla que la IA deba cumplir al redactar:&#10;· Producto (qué es, para quién, características)&#10;· Precios y pedido mínimo&#10;· Flujo de venta (p.ej. solicitar el escudo y los colores del club ANTES de ofrecer un mockup)&#10;· Tono y objeciones&#10;· La firma&#10;&#10;Todo se inyecta en el prompt de los asistentes IA."
@@ -81,7 +102,7 @@
     </div>
 
     <!-- ═══════════ CUENTAS SMTP ═══════════ -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+    <div x-show="ajTab === 'cuentas'" class="bg-slate-900 border border-slate-800 rounded-xl p-5">
         <div class="flex items-center gap-3 mb-4">
             <i data-lucide="server" class="w-5 h-5 text-cyan-400"></i>
             <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Cuentas SMTP</h5>
@@ -108,216 +129,55 @@
         </div>
     </div>
 
-    <!-- ═══════════ SEGURIDAD DEL PANEL (contraseña + email recuperación) ═══════════ -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="seguridadPanel()" x-init="cargar()">
-        <div class="flex items-center gap-3 mb-4">
-            <i data-lucide="shield" class="w-5 h-5 text-emerald-400"></i>
-            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Seguridad del Panel</h5>
-        </div>
-
-        <!-- Cambiar contraseña -->
-        <div class="mb-5">
-            <h6 class="text-sm font-semibold text-slate-300 mb-2">Cambiar contraseña de acceso</h6>
-            <div class="space-y-3">
-                <div>
-                    <label class="block text-sm font-semibold text-slate-300 mb-1.5">Contraseña actual</label>
-                    <div class="flex gap-2">
-                        <input type="password" x-model="actual" x-ref="secPassActual" autocomplete="off"
-                            class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50">
-                        <button type="button" x-ref="secBtnActual" @click="toggleCampo('secPassActual','secBtnActual')"
-                            class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-slate-200 hover:border-slate-600 transition"
-                            title="Mostrar contraseña" aria-label="Mostrar contraseña">
-                            <i data-lucide="eye" data-eye class="w-4 h-4"></i>
-                            <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-sm font-semibold text-slate-300 mb-1.5">Nueva contraseña</label>
-                        <div class="flex gap-2">
-                            <input type="password" x-model="nueva" x-ref="secPassNueva" autocomplete="new-password"
-                                class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50" placeholder="Mínimo 8 caracteres">
-                            <button type="button" x-ref="secBtnNueva" @click="toggleCampo('secPassNueva','secBtnNueva')"
-                                class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-slate-200 hover:border-slate-600 transition"
-                                title="Mostrar contraseña" aria-label="Mostrar contraseña">
-                                <i data-lucide="eye" data-eye class="w-4 h-4"></i>
-                                <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold text-slate-300 mb-1.5">Confirmar nueva</label>
-                        <div class="flex gap-2">
-                            <input type="password" x-model="confirmar" x-ref="secPassConfirmar" autocomplete="new-password"
-                                class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50">
-                            <button type="button" x-ref="secBtnConfirmar" @click="toggleCampo('secPassConfirmar','secBtnConfirmar')"
-                                class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-slate-200 hover:border-slate-600 transition"
-                                title="Mostrar contraseña" aria-label="Mostrar contraseña">
-                                <i data-lucide="eye" data-eye class="w-4 h-4"></i>
-                                <i data-lucide="eye-off" data-eye-off class="w-4 h-4 hidden"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <button @click="cambiarPass()"
-                    class="px-4 py-2 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-lg text-sm font-semibold hover:bg-emerald-500/25 transition flex items-center gap-1.5">
-                    <i data-lucide="key-round" class="w-4 h-4"></i> Cambiar contraseña
-                </button>
-                <p x-show="msgPass" class="text-sm" :class="msgPassOk ? 'text-emerald-400' : 'text-rose-400'" x-text="msgPass"></p>
-            </div>
-        </div>
-
-        <!-- Email de recuperación -->
-        <div class="pt-4 border-t border-slate-800">
-            <h6 class="text-sm font-semibold text-slate-300 mb-2">Email de recuperación</h6>
-            <p class="text-xs text-slate-400 mb-2">A esta dirección se envía el enlace para restablecer la contraseña si la olvidas.</p>
-            <div class="flex gap-2">
-                <input type="email" x-model="emailRecuperacion" placeholder="contacto@ejemplo.com"
-                    class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500/50">
-                <button @click="guardarEmail()"
-                    class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition">
-                    Guardar
-                </button>
-            </div>
-            <p x-show="msgEmail" class="text-sm mt-2" :class="msgEmailOk ? 'text-emerald-400' : 'text-rose-400'" x-text="msgEmail"></p>
-        </div>
-    </div>
-
-    </div><!-- /columna izquierda -->
-
-    <!-- ═══════════ COLUMNA DERECHA ═══════════ -->
-    <div class="space-y-4">
-
-
-    <!-- ═══════════ GESTIÓN DE PRUEBAS (AISLAMIENTO TEST/REAL) ═══════════ -->
-
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="gestionPruebas()" x-init="cargarTodo()">
+    <!-- ═══════════ PRUEBAS (destinatarios de test — configuración estable) ═══════════ -->
+    <div x-show="ajTab === 'pruebas'" class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="gestionPruebas()" x-init="cargarTodo()">
         <div class="flex items-center gap-3 mb-4">
             <i data-lucide="flask-conical" class="w-5 h-5 text-amber-400"></i>
-            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Gestión de Pruebas</h5>
-            <span class="text-xs text-slate-400 ml-auto">Aislado del histórico comercial</span>
+            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Pruebas</h5>
+            <span class="text-xs text-slate-400 ml-auto">Destinatarios donde se reciben los correos en modo test</span>
         </div>
-
-        <!-- Destinatarios de prueba -->
-        <div class="mb-6">
-            <div class="flex items-center justify-between mb-3">
-                <h6 class="text-sm font-semibold text-slate-300">Destinatarios de prueba</h6>
-                <button @click="nuevoDestinatario()" class="px-3 py-1.5 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold hover:bg-amber-500/25 transition flex items-center gap-1">
-                    <i data-lucide="plus" class="w-3.5 h-3.5"></i> Añadir destinatario
-                </button>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="bg-slate-800/50 text-slate-300 text-xs uppercase tracking-wider">
-                            <th class="px-3 py-2 text-left font-semibold">Email</th>
-                            <th class="px-3 py-2 text-left hidden sm:table-cell font-semibold">Nombre</th>
-                            <th class="px-3 py-2 text-center font-semibold">Estado</th>
-                            <th class="px-3 py-2 text-right font-semibold">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <template x-for="d in destinatarios" :key="d.id">
-                            <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
-                                <td class="px-3 py-2 text-slate-300" x-text="d.email"></td>
-                                <td class="px-3 py-2 text-slate-400 hidden sm:table-cell" x-text="d.nombre || '—'"></td>
-                                <td class="px-3 py-2 text-center">
-                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold"
-                                        :class="d.activo ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700/40 text-slate-400'"
-                                        x-text="d.activo ? 'Activo' : 'Inactivo'"></span>
-                                </td>
-                                <td class="px-3 py-2 text-right">
-                                    <button @click="eliminarDestinatario(d.id)" class="text-rose-400 hover:text-rose-300 transition" title="Eliminar">
-                                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                        </template>
-                        <tr x-show="destinatarios.length === 0">
-                            <td colspan="4" class="px-3 py-6 text-center text-slate-400">Sin destinatarios de prueba configurados.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Leads TEST -->
-        <div class="mb-6">
-            <h6 class="text-sm font-semibold text-slate-300 mb-3">Leads TEST</h6>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="bg-slate-800/50 text-slate-300 text-xs uppercase tracking-wider">
-                            <th class="px-3 py-2 text-left font-semibold">ID</th>
-                            <th class="px-3 py-2 text-left font-semibold">Club</th>
-                            <th class="px-3 py-2 text-left font-semibold">Email</th>
-                            <th class="px-3 py-2 text-center font-semibold">Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <template x-for="l in leadsTest" :key="l.id">
-                            <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
-                                <td class="px-3 py-2 text-slate-400" x-text="l.id"></td>
-                                <td class="px-3 py-2 text-slate-300" x-text="l.nombre_club"></td>
-                                <td class="px-3 py-2 text-slate-400" x-text="l.email"></td>
-                                <td class="px-3 py-2 text-center text-slate-400" x-text="l.estado_lead"></td>
-                            </tr>
-                        </template>
-                        <tr x-show="leadsTest.length === 0">
-                            <td colspan="4" class="px-3 py-6 text-center text-slate-400">No hay leads TEST.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Histórico de pruebas -->
-        <div class="mb-6">
-            <div class="flex items-center justify-between mb-3">
-                <h6 class="text-sm font-semibold text-slate-300">Histórico de pruebas</h6>
-                <span class="text-xs text-slate-400" x-text="'Total: ' + historico.length"></span>
-            </div>
-            <div class="overflow-x-auto max-h-64 overflow-y-auto">
-                <table class="w-full text-sm">
-                    <thead class="sticky top-0 bg-slate-800/50">
-                        <tr class="text-slate-300 text-xs uppercase tracking-wider">
-                            <th class="px-3 py-2 text-left font-semibold">ID</th>
-                            <th class="px-3 py-2 text-left font-semibold">Club</th>
-                            <th class="px-3 py-2 text-left font-semibold">Email</th>
-                            <th class="px-3 py-2 text-left font-semibold">Fecha</th>
-                            <th class="px-3 py-2 text-center font-semibold">Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <template x-for="h in historico" :key="h.id">
-                            <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
-                                <td class="px-3 py-2 text-slate-400" x-text="h.id"></td>
-                                <td class="px-3 py-2 text-slate-300" x-text="h.club"></td>
-                                <td class="px-3 py-2 text-slate-400" x-text="h.email"></td>
-                                <td class="px-3 py-2 text-slate-400" x-text="h.fecha_envio"></td>
-                                <td class="px-3 py-2 text-center text-slate-400" x-text="h.estado"></td>
-                            </tr>
-                        </template>
-                        <tr x-show="historico.length === 0">
-                            <td colspan="5" class="px-3 py-6 text-center text-slate-400">Sin envíos de prueba registrados.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Acciones -->
-        <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
-            <button @click="limpiarHistorico()" class="px-4 py-2 bg-rose-500/15 text-rose-400 border border-rose-500/30 rounded-lg text-sm font-semibold hover:bg-rose-500/25 transition flex items-center gap-2">
-                <i data-lucide="trash" class="w-4 h-4"></i> Limpiar histórico de pruebas
+        <div class="flex items-center justify-between mb-3">
+            <h6 class="text-sm font-semibold text-slate-300">Destinatarios de prueba</h6>
+            <button @click="nuevoDestinatario()" class="px-3 py-1.5 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold hover:bg-amber-500/25 transition flex items-center gap-1">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Añadir destinatario
             </button>
         </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-slate-800/50 text-slate-300 text-xs uppercase tracking-wider">
+                        <th class="px-3 py-2 text-left font-semibold">Email</th>
+                        <th class="px-3 py-2 text-left hidden sm:table-cell font-semibold">Nombre</th>
+                        <th class="px-3 py-2 text-center font-semibold">Estado</th>
+                        <th class="px-3 py-2 text-right font-semibold">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="d in destinatarios" :key="d.id">
+                        <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                            <td class="px-3 py-2 text-slate-300" x-text="d.email"></td>
+                            <td class="px-3 py-2 text-slate-400 hidden sm:table-cell" x-text="d.nombre || '—'"></td>
+                            <td class="px-3 py-2 text-center">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                                    :class="d.activo ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700/40 text-slate-400'"
+                                    x-text="d.activo ? 'Activo' : 'Inactivo'"></span>
+                            </td>
+                            <td class="px-3 py-2 text-right">
+                                <button @click="eliminarDestinatario(d.id)" class="text-rose-400 hover:text-rose-300 transition" title="Eliminar">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="destinatarios.length === 0">
+                        <td colspan="4" class="px-3 py-6 text-center text-slate-400">Sin destinatarios de prueba configurados.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="text-xs text-slate-400 mt-3">💡 El histórico de pruebas y los leads TEST se gestionan desde la <b>Lanzadera</b>, donde se realizan los envíos de prueba.</p>
     </div>
 
-
-
-</div>
 </div>
 
 

@@ -1,4 +1,17 @@
-<div class="grid grid-cols-1 lg:grid-cols-5 gap-4" style="min-height:70vh">
+<div class="space-y-4">
+  <!-- ═══════════ SUB-TABS DE PLANTILLAS Y CAMPAÑAS (estándar CRM) ═══════════ -->
+  <div class="flex items-center gap-1 border-b border-slate-800 pb-2 flex-wrap">
+    <button @click="edTab='plantillas'" :class="edTab === 'plantillas' ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'"
+      class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition">📋 Plantillas</button>
+    <button @click="edTab='campanas'" :class="edTab === 'campanas' ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'"
+      class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition">🎯 Campañas</button>
+    <button @click="edTab='secuencias'" :class="edTab === 'secuencias' ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'"
+      class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition">🔁 Secuencias</button>
+  </div>
+
+  <!-- PESTAÑA: PLANTILLAS (editor + A/B/C + preview) -->
+  <div x-show="edTab === 'plantillas'">
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4" style="min-height:70vh">
 
 <!-- ═══════════ COLUMNA IZQ: FILTRO + LISTADO ═══════════ -->
 <div class="lg:col-span-2 space-y-3">
@@ -276,8 +289,11 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
 </div>
 </div>
 
+  </div><!-- /pestaña plantillas -->
+
+  <!-- PESTAÑA: CAMPAÑAS -->
     <!-- ═══════════ CONFIGURADOR DE CAMPAÑAS ═══════════ -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="campanasConfig()" x-init="cargarTodo()">
+    <div x-show="edTab === 'campanas'" class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="campanasConfig()" x-init="cargarTodo()">
         <div class="flex items-center gap-3 mb-4">
             <i data-lucide="target" class="w-5 h-5 text-amber-400"></i>
             <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Configurador de Campañas</h5>
@@ -414,8 +430,9 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
     </div>
 
 
+  <!-- PESTAÑA: SECUENCIAS -->
 <!-- ═══════════ CONFIGURADOR DE SECUENCIAS (O-1 — ramificación por ramal ABC) ═══════════ -->
-<div class="mt-4 bg-slate-900 border border-slate-800 rounded-xl p-4" x-data="secuenciaConfig()" x-init="cargar()">
+<div x-show="edTab === 'secuencias'" class="mt-4 bg-slate-900 border border-slate-800 rounded-xl p-4" x-data="secuenciaConfig()" x-init="cargar()">
   <div class="flex items-center gap-2 mb-3 flex-wrap">
     <i data-lucide="git-branch" class="w-5 h-5 text-amber-400"></i>
     <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Secuencia de Seguimiento</h5>
@@ -551,6 +568,9 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
     </div>
   </div>
 </div>
+
+
+</div><!-- /raíz sub-tabs -->
 
 
 <!-- ═══════════ ASISTENTE IA DE PLANTILLAS (modal) ═══════════ -->
