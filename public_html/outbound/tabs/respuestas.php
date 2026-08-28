@@ -108,11 +108,20 @@
                :class="rsSeleccion && (rsSeleccion.clave === conv.clave || rsSeleccion.id === conv.id)
                  ? 'border-orange-500 bg-slate-800/80'
                  : 'border-transparent hover:bg-slate-800/40'">
-            <!-- Fila 1: nombre (club → contacto → email) + fecha + badge intención -->
+            <!-- Fila 1: nombre (club → contacto → email) + tiempo transcurrido + fecha de ingreso -->
             <div class="flex items-center justify-between gap-2">
               <span class="font-bold text-slate-50 text-sm truncate"
                     x-text="(conv.nombre_club && conv.nombre_club !== '—') ? (conv.nombre_club || conv.club) : (conv.contacto_nombre || conv.persona_contacto || conv.remitente_email || conv.email || '—')"></span>
-              <span class="text-xs text-slate-400 shrink-0" x-text="rsFmtFecha(conv.ultima_fecha || conv.fecha || conv.fecha_respuesta)"></span>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-[11px] text-slate-500" x-text="rsTiempoRelativo(rsEstadoHilo(conv).fecha)"></span>
+                <span class="text-xs text-slate-400" x-text="rsFmtFecha(conv.ultima_fecha || conv.fecha || conv.fecha_respuesta)"></span>
+              </div>
+            </div>
+            <!-- Fila 1.5: estado del hilo (Esperando respuesta / Sin responder) -->
+            <div class="flex items-center gap-2 mt-1">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border"
+                    :class="rsEstadoHilo(conv).esperando ? 'text-sky-400 bg-sky-500/10 border-sky-500/30' : 'text-amber-400 bg-amber-500/10 border-amber-500/30'"
+                    x-text="rsEstadoHilo(conv).label"></span>
             </div>
             <!-- Fila 2: De / Para (una sola línea compacta) -->
             <div class="flex items-center gap-2 mt-1.5 text-xs font-mono">
@@ -309,7 +318,7 @@
           </div>
           <!-- Botones de acción -->
           <div class="flex items-center gap-2 mt-2 flex-wrap">
-            <button @click="rsGenerarIA()" :disabled="rsGenerandoIA || !rsSeleccion || !rsSeleccion.lead_id"
+            <button @click="rsGenerarIA()" :disabled="rsGenerandoIA || !rsSeleccion"
                     class="px-4 py-2 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/30 rounded-lg text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed">
               <i data-lucide="sparkles" class="w-4 h-4 inline-block mr-1"></i>
               <span x-text="rsGenerandoIA ? 'Generando...' : '✨ Respuesta IA'"></span>

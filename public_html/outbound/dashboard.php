@@ -373,10 +373,13 @@ if ($action === 'get_charla_lead') {
 if ($action === 'conversacion_accion') {
     header('Content-Type: application/json; charset=utf-8');
     $leadId = (int)($_POST['lead_id'] ?? 0);
+    $email = strtolower(trim((string)($_POST['email'] ?? '')));
     $accion = trim((string)($_POST['accion'] ?? ''));
     $dias = max(1, (int)($_POST['dias'] ?? 1));
-    if ($leadId <= 0) {
-        echo json_encode(['ok' => false, 'error' => 'lead_id inválido']);
+    // Permite actuar sobre conversaciones SIN lead vinculado (p.ej. rodrigo@riobabel.com
+    // de pruebas o correos sin emparejar): se opera por email del remitente.
+    if ($leadId <= 0 && $email === '') {
+        echo json_encode(['ok' => false, 'error' => 'lead_id o email requerido']);
         exit;
     }
     $acciones = ['atender', 'espera', 'archivar', 'restaurar', 'borrar', 'snooze'];
@@ -384,27 +387,30 @@ if ($action === 'conversacion_accion') {
         echo json_encode(['ok' => false, 'error' => 'Acción inválida']);
         exit;
     }
+    $cond = $leadId > 0
+        ? "lead_id = {$leadId}"
+        : "LOWER(remitente) = '" . $db->escapeString($email) . "'";
     try {
-        // El estado del HILO se aplica a todas las respuestas del lead para que
+        // El estado del HILO se aplica a todas las respuestas del lead/email para que
         // la conversación sea coherente (una sola fila no rompe el hilo).
         switch ($accion) {
             case 'atender':
-                $db->exec("UPDATE respuestas SET estado_conversacion='requiere_respuesta', snooze_until=NULL, atendido_en=CURRENT_TIMESTAMP, borrado_en=NULL, archivado_en=NULL WHERE lead_id={$leadId} AND COALESCE(es_rebote,0)=0");
+                $db->exec("UPDATE respuestas SET estado_conversacion='requiere_respuesta', snooze_until=NULL, atendido_en=CURRENT_TIMESTAMP, borrado_en=NULL, archivado_en=NULL WHERE {$cond} AND COALESCE(es_rebote,0)=0");
                 break;
             case 'espera':
-                $db->exec("UPDATE respuestas SET estado_conversacion='en_espera', snooze_until=NULL WHERE lead_id={$leadId}");
+                $db->exec("UPDATE respuestas SET estado_conversacion='en_espera', snooze_until=NULL WHERE {$cond}");
                 break;
             case 'archivar':
-                $db->exec("UPDATE respuestas SET estado_conversacion='archivado', archivado_en=CURRENT_TIMESTAMP, borrado_en=NULL WHERE lead_id={$leadId}");
+                $db->exec("UPDATE respuestas SET estado_conversacion='archivado', archivado_en=CURRENT_TIMESTAMP, borrado_en=NULL WHERE {$cond}");
                 break;
             case 'restaurar':
-                $db->exec("UPDATE respuestas SET estado_conversacion='requiere_respuesta', archivado_en=NULL, borrado_en=NULL, snooze_until=NULL WHERE lead_id={$leadId}");
+                $db->exec("UPDATE respuestas SET estado_conversacion='requiere_respuesta', archivado_en=NULL, borrado_en=NULL, snooze_until=NULL WHERE {$cond}");
                 break;
             case 'borrar':
-                $db->exec("UPDATE respuestas SET estado_conversacion='borrado', borrado_en=CURRENT_TIMESTAMP WHERE lead_id={$leadId}");
+                $db->exec("UPDATE respuestas SET estado_conversacion='borrado', borrado_en=CURRENT_TIMESTAMP WHERE {$cond}");
                 break;
             case 'snooze':
-                $db->exec("UPDATE respuestas SET estado_conversacion='en_espera', snooze_until=datetime('now', '+{$dias} days') WHERE lead_id={$leadId}");
+                $db->exec("UPDATE respuestas SET estado_conversacion='en_espera', snooze_until=datetime('now', '+{$dias} days') WHERE {$cond}");
                 break;
         }
         echo json_encode(['ok' => true]);

@@ -701,14 +701,15 @@ function calcularScorePrioridad($db, array &$conversaciones): void {
 function ordenarConversaciones(array $conversaciones): array {
     $ordenPrio = ['alta' => 0, 'media' => 1, 'baja' => 2];
     usort($conversaciones, function ($a, $b) use ($ordenPrio) {
-        $pa = $ordenPrio[$a['prioridad']] ?? 1;
-        $pb = $ordenPrio[$b['prioridad']] ?? 1;
-        if ($pa !== $pb) return $pa <=> $pb;
-        // Dentro de la misma prioridad, la más reciente primero (por el ÚLTIMO
-        // mensaje real del hilo — envío o respuesta — normalizado con strtotime).
+        // ORDEN PRINCIPAL: por fecha del ÚLTIMO mensaje del hilo (más reciente
+        // primero). El usuario prioriza la organización por fecha de ingreso.
         $ta = strtotime((string)($a['ultima_fecha'] ?? $a['fecha'] ?? '')) ?: 0;
         $tb = strtotime((string)($b['ultima_fecha'] ?? $b['fecha'] ?? '')) ?: 0;
-        return $tb <=> $ta;
+        if ($tb !== $ta) return $tb <=> $ta;
+        // Desempate: prioridad comercial (alta → media → baja).
+        $pa = $ordenPrio[$a['prioridad']] ?? 1;
+        $pb = $ordenPrio[$b['prioridad']] ?? 1;
+        return $pa <=> $pb;
     });
     return $conversaciones;
 }

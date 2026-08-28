@@ -2138,6 +2138,38 @@ var app = function() {
             if (isNaN(d.getTime())) return f;
             return d.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
         },
+        // Tiempo transcurrido legible desde una fecha ("hace 5 min", "hace 2 h",
+        // "hace 3 d"...). Permite reconocer prioridades de un vistazo.
+        rsTiempoRelativo(f) {
+            if (!f) return '';
+            const d = new Date(f);
+            if (isNaN(d.getTime())) return '';
+            const seg = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+            if (seg < 60) return 'hace ' + seg + ' s';
+            const min = Math.floor(seg / 60);
+            if (min < 60) return 'hace ' + min + ' min';
+            const h = Math.floor(min / 60);
+            if (h < 24) return 'hace ' + h + ' h';
+            const dias = Math.floor(h / 24);
+            if (dias < 30) return 'hace ' + dias + ' d';
+            const meses = Math.floor(dias / 30);
+            return 'hace ' + meses + ' mes' + (meses === 1 ? '' : 'es');
+        },
+        // Estado del hilo según su ÚLTIMO mensaje (backend entrega mensajes en
+        // orden DESC, el [0] es el más reciente):
+        //  - Último SALIENTE (respondí)  → "Esperando respuesta del cliente" (tiempo desde mi envío).
+        //  - Último ENTRANTE (me respondió) → "Sin responder" (tiempo desde su respuesta).
+        rsEstadoHilo(conv) {
+            if (!conv || !conv.mensajes || conv.mensajes.length === 0) {
+                return { esperando: false, label: 'Sin mensajes', fecha: '' };
+            }
+            const ultimo = conv.mensajes[0];
+            const fecha = ultimo.fecha || ultimo.fecha_respuesta || ultimo.fecha_envio || '';
+            if (ultimo.sentido === 'saliente') {
+                return { esperando: true, label: '⏳ Esperando respuesta', fecha };
+            }
+            return { esperando: false, label: '📥 Sin responder', fecha };
+        },
         rsUltimoMensaje(conv) {
             if (!conv || !conv.mensajes || conv.mensajes.length === 0) return '';
             const m = conv.mensajes[0];
@@ -2277,7 +2309,12 @@ var app = function() {
         rsQuitarAdjunto(i) { this.rsAdjuntos.splice(i, 1); },
         // Aplica una plantilla real de la BD al editor de respuesta.
         rsAplicarPlantillaRapida() {
-            const tpl = (this.rsTemplatesRapidas || []).find(t => String(t.id) === String(this.rsPlantillaRapida));
+            this.rsAplicarPlantillaId(this.rsPlantillaRapida);
+        },
+        // Aplica una plantilla (por su id) al editor rellenando los placeholders
+        // con el contexto real de la conversación y la cuenta SMTP heredada.
+        rsAplicarPlantillaId(id) {
+            const tpl = (this.rsTemplatesRapidas || []).find(t => String(t.id) === String(id));
             if (!tpl || !this.rsSeleccion) return;
             const conv = this.rsSeleccion;
             // Sustitución contextual: rellena TODOS los placeholders con datos reales
@@ -2361,9 +2398,25 @@ var app = function() {
             }
         },
         // Genera un borrador de respuesta con la IA leyendo el diálogo completo.
+        // Si la conversación NO tiene lead vinculado (p.ej. cuentas de prueba),
+        // carga una plantilla de respuesta como borrador (la IA requiere historial
+        // de lead) para poder contestar igualmente.
         async rsGenerarIA() {
-            if (!this.rsSeleccion || !this.rsSeleccion.lead_id) {
-                this.rsEnvioMsg = 'Selecciona una conversación con lead vinculado.'; this.rsEnvioMsgOk = false; return;
+            if (!this.rsSeleccion) {
+                this.rsEnvioMsg = 'Selecciona una conversación.'; this.rsEnvioMsgOk = false; return;
+            }
+            if (!this.rsSeleccion.lead_id) {
+                const tpl = (this.rsTemplatesRapidas || []).find(t => (t.categoria || '').includes('03'))
+                    || (this.rsTemplatesRapidas || [])[0];
+                if (tpl) {
+                    this.rsAplicarPlantillaId(tpl.id);
+                    this.rsEnvioMsg = 'No hay lead vinculado: se cargó «' + tpl.nombre + '» como borrador. Edítalo antes de enviar.';
+                    this.rsEnvioMsgOk = true;
+                } else {
+                    this.rsEnvioMsg = 'No hay lead vinculado ni plantillas disponibles. Escribe la respuesta manualmente.';
+                    this.rsEnvioMsgOk = false;
+                }
+                return;
             }
             this.rsGenerandoIA = true;
             this.rsEnvioMsg = '';
@@ -2397,17 +2450,21 @@ var app = function() {
             this.loadRespuestas();
         },
         // Aplica una acción de estado a la conversación seleccionada (hilo del lead).
+        // Soporta conversaciones SIN lead vinculado (por email del remitente), de modo
+        // que las cuentas de prueba o correos sin emparejar también se gestionan.
         async rsAccion(accion, dias = 0) {
             const conv = this.rsSeleccion;
             const leadId = (conv && conv.lead_id) || 0;
-            if (!leadId) {
-                this.rsEnvioMsg = 'Selecciona una conversación con lead vinculado.';
+            const email = (conv && (conv.remitente_email || conv.email)) || '';
+            if (!leadId && !email) {
+                this.rsEnvioMsg = 'Selecciona una conversación válida.';
                 this.rsEnvioMsgOk = false;
                 return;
             }
             const f = new FormData();
             f.append('action', 'conversacion_accion');
             f.append('lead_id', leadId);
+            f.append('email', email);
             f.append('accion', accion);
             if (dias > 0) f.append('dias', dias);
             try {
@@ -2802,6 +2859,9 @@ var app = function() {
         atencionQuitarAdjunto: function () {},
         charlaHilo: function () { return []; },
         rsCuerpoMensaje: function () { return ''; },
+        rsTiempoRelativo: function () { return ''; },
+        rsEstadoHilo: function () { return { esperando: false, label: '', fecha: '' }; },
+        rsAplicarPlantillaId: function () {},
         // Métodos de perfil / Mi cuenta
         perfilIniciales: function () { return 'FP'; },
         perfilCargar: function () {},
