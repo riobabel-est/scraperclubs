@@ -357,12 +357,6 @@
             <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" x-show="charla && charla.presupuesto && charla.presupuesto.estado === 'creado'">
               <input type="checkbox" x-model="incluirProforma" class="w-4 h-4 accent-violet-500"> Incluir proforma (<span x-text="'v' + charla.presupuesto.version + ' · ' + Number(charla.presupuesto.importe_total).toLocaleString('es-ES') + ' €'"></span>)
             </label>
-            <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-              <input type="checkbox" x-model="adjuntarPresupuesto" class="w-4 h-4 accent-violet-500"> 📎 Adjuntar presupuesto PDF
-            </label>
-            <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-              <input type="checkbox" x-model="adjuntarBoceto" class="w-4 h-4 accent-violet-500"> 📎 Adjuntar boceto de espinilleras PDF
-            </label>
             <div x-show="atencionMsg" class="text-xs rounded-lg px-3 py-2" :class="atencionMsgTipo === 'error' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'" x-text="atencionMsg"></div>
             <button @click="enviarAtencion()" :disabled="enviandoAtencion || !smtpSel || !emailCuerpo" class="w-full px-4 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-sm font-bold hover:bg-emerald-500/30 transition disabled:opacity-50 flex items-center justify-center gap-1.5">
               <span x-show="!enviandoAtencion">🚀 ENVIAR a medida</span>

@@ -31,8 +31,6 @@ var app = function() {
         smtpSel: 0,
         incluirMockup: false,
         incluirProforma: false,
-        adjuntarPresupuesto: false,
-        adjuntarBoceto: false,
         generandoIA: false,
         enviandoAtencion: false,
         analisisIA: null,
@@ -738,7 +736,6 @@ var app = function() {
             this.emailAsunto = ''; this.emailCuerpo = '';
             this.plantillaSel = 0; this.smtpSel = 0;
             this.incluirMockup = false; this.incluirProforma = false;
-            this.adjuntarPresupuesto = false; this.adjuntarBoceto = false;
             this.analisisIA = null; this.analizandoIA = false;
             this.atencionMsg = '';
             this.atencionAdjuntos = [];
@@ -925,8 +922,6 @@ var app = function() {
                 f.append('asunto', this.emailAsunto);
                 f.append('cuerpo', this.emailCuerpo);
                 f.append('marcar_mockup_enviado', this.incluirMockup ? '1' : '0');
-                f.append('adjuntar_presupuesto', this.adjuntarPresupuesto ? '1' : '0');
-                f.append('adjuntar_boceto', this.adjuntarBoceto ? '1' : '0');
                 // Adjuntos manuales seleccionados en el modal.
                 for (const a of (this.atencionAdjuntos || [])) {
                     f.append('adjunto[]', a, a.name);
