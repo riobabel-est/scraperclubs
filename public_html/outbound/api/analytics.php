@@ -517,6 +517,104 @@ function interesDeVariante(string $variant): string
     return ['A' => 'General / Producto', 'B' => 'Identidad / Cantera', 'C' => 'Financiero / Rentabilidad'][strtoupper($variant)] ?? '';
 }
 
+
+/**
+ * getSeguimientoConversaciones — Cola de trabajo REAL basada en las conversaciones
+ * de la Bandeja (misma fuente que get_respuestas), con la lógica de gestión:
+ *   - 'sin_responder' → el cliente nos escribió y NO hemos contestado (prioridad alta).
+ *   - 'esperando'     → respondimos y esperamos la respuesta del cliente.
+ * Ordenada por tiempo transcurrido (prioridad real de la gestión conversacional).
+ */
+function getSeguimientoConversaciones(SQLite3 $db, array $filtros): array {
+    $cid = (int)($filtros['campaign_id'] ?? 0);
+    $enviosCamp = $cid > 0 ? " AND (e.campaign_id = {$cid} OR e.campaign_id IS NULL)" : '';
+    $w = "c.estado_lead NOT IN ('Lista Negra','Opt-Out','Unsubscribed','Email Inválido','Perdido','Baja / Opt-Out')";
+    if (!empty($filtros['excluir_test'])) {
+        $w .= " AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')";
+    }
+    if (!empty($filtros['busqueda'])) {
+        $q = $db->escapeString($filtros['busqueda']);
+        $w .= " AND (c.nombre_club LIKE '%{$q}%' OR LOWER(c.email) LIKE '%" . strtolower($q) . "%')";
+    }
+    if (!empty($filtros['federacion'])) {
+        $w .= " AND c.federacion = '" . $db->escapeString($filtros['federacion']) . "'";
+    }
+
+    $sql = "SELECT c.id, c.nombre_club, c.email, c.persona_contacto, c.estado_lead, c.federacion, c.observaciones,
+        (SELECT MAX(r.fecha_respuesta) FROM respuestas r WHERE r.lead_id = c.id AND COALESCE(r.es_rebote,0)=0) AS ultima_respuesta,
+        (SELECT r.clasificacion FROM respuestas r WHERE r.lead_id = c.id AND COALESCE(r.es_rebote,0)=0 AND r.clasificacion IS NOT NULL AND r.clasificacion != '' ORDER BY r.id DESC LIMIT 1) AS clasificacion,
+        (SELECT r.destinatario FROM respuestas r WHERE r.lead_id = c.id AND COALESCE(r.es_rebote,0)=0 AND r.destinatario IS NOT NULL AND r.destinatario != '' ORDER BY r.id DESC LIMIT 1) AS buzon_destino,
+        (SELECT MAX(e.fecha_envio) FROM envios e WHERE e.lead_id = c.id AND COALESCE(e.es_test,0)=0{$enviosCamp}) AS ultimo_envio,
+        (SELECT e.variant FROM envios e WHERE e.lead_id = c.id AND COALESCE(e.es_test,0)=0{$enviosCamp} ORDER BY e.id DESC LIMIT 1) AS variante,
+        (SELECT COUNT(*) FROM envios e WHERE e.lead_id = c.id AND COALESCE(e.es_test,0)=0{$enviosCamp}) AS num_envios,
+        (SELECT COUNT(*) FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id WHERE e.lead_id = c.id AND COALESCE(e.es_test,0)=0{$enviosCamp}) AS num_aperturas,
+        (SELECT COUNT(*) FROM respuestas r WHERE r.lead_id = c.id AND COALESCE(r.es_rebote,0)=0) AS num_respuestas
+        FROM clubes_crm c
+        WHERE {$w}
+          AND EXISTS (SELECT 1 FROM respuestas r WHERE r.lead_id = c.id AND COALESCE(r.es_rebote,0)=0)";
+    $res = $db->query($sql);
+    $lista = [];
+    if (!$res) return $lista;
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) {
+        $tsResp = $r['ultima_respuesta'] ? strtotime($r['ultima_respuesta']) : 0;
+        $tsEnv  = $r['ultimo_envio'] ? strtotime($r['ultimo_envio']) : 0;
+        // Estado del hilo según la última acción real.
+        if ($tsResp > $tsEnv) {
+            $r['estado_hilo'] = 'sin_responder';
+            $r['estado_label'] = '📥 Sin responder';
+        } else {
+            $r['estado_hilo'] = 'esperando';
+            $r['estado_label'] = '⏳ Esperando respuesta';
+        }
+        $tsRef = max($tsResp, $tsEnv);
+        $r['ultima_actividad'] = $tsRef > 0 ? date('c', $tsRef) : null;
+        $r['horas_desde'] = $tsRef > 0 ? (int)round((time() - $tsRef) / 3600) : null;
+        $r['dias_desde'] = $tsRef > 0 ? (int)round((time() - $tsRef) / 86400) : null;
+        // Semáforo por estado + tiempo (códigos visuales de Seguimiento/Bandeja).
+        if ($r['estado_hilo'] === 'sin_responder') {
+            $r['sem'] = 'rojo'; $r['sem_label'] = 'Urgente';
+        } elseif (($r['horas_desde'] ?? 999) >= 48) {
+            $r['sem'] = 'rojo'; $r['sem_label'] = 'Urgente';
+        } elseif (($r['horas_desde'] ?? 999) >= 24) {
+            $r['sem'] = 'ambar'; $r['sem_label'] = 'Atender hoy';
+        } else {
+            $r['sem'] = 'verde'; $r['sem_label'] = 'Sin urgencia';
+        }
+        // Cuenta de emisión = buzón destino (la cuenta en la que se recibió).
+        $r['cuenta_emision'] = '';
+        if (!empty($r['buzon_destino'])) {
+            $r['cuenta_emision'] = (string)$db->querySingle(
+                "SELECT email FROM cuentas_smtp WHERE LOWER(email) = '" . $db->escapeString(strtolower(trim($r['buzon_destino']))) . "' AND activa = 1 LIMIT 1"
+            );
+        }
+        // Variante dominante (por aperturas) e interés.
+        $v = (string)($r['variante'] ?? '');
+        if ($v === '') {
+            $v = (string)$db->querySingle(
+                "SELECT e.variant FROM envios e JOIN aperturas a ON a.tracking_id = e.tracking_id
+                 WHERE e.lead_id = " . (int)$r['id'] . " AND COALESCE(e.es_test,0)=0 AND e.variant IS NOT NULL AND e.variant != ''
+                 GROUP BY e.variant ORDER BY COUNT(a.id) DESC LIMIT 1"
+            );
+        }
+        $r['variante'] = $v;
+        $interes = $v !== '' ? interesDeVariante($v) : '';
+        $r['interes_etiqueta'] = $interes !== '' ? 'Interés: ' . $interes : '';
+        $r['tiene_notas'] = (int)(trim((string)($r['observaciones'] ?? '')) !== '' ? 1 : 0);
+        $r['tipo'] = 'conversacion';
+        $r['tipo_label'] = $r['estado_hilo'] === 'sin_responder' ? 'Responder ya' : 'Esperando';
+        $lista[] = $r;
+    }
+    // Orden: sin_responder primero (más reciente), luego esperando (más tiempo primero).
+    usort($lista, function ($a, $b) {
+        $ra = ($a['estado_hilo'] === 'sin_responder') ? 0 : 1;
+        $rb = ($b['estado_hilo'] === 'sin_responder') ? 0 : 1;
+        if ($ra !== $rb) return $ra <=> $rb;
+        return (($b['horas_desde'] ?? 0) <=> ($a['horas_desde'] ?? 0));
+    });
+    return $lista;
+}
+
+
 if ($action === 'get_seguimiento') {
     header('Content-Type: application/json');
     $excluirTest = ($_GET['excluir_test'] ?? '1') !== '0';
@@ -533,9 +631,22 @@ if ($action === 'get_seguimiento') {
     $noRespondedores    = getSeguimientoNoRespondedores($db, $whereCommercial, $filtros);
     $sinProximaAccion   = getSeguimientoSinProximaAccion($db, $whereCommercial, $filtros);
     $nuevosSinActividad = getSeguimientoNuevosSinActividad($db, $whereCommercial, $filtros);
+    // Cola de trabajo REAL: conversaciones activas con lógica de la Bandeja
+    // (sin responder / esperando respuesta) priorizadas por tiempo.
+    $conversaciones     = getSeguimientoConversaciones($db, $filtros);
     $kpis               = getSeguimientoKpis($db, $whereCommercial, $noRespondedores, $sinProximaAccion, $nuevosSinActividad, (int)$filtros['campaign_id']);
     $funnel             = getSeguimientoFunnel($db, $whereCommercial, (int)$filtros['campaign_id']);
     $unificada          = fusionarColaSeguimiento($db, $noRespondedores, $sinProximaAccion, $nuevosSinActividad);
+
+    // KPIs alineados con la gestión conversacional real.
+    $nEspera  = 0; $nSinResp = 0; $horasEspera = 0; $nConTiempo = 0;
+    foreach ($conversaciones as $c) {
+        if ($c['estado_hilo'] === 'esperando') { $nEspera++; if (($c['horas_desde'] ?? 0) > 0) { $horasEspera += (int)$c['horas_desde']; $nConTiempo++; } }
+        elseif ($c['estado_hilo'] === 'sin_responder') { $nSinResp++; }
+    }
+    $kpis['en_espera']     = $nEspera;
+    $kpis['sin_responder'] = $nSinResp;
+    $kpis['tiempo_medio_espera_h'] = $nConTiempo > 0 ? (int)round($horasEspera / $nConTiempo) : 0;
 
     // Ramal de interés: variante del test ABC con más aperturas por lead.
     // La etiqueta [Interés: ...] indica qué ángulo validó el club con sus aperturas.
@@ -564,6 +675,7 @@ if ($action === 'get_seguimiento') {
 
     echo json_encode([
         'ok' => true,
+        'conversaciones' => $conversaciones,
         'no_respondedores' => $noRespondedores,
         'sin_proxima_accion' => $sinProximaAccion,
         'nuevos_sin_actividad' => $nuevosSinActividad,

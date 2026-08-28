@@ -5,6 +5,7 @@
 function seguimientoApp() {
     return {
         noRespondedores: [], sinProximaAccion: [], nuevosSinActividad: [], funnel: [],
+        conversaciones: [], pestana: 'conversaciones', // conversaciones | prospeccion
         kpis: { no_respondedores: 0, sin_proxima_accion: 0, tasa_apertura: 0, tasa_respuesta: 0, mockups_pendientes: 0, presupuestos_pendientes: 0, pipeline_value: 0 },
         federaciones: [],
         f: { busqueda: '', federacion: '', dias_min: 0 },
@@ -28,6 +29,7 @@ function seguimientoApp() {
                 const r = await fetch('?action=get_seguimiento&' + params.toString());
                 const j = await r.json();
                 if (j.ok) {
+                    this.conversaciones = j.conversaciones || [];
                     this.noRespondedores = j.no_respondedores || [];
                     this.sinProximaAccion = j.sin_proxima_accion || [];
                     this.nuevosSinActividad = j.nuevos_sin_actividad || [];
@@ -159,8 +161,17 @@ function seguimientoApp() {
             }
         },
         get colaFiltrada() {
-            // Lista ÚNICA de trabajo: todas las colas juntas, con select de vista
-            // (todos / calentar / perseguir / calientes / cerrar / mockup / proforma / pausar / descartar).
+            // Pestaña CONVERSACIONES: la cola de trabajo real (sin responder /
+            // esperando respuesta), la misma lógica que la Bandeja.
+            if (this.pestana === 'conversaciones') {
+                const fe = this.filtroEstado, fv = this.filtroVariante, fi = this.filtroInteres;
+                let datos = (this.conversaciones || []).slice();
+                if (fe) datos = datos.filter(l => l.estado_lead === fe);
+                if (fv) datos = datos.filter(l => (l.variante || '') === fv);
+                if (fi) datos = datos.filter(l => (l.interes || '') === fi);
+                return datos;
+            }
+            // Pestaña PROSPECCIÓN: leads de campaña sin conversación (perseguir/calientes...).
             const datos = (this.colaUnificada || []).filter(l => this.cola === 'todos' || l.tipo === this.cola);
             const fe = this.filtroEstado, fv = this.filtroVariante, fi = this.filtroInteres;
             if (!fe && !fv && !fi) return datos;
@@ -188,7 +199,9 @@ function seguimientoApp() {
                     case 'temperatura': return (l.score_temp || 0);
                     case 'aperturas':   return (l.num_aperturas || 0);
                     case 'envios':      return (l.num_envios || 0);
-                    case 'dias':        return (l.dias_desde_contacto ?? l.dias_desde_envio ?? -1);
+                    case 'dias':        return (l.dias_desde_contacto ?? l.dias_desde_envio ?? l.horas_desde ? (l.horas_desde/24) : -1);
+                    case 'tiempo':      return (l.horas_desde ?? -1);
+                    case 'estado_hilo': return (l.estado_hilo || '');
                     case 'volumen':     return (l.volumen_estimado || 0);
                     case 'presupuesto': return (l.presupuesto_importe ?? -1);
                     case 'creado':      return (l.dias_desde_creado ?? -1);
@@ -276,6 +289,24 @@ function seguimientoApp() {
         },
         tipoLabel(t) {
             return ({ perseguir: '🎯 Perseguir', calientes: '🔥 Caliente (alta apertura)', calentar: '🌱 Calentar', cerrar: '🤝 Cerrar', mockup: '🎨 Mockup', proforma: '🧾 Proforma', secuencia: '📋 Secuencia', pausar: '⏸️ Pausar', descartar: '🗑️ Descartar' }[t] || t);
+        },
+        // Tiempo transcurrido legible desde horas ("hace 25 min", "hace 2 h", "hace 3 d").
+        tiempoRelativoH(h) {
+            if (h === null || h === undefined) return '—';
+            if (h < 1) return 'hace ' + Math.round(h * 60) + ' min';
+            if (h < 24) return 'hace ' + h + ' h';
+            const d = Math.round(h / 24);
+            return 'hace ' + d + ' d';
+        },
+        // Abre la conversación en la Bandeja (selecciona el lead) para gestionarla.
+        abrirBandeja(l) {
+            if (!window.app) return;
+            window.app.tab = 'respuestas';
+            window.app.loadRespuestas().then(() => {
+                // Selecciona la conversación del lead en el visor de la Bandeja.
+                const conv = (window.app.respuestas || []).find(c => String(c.lead_id) === String(l.id));
+                if (conv && window.app.rsSeleccionar) window.app.rsSeleccionar(conv);
+            });
         },
     };
 }

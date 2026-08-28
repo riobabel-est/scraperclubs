@@ -71,12 +71,22 @@
   </div>
 
 
-  <!-- Cola de trabajo (lista ÚNICA con select de vista por tipo) -->
+  <!-- Cola de trabajo: pestañas CONVERSACIONES (gestión real) / PROSPECCIÓN (campaña) -->
   <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
     <div class="flex items-center gap-2 px-4 py-2.5 border-b border-slate-800 flex-wrap">
-      <i data-lucide="list-filter" class="w-4 h-4 text-amber-400"></i>
-      <span class="text-sm font-semibold uppercase tracking-wider text-slate-300">Vista</span>
-      <select x-model="cola" @change="pagina=1" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
+      <div class="flex items-center gap-1.5">
+        <button @click="pestana='conversaciones';pagina=1" class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition"
+          :class="pestana==='conversaciones' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100'">
+          <i data-lucide="message-square" class="w-3.5 h-3.5 inline mr-1"></i> Conversaciones
+          <span class="text-xs ml-1" x-text="'(' + (kpis.sin_responder||0) + ' pend.)'"></span>
+        </button>
+        <button @click="pestana='prospeccion';pagina=1" class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition"
+          :class="pestana==='prospeccion' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100'">
+          <i data-lucide="send" class="w-3.5 h-3.5 inline mr-1"></i> Prospección
+          <span class="text-xs ml-1" x-text="'(' + (noRespondedores.length||0) + ' pend.)'"></span>
+        </button>
+      </div>
+      <select x-show="pestana==='prospeccion'" x-model="cola" @change="pagina=1" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500/50">
         <option value="todos">Todos</option>
         <option value="calentar">🌱 Calentar (1er toque)</option>
         <option value="secuencia">📋 Secuencia pendiente</option>
@@ -92,7 +102,7 @@
         <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-400"></span> Urgente</span>
         <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-400"></span> Hoy</span>
         <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> OK</span>
-        <span x-text="colaTotal + ' leads'"></span>
+        <span x-text="colaTotal + ' elementos'"></span>
       </span>
     </div>
 
@@ -117,15 +127,15 @@
           <tr class="text-slate-400 uppercase tracking-wider border-b border-slate-800 text-xs">
             <th class="px-2 py-2 text-left w-8"><input type="checkbox" :checked="seleccionTodos" @change="toggleSeleccionTodos()" class="w-4 h-4 accent-amber-500 rounded" title="Seleccionar todos los visibles"></th>
             <th class="px-2 py-2 text-left"><button @click="ordenar('sem')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='sem' ? 'text-amber-400' : ''">Semáforo <span x-show="sortKey==='sem'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
-            <th class="px-2 py-2 text-left"><button @click="ordenar('tipo')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='tipo' ? 'text-amber-400' : ''">Acción <span x-show="sortKey==='tipo'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
+            <th class="px-2 py-2 text-left"><button @click="ordenar('tipo')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='tipo' ? 'text-amber-400' : ''"><span x-text="pestana==='conversaciones' ? 'Estado' : 'Acción'"></span> <span x-show="sortKey==='tipo'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-left"><button @click="ordenar('nombre')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='nombre' ? 'text-amber-400' : ''">Club / Email <span x-show="sortKey==='nombre'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
-            <th class="px-2 py-2 text-left hidden md:table-cell"><button @click="ordenar('envio')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='envio' ? 'text-amber-400' : ''">Última acción <span x-show="sortKey==='envio'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
+            <th class="px-2 py-2 text-left hidden md:table-cell"><button @click="ordenar('tiempo')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='tiempo' ? 'text-amber-400' : ''"><span x-text="pestana==='conversaciones' ? 'Espera' : 'Última acción'"></span> <span x-show="sortKey==='tiempo'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-right"><button @click="ordenar('dias')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='dias' ? 'text-amber-400' : ''">Días <span x-show="sortKey==='dias'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-right hidden md:table-cell"><button @click="ordenar('envios')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='envios' ? 'text-amber-400' : ''">Envíos <span x-show="sortKey==='envios'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-right hidden md:table-cell"><button @click="ordenar('aperturas')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='aperturas' ? 'text-amber-400' : ''">Apert. <span x-show="sortKey==='aperturas'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
-            <th class="px-2 py-2 text-left hidden lg:table-cell"><button @click="ordenar('temperatura')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='temperatura' ? 'text-amber-400' : ''">Temp. <span x-show="sortKey==='temperatura'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
             <th class="px-2 py-2 text-left hidden lg:table-cell"><button @click="ordenar('estado')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='estado' ? 'text-amber-400' : ''">Estado <span x-show="sortKey==='estado'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
-            <th class="px-2 py-2 hidden lg:table-cell"><button @click="ordenar('variante')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='variante' ? 'text-amber-400' : ''">Variante / Interés <span x-show="sortKey==='variante'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
+            <th class="px-2 py-2 text-left hidden lg:table-cell"><button @click="ordenar('variante')" class="inline-flex items-center gap-1 hover:text-amber-400 transition" :class="sortKey==='variante' ? 'text-amber-400' : ''">Variante / Interés <span x-show="sortKey==='variante'" x-text="sortDir==='asc' ? '↑' : '↓'"></span></button></th>
+            <th class="px-2 py-2 text-left hidden lg:table-cell" x-show="pestana==='conversaciones'">Cuenta de envío</th>
             <th class="px-2 py-2 text-right">Acciones</th>
           </tr>
         </thead>
@@ -140,7 +150,9 @@
                 </span>
               </td>
               <td class="px-2 py-1.5">
-                <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap" :class="tipoClase(l.tipo)" x-text="tipoLabel(l.tipo)"></span>
+                <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap"
+                  :class="l.estado_hilo ? (l.estado_hilo==='sin_responder' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' : 'bg-sky-500/15 text-sky-400 border border-sky-500/30') : tipoClase(l.tipo)"
+                  x-text="l.estado_hilo ? (l.estado_hilo==='sin_responder' ? '📥 Sin responder' : '⏳ Esperando respuesta') : tipoLabel(l.tipo)"></span>
                 <div class="text-xs text-slate-500 mt-0.5 max-w-[170px]" x-text="l.motivo || ''"></div>
               </td>
               <td class="px-2 py-1.5">
@@ -148,7 +160,7 @@
                 <div class="text-xs text-slate-400 truncate max-w-[240px]" x-text="l.email"></div>
               </td>
               <td class="px-2 py-1.5 hidden md:table-cell">
-                <div class="text-xs text-slate-300" x-text="(l.ultimo_envio || l.ultimo_contacto || '').slice(0,10)"></div>
+                <div class="text-xs text-slate-300" x-text="l.estado_hilo ? tiempoRelativoH(l.horas_desde) : (l.ultimo_envio || l.ultimo_contacto || '').slice(0,10)"></div>
               </td>
               <td class="px-2 py-1.5 text-right">
                 <span class="px-1.5 py-0.5 rounded-lg text-xs font-semibold"
@@ -162,9 +174,8 @@
                   <span class="text-xs font-semibold" :class="(l.num_aperturas || 0) >= 2 ? 'text-emerald-400' : (l.num_aperturas > 0 ? 'text-cyan-400' : 'text-slate-500')" x-text="l.num_aperturas || 0"></span>
                 </span>
               </td>
-              <td class="px-2 py-1.5 hidden lg:table-cell">
-                <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap" :class="b2bClase(l.estado_b2b)" x-text="b2bLabel(l.estado_b2b)"></span>
-                <span class="text-[11px] text-slate-500 ml-1" x-text="l.score_temp ?? ''"></span>
+              <td class="px-2 py-1.5 hidden lg:table-cell" x-show="pestana==='conversaciones'">
+                <span class="font-mono text-xs text-emerald-400" x-text="l.cuenta_emision || '—'"></span>
               </td>
               <td class="px-2 py-1.5 hidden lg:table-cell">
                 <span class="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30" x-text="l.estado_lead"></span>
@@ -180,12 +191,13 @@
                   <button @click="enviarSugerenciaSecuencia(l)" class="px-2 py-1 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold hover:bg-amber-500/25 transition mr-1" title="Aprobar y abrir borrador de la secuencia">📨 Enviar</button>
                   <button @click="rechazarPropuesta({id: l.propuesta_id})" class="px-2 py-1 bg-rose-500/15 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold hover:bg-rose-500/25 transition mr-1" title="Descartar la sugerencia">🗑️ Descartar</button>
                 </template>
+                <button x-show="pestana==='conversaciones'" @click="abrirBandeja(l)" class="px-2 py-1 bg-sky-500/15 text-sky-400 border border-sky-500/30 rounded-lg text-xs font-semibold hover:bg-sky-500/25 transition mr-1" title="Abrir la conversación en la Bandeja"><i data-lucide="message-square" class="w-3.5 h-3.5 inline mr-0.5"></i> Bandeja</button>
                 <button @click="abrirAtencion(l)" class="px-2 py-1 bg-violet-500/15 text-violet-400 border border-violet-500/30 rounded-lg text-xs font-semibold hover:bg-violet-500/25 transition mr-1">🎯 Atender</button>
                 <button @click="openFicha(l.id)" class="px-2 py-1 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-xs font-semibold hover:text-slate-100 transition">Ficha</button>
               </td>
             </tr>
           </template>
-          <tr x-show="colaPaginada.length === 0"><td colspan="12" class="px-2 py-10 text-center text-slate-400">No hay leads con los filtros actuales.</td></tr>
+          <tr x-show="colaPaginada.length === 0"><td colspan="13" class="px-2 py-10 text-center text-slate-400">No hay leads con los filtros actuales.</td></tr>
         </tbody>
       </table>
     </div>
