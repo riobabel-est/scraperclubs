@@ -791,6 +791,16 @@ function imap_es_rebote(array $msg): bool
     if (preg_match('/this is the mail system at host|mail delivery system|delivery status notification|permanent error|smtp error|remote mail server|\b(550|554|552|521|550 5\.[0-9]|5\.7\.\d|5\.1\.\d)\b/i', $cuerpo)) {
         return true;
     }
+    // 5) NDR de Microsoft 365 / Outlook (aunque la cabecera From llegue VACÍA y sin
+    //    remitente de mailer-daemon, como ocurrió con Escolapios: la detección se
+    //    hace sobre el CUERPO, no sobre las cabeceras del mensaje original).
+    if (preg_match('/couldn\'?t be delivered|delivery has failed|sender not allowed|sender action required|message rejected by|status code:\s*550|group .{0,60} isn\'?t set up to receive|the microsoft 365 group|failed because the sender isn\'?t a group member|not allowed to send to this group|unifiedgroupagent|original message details|message hops/i', $cuerpo)) {
+        return true;
+    }
+    // 6) NDR con cabecera From vacía pero cuerpo/asunto con indicios de rebote.
+    if ($from === '' && preg_match('/deliver|undeliver|bounce|failure notice|5\.\d\.\d/i', $subject)) {
+        return true;
+    }
     return false;
 }
 
@@ -1961,6 +1971,22 @@ function imap_backfill_cuerpos(SQLite3 $db, int $limite = 200): array
                             $stmt->bindValue(':h', $htmlN, SQLITE3_TEXT);
                             $stmt->bindValue(':id', (int)$r['id'], SQLITE3_INTEGER);
                             $stmt->execute();
+                            // Reclasificación post-cuerpo: el modo LIGERO no descarga el
+                            // cuerpo, por lo que un NDR con cabecera From vacía (p.ej.
+                            // Microsoft 365) pudo registrarse como respuesta humana. Con el
+                            // cuerpo recuperado se corrige: rebote → fuera de la cola.
+                            $msgCompleto = array_merge(
+                                $parsedRaw,
+                                ['cuerpo' => $cuerpoN, 'cuerpo_html' => $htmlN]
+                            );
+                            if (imap_es_rebote($msgCompleto)) {
+                                $stmtR = $db->prepare(
+                                    "UPDATE respuestas SET clasificacion = 'rebote', es_rebote = 1,
+                                     estado_conversacion = 'nuevo', kanban_movido = 0 WHERE id = :id"
+                                );
+                                $stmtR->bindValue(':id', (int)$r['id'], SQLITE3_INTEGER);
+                                $stmtR->execute();
+                            }
                             $stats['recuperados']++;
                         }
                         // ── Recuperar también ADJUNTOS si la respuesta no tiene ──

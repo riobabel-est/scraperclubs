@@ -1,6 +1,13 @@
 <!-- ═══════════ ANALYTICS DE CAMPAÑA (consolidado) ═══════════ -->
 <!-- Vista única: KPIs + Embudo + A/B/C + Clasificación IA. Reemplaza Piloto/Global. -->
 <div x-data="analyticsCampana()" x-init="init()" class="space-y-6">
+  <style>
+    /* Bloques de Analytics a 50% (2 columnas) en pantallas grandes: mejora la
+       legibilidad de embudo, desglose, clasificación y asistente. El CSS
+       compilado no incluye lg:grid-cols-2, por eso se define con media query. */
+    .an-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+    @media (min-width: 1024px) { .an-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  </style>
 
   <!-- Header de campaña -->
   <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center gap-3">
@@ -24,73 +31,50 @@
   <div x-show="!campaignId" class="text-slate-400 text-sm py-12 text-center">Selecciona una campaña para ver su analítica.</div>
 
   <div x-show="campaignId" x-cloak>
-    <!-- BLOQUE 1: KPIs + Embudo -->
+    <div class="an-grid">
+    <!-- BLOQUE 1: Embudo de conversión (los KPIs de leads viven en la cabecera del panel) -->
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-      <div class="flex items-center gap-2 mb-3">
-        <i data-lucide="activity" class="w-4 h-4 text-amber-400"></i>
-        <h5 class="text-sm font-semibold uppercase tracking-wider text-slate-200">Rendimiento de Campaña</h5>
-      </div>
-      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">Total Envíos</div>
-          <div class="text-xl font-bold text-slate-100 mt-0.5" x-text="totalEnvios"></div>
-        </div>
-        <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">Entregados</div>
-          <div class="text-xl font-bold text-slate-100 mt-0.5" x-text="(metricas?.aceptados ?? 0)"></div>
-        </div>
-        <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">Aperturas</div>
-          <div class="text-xl font-bold text-cyan-400 mt-0.5" x-text="openRate + '%'"></div>
-        </div>
-        <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">Respuestas</div>
-          <div class="text-xl font-bold text-slate-100 mt-0.5" x-text="replyRate + '%'"></div>
-        </div>
-        <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">Resp. Positivas</div>
-          <div class="text-xl font-bold text-emerald-400 mt-0.5" x-text="prr + '%'"></div>
-        </div>
-        <div class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">Cuello de Botella</div>
-          <div class="text-sm font-bold text-rose-400 mt-0.5 leading-tight" x-show="cuello"
-            x-text="(cuello?.origen || '') + ' → ' + (cuello?.destino || '') + ' (' + (cuello?.pct ?? 0) + '%)'"></div>
-          <div class="text-xs text-slate-500 mt-0.5" x-show="!cuello">Sin datos</div>
-        </div>
+      <div class="flex items-center gap-2 mb-3 flex-wrap">
+        <i data-lucide="trending-down" class="w-4 h-4 text-amber-400"></i>
+        <h5 class="text-sm font-semibold uppercase tracking-wider text-slate-200">Embudo de Conversión</h5>
+        <span class="text-xs text-slate-500 ml-auto">% conversión entre etapas</span>
       </div>
 
-      <!-- Embudo compacto -->
-      <div class="mt-4">
-        <div class="flex items-center gap-2 mb-2">
-          <i data-lucide="trending-down" class="w-4 h-4 text-amber-400"></i>
-          <span class="text-xs uppercase tracking-wider text-slate-300 font-semibold">Embudo de Conversión</span>
-          <span class="text-xs text-slate-500 ml-auto">% conversión entre etapas</span>
-        </div>
-        <div class="space-y-1">
-          <template x-for="f in funnel" :key="f.nivel">
-            <div class="flex items-center gap-2">
-              <div class="w-36 text-xs text-slate-400 truncate" x-text="f.nivel.replace(/^\d+\.\s*/, '')"></div>
-              <div class="flex-1 bg-slate-800 rounded h-4 overflow-hidden">
-                <div class="h-full bg-amber-500/70" :style="'width:' + Math.max(2, Math.round(f.cnt / funnelMax * 100)) + '%'"></div>
-              </div>
-              <div class="w-10 text-xs text-right text-slate-300 font-semibold" x-text="f.cnt"></div>
-              <div class="w-14 text-xs text-right" :class="f.pct !== null && f.pct !== undefined ? (f.pct >= 50 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-500'"
-                x-text="f.pct !== null && f.pct !== undefined ? f.pct + '%' : '—'"></div>
+      <div class="space-y-2">
+        <template x-for="f in funnelLeads" :key="f.label">
+          <div class="flex items-center gap-2">
+            <div class="w-24 text-xs text-slate-400 truncate" x-text="f.label"></div>
+            <div class="flex-1 bg-slate-800 rounded h-5 overflow-hidden relative min-w-0">
+              <div class="h-full bg-amber-500/70 transition-all" :style="'width:' + Math.max(2, Math.round(f.cnt / funnelLeadsMax * 100)) + '%'"></div>
+              <div class="absolute inset-0 flex items-center px-2 text-[10px] font-semibold"
+                   :class="f.cnt / funnelLeadsMax > 0.4 ? 'text-slate-900' : 'text-slate-300'"
+                   x-text="f.maxPct + '% de tocados'"></div>
             </div>
-          </template>
-        </div>
+            <div class="w-10 text-xs text-right text-slate-300 font-semibold" x-text="f.cnt"></div>
+            <div class="w-14 text-xs text-right" :class="f.pct !== null ? (f.pct >= 50 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-500'"
+                 x-text="f.pct !== null ? f.pct + '%' : '—'"></div>
+          </div>
+        </template>
+        <div x-show="funnelLeads.length && !funnelLeads.some(f => f.cnt > 0)" class="text-sm text-slate-400 py-4 text-center">Sin envíos reales en esta campaña.</div>
+      </div>
+
+      <!-- Cuello de botella del embudo real (mayor caída de conversión) -->
+      <div x-show="cuelloLeads" class="mt-3 flex items-center gap-2 text-xs bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+        <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400 shrink-0"></i>
+        <span class="text-slate-300">Cuello de botella:</span>
+        <span class="text-rose-400 font-semibold" x-text="cuelloLeads.origen + ' → ' + cuelloLeads.destino + ' (' + cuelloLeads.pct + '%)'"></span>
       </div>
     </div>
 
     <!-- BLOQUE 2: A/B/C -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mt-4 overflow-x-auto">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 overflow-x-auto">
       <div class="flex items-center gap-2 mb-3 flex-wrap">
         <i data-lucide="git-compare" class="w-4 h-4 text-amber-400"></i>
         <h5 class="text-sm font-semibold uppercase tracking-wider text-slate-200">Desglose A/B/C</h5>
         <span x-show="varianteGanadora" class="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">🏆 Ganadora: <span x-text="varianteGanadora"></span></span>
       </div>
-      <table class="w-full text-sm">
-        <thead><tr class="text-slate-400 uppercase tracking-wider border-b border-slate-800">
+      <table class="w-full text-xs">
+        <thead><tr class="text-slate-400 text-xs font-semibold uppercase tracking-wider border-b border-slate-800">
           <th class="px-2 py-2 text-left">Variante</th>
           <th class="px-2 py-2 text-right">Aceptados</th>
           <th class="px-2 py-2 text-right">Aperturas</th>
@@ -128,7 +112,7 @@
     </div>
 
     <!-- BLOQUE 3: Clasificación IA -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mt-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
       <div class="flex items-center gap-2 mb-3">
         <i data-lucide="message-square" class="w-4 h-4 text-amber-400"></i>
         <h5 class="text-sm font-semibold uppercase tracking-wider text-slate-200">Clasificación de Respuestas (IA)</h5>
@@ -141,6 +125,51 @@
         <span class="bg-cyan-500/15 text-cyan-400 px-2.5 py-1 rounded-lg">OOO <span class="font-bold" x-text="(metricas?.ooo ?? 0)"></span></span>
         <span class="bg-slate-800 text-slate-400 px-2.5 py-1 rounded-lg">PENDING <span class="font-bold" x-text="(metricas?.pending ?? 0)"></span></span>
       </div>
+    </div>
+
+    <!-- BLOQUE 4: Asistente de Informes IA (diálogo con datos reales) -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <div class="flex items-center gap-2 mb-3 flex-wrap">
+        <i data-lucide="bot" class="w-4 h-4 text-violet-400"></i>
+        <h5 class="text-sm font-semibold uppercase tracking-wider text-slate-200">🤖 Asistente de Informes IA</h5>
+        <span class="text-xs text-slate-500 ml-auto">Responde con los datos reales de la campaña · dialoga para corregirla</span>
+      </div>
+
+      <!-- Sugerencias de preguntas -->
+      <div class="flex items-center gap-2 flex-wrap mb-3">
+        <template x-for="s in ['Genera un informe completo de esta campaña','¿Cuál es el cuello de botella y cómo lo corrijo?','¿Qué plantillas funcionan mejor?','¿Qué leads requieren acción ahora?','¿Cómo mejoro la tasa de respuesta?']" :key="s">
+          <button @click="chatEnviar(s)" class="px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 hover:text-slate-100 hover:border-violet-500/40 transition" x-text="s"></button>
+        </template>
+      </div>
+
+      <!-- Chat -->
+      <div x-ref="chatBox" class="space-y-3 max-h-80 overflow-y-auto bg-slate-950/40 border border-slate-800 rounded-lg p-3">
+        <template x-for="(m, i) in chatMsgs" :key="i">
+          <div class="flex" :class="m.role === 'user' ? 'justify-end' : 'justify-start'">
+            <div class="max-w-[85%] rounded-lg px-3 py-2 border text-sm whitespace-pre-wrap"
+                 :class="m.role === 'user' ? 'bg-violet-500/15 border-violet-500/30 text-slate-100' : 'bg-slate-800/70 border-slate-700 text-slate-200'"
+                 x-text="m.content"></div>
+          </div>
+        </template>
+        <div x-show="chatEnviando" class="flex justify-start">
+          <div class="bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-400">🤖 Analizando los datos…</div>
+        </div>
+        <div x-show="chatMsgs.length === 0 && !chatEnviando" class="text-center text-slate-500 text-sm py-6">
+          Pregunta lo que necesites sobre la campaña (leads, plantillas, respuestas, embudo…). La IA lee los datos reales en cada pregunta.
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div class="flex items-center gap-2 mt-3">
+        <input type="text" x-model="chatInput" @keydown.enter="chatEnviar()" placeholder="Pregunta algo sobre la campaña…"
+               class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
+        <button @click="chatEnviar()" :disabled="chatEnviando || !chatInput.trim()"
+                class="px-4 py-2 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-lg text-sm font-bold hover:bg-violet-500/30 transition disabled:opacity-50 inline-flex items-center gap-1.5">
+          <span x-show="!chatEnviando">Enviar</span>
+          <span x-show="chatEnviando" class="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin inline-block"></span>
+        </button>
+      </div>
+    </div>
     </div>
   </div>
 </div>

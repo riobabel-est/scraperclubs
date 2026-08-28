@@ -217,8 +217,17 @@
   <p x-show="!cargando && error" class="text-sm text-rose-400 text-center py-4" x-text="error"></p>
 
   <!-- ═══════════ MODAL DE ATENCIÓN A MEDIDA (Asistente IA v2) ═══════════ -->
+  <style>
+    /* Modal Atender con Bandeja integrada: 3 paneles en pantallas grandes.
+       El CSS compilado no incluye lg:grid-cols-3, por eso se definen aquí
+       media queries nativas (compatibles con el CSS estático actual). */
+    .at-modal-grid { display: grid; grid-template-columns: 1fr; }
+    @media (min-width: 1024px) { .at-modal-grid { grid-template-columns: 300px minmax(0, 1fr) minmax(0, 1fr); } }
+    @media (min-width: 1280px) { .at-modal-grid { grid-template-columns: 320px minmax(0, 1fr) 420px; } }
+    .at-lista-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
   <div x-show="modalAtencion" x-cloak @click.self="modalAtencion = false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-    <div class="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl w-full max-w-7xl max-h-[92vh] flex flex-col overflow-hidden">
       <div class="flex items-start gap-3 px-4 py-3 border-b border-slate-800 flex-wrap">
         <div class="flex-1 min-w-[220px]">
           <div class="text-base font-semibold text-slate-100" x-text="(charla && charla.lead ? charla.lead.nombre_club : 'Cargando…')"></div>
@@ -230,9 +239,46 @@
         <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30" x-show="charla && charla.lead && charla.lead.volumen_estimado" x-text="'Volumen: ' + charla.lead.volumen_estimado"></span>
         <button @click="modalAtencion = false" class="px-2.5 py-1 bg-slate-800 text-slate-400 border border-slate-700 rounded-lg text-sm hover:text-slate-100 transition">✕</button>
       </div>
-      <div class="grid grid-cols-1 lg:grid-cols-2 flex-1 min-h-0">
-        <!-- IZQUIERDA: LA CHARLA -->
-        <div class="border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col min-h-0">
+      <div class="at-modal-grid flex-1 min-h-0">
+        <!-- IZQUIERDA: LISTA DE CONVERSACIONES (Bandeja integrada) -->
+        <div class="flex flex-col min-h-0 border-b lg:border-b-0 lg:border-r border-slate-800">
+          <div class="px-4 py-2 border-b border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center justify-between gap-2">
+            <span class="truncate">📥 Bandeja de conversaciones</span>
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 shrink-0" x-text="atencionConversaciones.length"></span>
+          </div>
+          <div class="flex-1 overflow-y-auto min-h-0 divide-y divide-slate-800/60">
+            <template x-for="c in atencionConversaciones" :key="'atc' + (c.clave || c.lead_id)">
+              <div @click="atencionSeleccionar(c)" class="px-3 py-2.5 cursor-pointer border-l-4 transition"
+                   :class="atencionEsActual(c) ? 'border-orange-500 bg-slate-800/70' : 'border-transparent hover:bg-slate-800/40'">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="at-lista-nombre font-bold text-slate-50 text-sm" x-text="c.nombre_club || c.club || c.remitente_email || c.email || '—'"></span>
+                  <span class="text-[11px] text-slate-500 shrink-0" x-text="rsTiempoRelativo(c.tipo === 'followup' ? c.ult_envio : rsEstadoHilo(c).fecha)"></span>
+                </div>
+                <div class="text-xs text-slate-400 truncate mt-0.5" x-text="(c.federacion || '') + (c.email ? ' · ' + c.email : '')"></div>
+                <div class="flex items-center gap-1.5 mt-1 flex-wrap">
+                  <span x-show="c.prioridad" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold border" :class="rsPrioColor(c.prioridad)">
+                    <span class="w-1 h-1 rounded-full" :class="rsPrioDot(c.prioridad)"></span>
+                    <span x-text="rsPrioLabel(c.prioridad)"></span>
+                  </span>
+                  <!-- Follow-up (lead contactado sin respuesta humana) -->
+                  <span x-show="c.tipo === 'followup'" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold border text-violet-400 bg-violet-500/10 border-violet-500/30">
+                    🔁 Volver a escribir
+                  </span>
+                  <!-- Conversación pendiente -->
+                  <span x-show="c.tipo !== 'followup'" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold border"
+                        :class="rsEstadoHilo(c).esperando ? 'text-sky-400 bg-sky-500/10 border-sky-500/30' : 'text-amber-400 bg-amber-500/10 border-amber-500/30'"
+                        x-text="rsEstadoHilo(c).label"></span>
+                  <span class="px-1.5 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-300 border border-slate-700" x-text="c.estado_lead || '—'"></span>
+                  <span x-show="c.tipo === 'followup'" class="px-1.5 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-400 border border-slate-700" x-text="(c.n_envios || 0) + ' envío(s)'"></span>
+                </div>
+              </div>
+            </template>
+            <div x-show="atencionCargandoLista" class="p-6 text-center text-slate-400 text-sm">Cargando conversaciones…</div>
+            <div x-show="!atencionCargandoLista && atencionConversaciones.length === 0" class="p-6 text-center text-slate-400 text-sm">Sin conversaciones con lead vinculado</div>
+          </div>
+        </div>
+        <!-- CENTRO: LA CHARLA -->
+        <div class="flex flex-col min-h-0 border-b lg:border-b-0 lg:border-r border-slate-800">
           <div class="px-4 py-2 border-b border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-300">💬 Charla con el club</div>
           <div class="p-3 space-y-2 overflow-y-auto flex-1 min-h-0 text-sm">
             <!-- Hilo cronológico (estilo Bandeja): salientes a la derecha, entrantes a la izquierda -->
@@ -268,16 +314,16 @@
               </div>
             </template>
             <div x-show="charla && (charla.aperturas_total || 0) > 0" class="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5 text-xs">
-              👁 <span class="text-emerald-400 font-semibold" x-text="charla.aperturas_total + ' aperturas'"></span>
-              <span class="text-slate-400" x-text="'· primera: ' + (charla.primera_apertura || '')"></span>
+              👁 <span class="text-emerald-400 font-semibold" x-text="(charla ? charla.aperturas_total : 0) + ' aperturas'"></span>
+              <span class="text-slate-400" x-text="'· primera: ' + (charla && charla.primera_apertura ? charla.primera_apertura : '')"></span>
             </div>
             <div x-show="charla && charla.mockup" class="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5 text-xs">
-              🎨 Mockup: <span class="text-slate-300 font-semibold" x-text="charla.mockup.estado"></span>
-              <span class="text-slate-400" x-text="charla.mockup.solicitado_en ? ' · solicitado: ' + (charla.mockup.solicitado_en || '').slice(0,10) : ''"></span>
+              🎨 Mockup: <span class="text-slate-300 font-semibold" x-text="charla && charla.mockup ? charla.mockup.estado : ''"></span>
+              <span class="text-slate-400" x-text="charla && charla.mockup && charla.mockup.solicitado_en ? ' · solicitado: ' + (charla.mockup.solicitado_en || '').slice(0,10) : ''"></span>
             </div>
             <div x-show="charla && charla.presupuesto" class="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5 text-xs">
-              🧾 Presupuesto: <span class="text-slate-300 font-semibold" x-text="'v' + charla.presupuesto.version + ' · ' + Number(charla.presupuesto.importe_total).toLocaleString('es-ES') + ' €'"></span>
-              <span class="text-slate-400" x-text="charla.presupuesto.estado"></span>
+              🧾 Presupuesto: <span class="text-slate-300 font-semibold" x-text="charla && charla.presupuesto ? 'v' + charla.presupuesto.version + ' · ' + Number(charla.presupuesto.importe_total).toLocaleString('es-ES') + ' €' : ''"></span>
+              <span class="text-slate-400" x-text="charla && charla.presupuesto ? charla.presupuesto.estado : ''"></span>
             </div>
             <div x-show="cargandoCharla" class="text-xs text-slate-400 p-2">Cargando charla…</div>
             <div x-show="!cargandoCharla && charla && !charla.ok" class="text-xs text-rose-400 p-2" x-text="charla.error"></div>
@@ -304,18 +350,18 @@
           </button>
           <div x-show="analisisIA" x-cloak class="border border-fuchsia-500/30 bg-fuchsia-500/5 rounded-lg p-3 space-y-2">
             <div class="text-xs font-bold uppercase tracking-wider text-fuchsia-400 flex items-center gap-2">🧠 Análisis IA</div>
-            <p class="text-sm text-slate-200 leading-relaxed" x-text="analisisIA.resumen"></p>
+            <p class="text-sm text-slate-200 leading-relaxed" x-text="analisisIA ? analisisIA.resumen : ''"></p>
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="px-2 py-0.5 rounded-full text-xs font-semibold" :class="iaIntencionColor(analisisIA.intencion)" x-text="iaIntencionLabel(analisisIA.intencion)"></span>
+              <span class="px-2 py-0.5 rounded-full text-xs font-semibold" :class="analisisIA ? iaIntencionColor(analisisIA.intencion) : ''" x-text="analisisIA ? iaIntencionLabel(analisisIA.intencion) : ''"></span>
               <div class="flex-1 min-w-[100px] h-2 bg-slate-700 rounded-full overflow-hidden">
-                <div class="h-2 rounded-full transition-all" :class="iaConfianzaColor(analisisIA.confianza)" :style="'width:' + Math.round(analisisIA.confianza * 100) + '%'"></div>
+                <div class="h-2 rounded-full transition-all" :class="analisisIA ? iaConfianzaColor(analisisIA.confianza) : ''" :style="analisisIA ? ('width:' + Math.round(analisisIA.confianza * 100) + '%') : ''"></div>
               </div>
-              <span class="text-xs text-slate-400" x-text="Math.round(analisisIA.confianza * 100) + '% confianza'"></span>
+              <span class="text-xs text-slate-400" x-text="analisisIA ? (Math.round(analisisIA.confianza * 100) + '% confianza') : ''"></span>
             </div>
-            <p class="text-xs text-slate-400" x-text="'¿Por qué? ' + (analisisIA.motivo || '—')"></p>
+            <p class="text-xs text-slate-400" x-text="analisisIA ? ('¿Por qué? ' + (analisisIA.motivo || '—')) : ''"></p>
             <div class="flex items-start gap-2">
               <span class="text-sm shrink-0">➡️</span>
-              <span class="text-sm text-emerald-400 font-medium leading-snug" x-text="analisisIA.proxima_accion"></span>
+              <span class="text-sm text-emerald-400 font-medium leading-snug" x-text="analisisIA ? analisisIA.proxima_accion : ''"></span>
             </div>
             <button @click="generarEmailIA()" class="w-full px-3 py-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-sm font-semibold hover:bg-emerald-500/30 transition">✉️ Redactar respuesta con esta acción</button>
           </div>
@@ -364,10 +410,10 @@
               </select>
             </div>
             <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" x-show="charla && charla.mockup && ['solicitado','en_produccion'].includes(charla.mockup.estado)">
-              <input type="checkbox" x-model="incluirMockup" class="w-4 h-4 accent-violet-500"> Incluir mockup (<span x-text="charla.mockup.estado"></span>)
+              <input type="checkbox" x-model="incluirMockup" class="w-4 h-4 accent-violet-500"> Incluir mockup (<span x-text="charla && charla.mockup ? charla.mockup.estado : ''"></span>)
             </label>
             <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" x-show="charla && charla.presupuesto && charla.presupuesto.estado === 'creado'">
-              <input type="checkbox" x-model="incluirProforma" class="w-4 h-4 accent-violet-500"> Incluir proforma (<span x-text="'v' + charla.presupuesto.version + ' · ' + Number(charla.presupuesto.importe_total).toLocaleString('es-ES') + ' €'"></span>)
+              <input type="checkbox" x-model="incluirProforma" class="w-4 h-4 accent-violet-500"> Incluir proforma (<span x-text="charla && charla.presupuesto ? 'v' + charla.presupuesto.version + ' · ' + Number(charla.presupuesto.importe_total).toLocaleString('es-ES') + ' €' : ''"></span>)
             </label>
             <div x-show="atencionMsg" class="text-xs rounded-lg px-3 py-2" :class="atencionMsgTipo === 'error' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'" x-text="atencionMsg"></div>
             <button @click="enviarAtencion()" :disabled="enviandoAtencion || !smtpSel || !emailCuerpo" class="w-full px-4 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-sm font-bold hover:bg-emerald-500/30 transition disabled:opacity-50 flex items-center justify-center gap-1.5">

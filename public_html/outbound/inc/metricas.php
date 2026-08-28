@@ -108,6 +108,30 @@ function calcularMetricas(SQLite3 $db, int $campaignId): array
         ];
     }
 
+    // ─── Métricas de LEADS por campaña (coherentes con la cabecera del panel) ──
+    // Mismo concepto que el dashboard: leads tocados ≠ emails enviados.
+    $leadsBase = "FROM envios e JOIN clubes_crm c ON LOWER(c.email) = LOWER(e.email)
+                  WHERE e.campaign_id = {$campaignId}
+                    AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" . sqlFiltroComercial('e');
+    $leadsTocados    = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) {$leadsBase}");
+    $leadsEntregados = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) {$leadsBase} AND e.resultado_envio = 'ACCEPTED'");
+    $leadsAbrieron   = (int)$db->querySingle(
+        "SELECT COUNT(DISTINCT c.id) FROM envios e JOIN clubes_crm c ON LOWER(c.email) = LOWER(e.email)
+         JOIN aperturas a ON a.tracking_id = e.tracking_id
+         WHERE e.campaign_id = {$campaignId}
+           AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" . sqlFiltroComercial('e')
+    );
+    $leadsRespondieron = (int)$db->querySingle(
+        "SELECT COUNT(DISTINCT c.id) FROM respuestas r JOIN envios e ON e.id = r.envio_id JOIN clubes_crm c ON LOWER(c.email) = LOWER(e.email)
+         WHERE e.campaign_id = {$campaignId} AND COALESCE(r.es_rebote,0) = 0
+           AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" . sqlFiltroComercial('e')
+    );
+    $leadsPositivas = (int)$db->querySingle(
+        "SELECT COUNT(DISTINCT c.id) FROM respuestas r JOIN envios e ON e.id = r.envio_id JOIN clubes_crm c ON LOWER(c.email) = LOWER(e.email)
+         WHERE e.campaign_id = {$campaignId} AND COALESCE(r.es_rebote,0) = 0 AND r.clasificacion = 'POSITIVE'
+           AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" . sqlFiltroComercial('e')
+    );
+
     return [
         'ok'                => true,
         'campaña'           => $campaña,
@@ -122,5 +146,14 @@ function calcularMetricas(SQLite3 $db, int $campaignId): array
         'ooo'               => $clasif['OOO'],
         'pending'           => $clasif['PENDING'],
         'variantes'         => $variantes,
+        // Métricas de LEADS (para el grid de rendimiento estilo cabecera).
+        'leads_tocados'      => $leadsTocados,
+        'leads_entregados'   => $leadsEntregados,
+        'leads_abrieron'     => $leadsAbrieron,
+        'leads_apertura_rate' => $leadsTocados > 0 ? round($leadsAbrieron / $leadsTocados * 100, 1) : 0,
+        'leads_respondieron' => $leadsRespondieron,
+        'leads_respuesta_rate' => $leadsTocados > 0 ? round($leadsRespondieron / $leadsTocados * 100, 1) : 0,
+        'leads_positivas'    => $leadsPositivas,
+        'leads_prr'          => $leadsTocados > 0 ? round($leadsPositivas / $leadsTocados * 100, 1) : 0,
     ];
 }

@@ -374,12 +374,14 @@ if ($action === 'conversacion_accion') {
     header('Content-Type: application/json; charset=utf-8');
     $leadId = (int)($_POST['lead_id'] ?? 0);
     $email = strtolower(trim((string)($_POST['email'] ?? '')));
+    $respuestaId = (int)($_POST['respuesta_id'] ?? 0);
     $accion = trim((string)($_POST['accion'] ?? ''));
     $dias = max(1, (int)($_POST['dias'] ?? 1));
-    // Permite actuar sobre conversaciones SIN lead vinculado (p.ej. rodrigo@riobabel.com
-    // de pruebas o correos sin emparejar): se opera por email del remitente.
-    if ($leadId <= 0 && $email === '') {
-        echo json_encode(['ok' => false, 'error' => 'lead_id o email requerido']);
+    // Permite actuar sobre conversaciones SIN lead vinculado y SIN remitente
+    // (p.ej. NDR con cabecera From vacía): se opera por email del remitente o,
+    // si tampoco hay email, por el id de la respuesta (respuesta_id).
+    if ($leadId <= 0 && $email === '' && $respuestaId <= 0) {
+        echo json_encode(['ok' => false, 'error' => 'lead_id, email o respuesta_id requerido']);
         exit;
     }
     $acciones = ['atender', 'espera', 'archivar', 'restaurar', 'borrar', 'snooze'];
@@ -389,7 +391,9 @@ if ($action === 'conversacion_accion') {
     }
     $cond = $leadId > 0
         ? "lead_id = {$leadId}"
-        : "LOWER(remitente) = '" . $db->escapeString($email) . "'";
+        : ($email !== ''
+            ? "LOWER(remitente) = '" . $db->escapeString($email) . "'"
+            : "id = {$respuestaId}");
     try {
         // El estado del HILO se aplica a todas las respuestas del lead/email para que
         // la conversación sea coherente (una sola fila no rompe el hilo).
@@ -451,6 +455,52 @@ if ($action === 'generar_email_ia') {
     }
     exit;
 }
+
+// ═══════════════ ENDPOINT: informe_ia — Asistente IA de informes (diálogo) ─────
+// Recoge el contexto real de la BD (leads, envíos, plantillas, respuestas,
+// campañas, embudo) y lo pasa al LLM junto con la pregunta/historial para que
+// describa lo que sucede y proponga correcciones con datos verificables.
+if ($action === 'informe_ia') {
+    header('Content-Type: application/json; charset=utf-8');
+    $pregunta = trim((string)($_POST['pregunta'] ?? ''));
+    $historial = $_POST['historial'] ?? '[]';
+    $cid = max(0, (int)($_POST['campaign_id'] ?? 0));
+    if ($pregunta === '') {
+        echo json_encode(['ok' => false, 'error' => 'Escribe una pregunta']);
+        exit;
+    }
+    require_once __DIR__ . '/inc/informe_ia.php';
+    require_once __DIR__ . '/inc/llm.php';
+    try {
+        $ctx = recopilarContextoInforme($db, $cid);
+        $hist = json_decode((string)$historial, true);
+        if (!is_array($hist)) $hist = [];
+
+        $system = "Eres el analista de datos de FutProtec, un CRM de outbound B2B para clubes de fútbol (espinilleras personalizadas). Recibes un CONTEXTO con métricas reales del sistema y un HISTORIAL de conversación. Responde en español, de forma clara y accionable, citando los datos concretos del contexto (números exactos). Detecta problemas (cuello de botella, baja conversión, plantillas que no funcionan, leads calientes sin respuesta, rebotes) y propón correcciones concretas. Usa viñetas y números. NO inventes datos: usa SOLO los del contexto. Si no tienes dato para responder algo, dilo.";
+
+        $user = "CONTEXTO DE DATOS DEL SISTEMA (JSON real):\n" . json_encode($ctx, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!empty($hist)) {
+            $user .= "\n\nHISTORIAL DE LA CONVERSACIÓN:\n";
+            foreach (array_slice($hist, -8) as $m) {
+                $role = (($m['role'] ?? 'user') === 'assistant') ? 'Asistente' : 'Usuario';
+                $user .= $role . ': ' . mb_substr((string)($m['content'] ?? ''), 0, 2000) . "\n";
+            }
+        }
+        $user .= "\n\nPREGUNTA DEL USUARIO:\n" . $pregunta;
+
+        $resp = llm_chat($db, $system, $user, 1200, 0.3);
+        if ($resp === null) {
+            echo json_encode(['ok' => false, 'error' => 'No se pudo generar la respuesta. ¿Está configurada la API key de IA en Ajustes → IA?']);
+        } else {
+            echo json_encode(['ok' => true, 'respuesta' => $resp, 'contexto' => $ctx], JSON_UNESCAPED_UNICODE);
+        }
+    } catch (\Throwable $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+
 
 require __DIR__ . '/api/config.php';
 require __DIR__ . '/api/pruebas.php';
@@ -603,6 +653,16 @@ function actualizarEstadoLeadUnibox($db, int $id, string $estado): array {
         return ['ok' => false, 'error' => 'Estado no permitido'];
     }
     $estadoCanonico = mapearEstadoUnibox($estado);
+    // Anti-regresión (fix "vuelve a 01 Sin Contactar"): un lead con respuesta
+    // HUMANA (conversación activa) no puede volver a '01 Sin Contactar' ni
+    // '02 Contactado' desde el desplegable del visor. Así un disparo accidental
+    // del @change (valor no refrescado) nunca revierte el pipeline.
+    $tieneConversacion = (int)$db->querySingle(
+        "SELECT COUNT(*) FROM respuestas WHERE lead_id = {$id} AND COALESCE(es_rebote,0) = 0"
+    );
+    if ($tieneConversacion > 0 && in_array($estadoCanonico, ['01 Sin Contactar', '02 Contactado'], true)) {
+        return ['ok' => false, 'error' => 'Este lead está en conversación (tiene respuestas humanas) y no puede volver a "' . $estadoCanonico . '". Márcalo como "03 En Conversación" o una etapa posterior.'];
+    }
     $stmt = $db->prepare("UPDATE clubes_crm SET estado_lead = :estado WHERE id = :id");
     $stmt->bindValue(':estado', $estadoCanonico, SQLITE3_TEXT);
     $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
@@ -755,6 +815,15 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
         $stmtLog->bindValue(':l', $leadId, SQLITE3_INTEGER);
         $stmtLog->bindValue(':d', 'Envío (Bandeja) a ' . $email . ($nAdjLog > 0 ? ' · adjuntos: ' . $nAdjLog : ''), SQLITE3_TEXT);
         $stmtLog->execute();
+    }
+
+    // Regla de oro: responder a un lead que te escribió = conversación activa.
+    // Si el lead quedó en '01 Sin Contactar'/'02 Contactado' (p.ej. por un valor
+    // no refrescado del desplegable del visor), se avanza a '03 En Conversación'.
+    // NUNCA se regresa una etapa posterior (respeta 04+, Lista Negra, etc.).
+    if ($leadId > 0) {
+        $db->exec("UPDATE clubes_crm SET estado_lead = '03 En Conversación'
+                   WHERE id = {$leadId} AND estado_lead IN ('01 Sin Contactar','02 Contactado')");
     }
 
     return ['ok' => true, 'tracking_id' => $trackingId];
@@ -991,6 +1060,35 @@ $modoPruebas  = ($config['modo_entorno'] ?? 'test') === 'test';
 // KPIs — Históricos y Globales (solo envíos REALES; los TEST no alteran métricas comerciales)
 $totalLeads      = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm");
 $totalEnviados   = (int)$db->querySingle("SELECT COUNT(*) FROM envios e WHERE e.estado IN ('enviado', 'abierto')" . sqlFiltroComercial('e'));
+// Métricas intuitivas: LEADS TOCADOS (contactados) ≠ emails enviados (volumen).
+$leadsTocados    = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email)=LOWER(c.email) WHERE COALESCE(e.es_test,0)=0 AND e.estado IN ('enviado','abierto') AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" . sqlFiltroComercial('e'));
+$leadsAbrieron   = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN envios e ON LOWER(e.email)=LOWER(c.email) JOIN aperturas a ON a.tracking_id=e.tracking_id WHERE COALESCE(e.es_test,0)=0 AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')" . sqlFiltroComercial('e'));
+$tasaAperturaLeads = $leadsTocados > 0 ? round(($leadsAbrieron / $leadsTocados) * 100, 1) : 0;
+$leadsRespondieron = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN respuestas r ON r.lead_id=c.id WHERE COALESCE(r.es_rebote,0)=0 AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')");
+$tasaRespuestaLeads = $leadsTocados > 0 ? round(($leadsRespondieron / $leadsTocados) * 100, 1) : 0;
+$leadsPositivas     = (int)$db->querySingle("SELECT COUNT(DISTINCT c.id) FROM clubes_crm c JOIN respuestas r ON r.lead_id=c.id WHERE COALESCE(r.es_rebote,0)=0 AND r.clasificacion='POSITIVE' AND NOT (LOWER(c.email) LIKE '%@futprotec.local%' OR LOWER(c.nombre_club) LIKE 'test%')");
+$tasaPositivasLeads = $leadsTocados > 0 ? round(($leadsPositivas / $leadsTocados) * 100, 1) : 0;
+// Cuello de botella del embudo de leads: la etapa con mayor caída de conversión.
+// Embudo: Entregados → Abrieron → Respondieron → Positivas (consecutivas).
+$embudoLeads = [
+    ['label' => 'Entregados',   'cnt' => $leadsTocados],
+    ['label' => 'Abrieron',     'cnt' => $leadsAbrieron],
+    ['label' => 'Respondieron', 'cnt' => $leadsRespondieron],
+    ['label' => 'Positivas',    'cnt' => $leadsPositivas],
+];
+$cuelloEmbudo = null;
+for ($i = 0; $i < count($embudoLeads) - 1; $i++) {
+    $cntA = (int)$embudoLeads[$i]['cnt'];
+    $cntB = (int)$embudoLeads[$i + 1]['cnt'];
+    if ($cntA > 0 && $cntB < $cntA) {
+        $pct = (int)round($cntB / $cntA * 100);
+        if ($cuelloEmbudo === null || $pct < $cuelloEmbudo['pct']) {
+            $cuelloEmbudo = ['origen' => $embudoLeads[$i]['label'], 'destino' => $embudoLeads[$i + 1]['label'], 'pct' => $pct];
+        }
+    }
+}
+$enConversacion  = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE estado_lead IN ('03 En Conversación','04 Propuesta')");
+$esperandoRespuesta = (int)$db->querySingle("SELECT COUNT(DISTINCT r.lead_id) FROM respuestas r WHERE COALESCE(r.es_rebote,0)=0 AND r.lead_id>0 AND NOT EXISTS (SELECT 1 FROM respuestas r2 WHERE r2.lead_id=r.lead_id AND COALESCE(r2.es_rebote,0)=0 AND r2.estado_conversacion='requiere_respuesta')");
 $totalAperturas  = (int)$db->querySingle("SELECT COUNT(DISTINCT a.tracking_id) FROM aperturas a JOIN envios e ON a.tracking_id=e.tracking_id WHERE 1=1" . sqlFiltroComercial('e'));
 $tasaApertura    = $totalEnviados > 0 ? round(($totalAperturas / $totalEnviados) * 100, 1) : 0;
 $totalRebotes    = (int)$db->querySingle("SELECT COUNT(*) FROM rebotes r JOIN envios e ON LOWER(r.email)=LOWER(e.email) WHERE 1=1" . sqlFiltroComercial('e'));
@@ -1415,47 +1513,105 @@ $db->close();
     </div>
 </header>
 
-<!-- ═══════════ SCORECARDS CLICKEABLES ═══════════ -->
-<div class="max-w-full mx-auto px-4 py-4 grid grid-cols-2 md:grid-cols-5 gap-3">
-    <div @click="tab='gestor'" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-amber-500/30 hover:bg-slate-800/50 transition">
-        <div class="flex items-center justify-between">
-            <span class="text-slate-300 text-sm uppercase tracking-wider">Total Leads</span>
-            <i data-lucide="users" class="w-4 h-4 text-slate-400"></i>
+<!-- ═══════════ SCORECARDS CLICKEABLES (dashboard intuitivo) ═══════════ -->
+<!-- El CSS compilado (css/tailwind.min.css, build del 11/08) NO incluye las clases
+     responsivas lg:grid-cols-6/md:grid-cols-3/max-w-6xl, por eso las tarjetas se
+     mostraban siempre en 2 columnas. Aquí se define un grid con media queries
+     nativas: 6 columnas en lg+ · 3 en md · 2 en móvil. El texto cortado usa
+     ellipsis (nowrap) y el tooltip title muestra el contenido completo. -->
+<style>
+    .sc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+    @media (min-width: 768px)  { .sc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (min-width: 1024px) { .sc-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+    .sc-card { min-width: 0; }
+    .sc-card-label,
+    .sc-card-sub  { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+<div class="sc-grid max-w-full mx-auto px-4 py-4">
+    <div @click="tab='gestor'" title="Total de leads en la base de datos (histórico global)"
+         class="sc-card bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-amber-500/30 hover:bg-slate-800/50 transition">
+        <div class="flex items-center justify-between gap-2">
+            <span class="sc-card-label text-slate-300 text-sm uppercase tracking-wider">Total Leads</span>
+            <i data-lucide="users" class="w-4 h-4 text-slate-400 shrink-0"></i>
         </div>
         <div class="text-2xl font-semibold text-slate-100 mt-1"><?= number_format($totalLeads) ?></div>
-        <div class="text-sm text-slate-400 mt-1">Histórico global</div>
+        <div class="sc-card-sub text-sm text-slate-400 mt-1" title="Histórico global">Histórico global</div>
     </div>
-    <div @click="abrirAnalytics('envios')" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-blue-500/30 hover:bg-slate-800/50 transition">
-        <div class="flex items-center justify-between">
-            <span class="text-slate-300 text-sm uppercase tracking-wider">Envíos Totales</span>
-            <i data-lucide="send" class="w-4 h-4 text-slate-400"></i>
+    <div @click="tab='gestor'" title="Leads con al menos un correo enviado (contactados)"
+         class="sc-card bg-slate-900 border border-amber-500/20 rounded-xl p-4 cursor-pointer hover:border-amber-500/40 hover:bg-slate-800/50 transition">
+        <div class="flex items-center justify-between gap-2">
+            <span class="sc-card-label text-slate-300 text-sm uppercase tracking-wider">Leads tocados</span>
+            <i data-lucide="user-check" class="w-4 h-4 text-amber-400 shrink-0"></i>
+        </div>
+        <div class="text-2xl font-semibold text-amber-400 mt-1"><?= number_format($leadsTocados) ?></div>
+        <div class="sc-card-sub text-sm text-slate-400 mt-1" title="contactados · ≥1 envío real">contactados · ≥1 envío real</div>
+    </div>
+    <div @click="abrirAnalytics('envios')" title="Total de emails enviados (volumen)"
+         class="sc-card bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-blue-500/30 hover:bg-slate-800/50 transition">
+        <div class="flex items-center justify-between gap-2">
+            <span class="sc-card-label text-slate-300 text-sm uppercase tracking-wider">Emails enviados</span>
+            <i data-lucide="send" class="w-4 h-4 text-slate-400 shrink-0"></i>
         </div>
         <div class="text-2xl font-semibold text-blue-400 mt-1"><?= number_format($totalEnviados) ?></div>
-        <div class="text-sm text-slate-400 mt-1">emails enviados</div>
+        <div class="sc-card-sub text-sm text-slate-400 mt-1" title="Ø N emails por lead tocado">Ø <?= $leadsTocados > 0 ? round($totalEnviados / $leadsTocados, 1) : 0 ?> emails por lead tocado</div>
     </div>
-    <div @click="abrirAnalytics('aperturas')" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-cyan-500/30 hover:bg-slate-800/50 transition">
-        <div class="flex items-center justify-between">
-            <span class="text-slate-300 text-sm uppercase tracking-wider">Tasa Apertura</span>
-            <i data-lucide="eye" class="w-4 h-4 text-slate-400"></i>
+    <div @click="abrirAnalytics('aperturas')" title="Leads que abrieron / leads contactados (interés real)"
+         class="sc-card bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-cyan-500/30 hover:bg-slate-800/50 transition">
+        <div class="flex items-center justify-between gap-2">
+            <span class="sc-card-label text-slate-300 text-sm uppercase tracking-wider">Tasa apertura</span>
+            <i data-lucide="eye" class="w-4 h-4 text-slate-400 shrink-0"></i>
         </div>
-        <div class="text-2xl font-semibold text-cyan-400 mt-1"><?= $tasaApertura ?>%</div>
-        <div class="text-sm text-slate-400 mt-1"><?= $totalAperturas ?> aperturas</div>
+        <div class="text-2xl font-semibold text-cyan-400 mt-1"><?= $tasaAperturaLeads ?>%</div>
+        <div class="sc-card-sub text-sm text-slate-400 mt-1" title="<?= $leadsAbrieron ?> de <?= $leadsTocados ?> tocados"><?= $leadsAbrieron ?> de <?= $leadsTocados ?> tocados</div>
     </div>
-    <div @click="abrirAnalytics('rebotes')" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-rose-500/30 hover:bg-slate-800/50 transition">
-        <div class="flex items-center justify-between">
-            <span class="text-slate-300 text-sm uppercase tracking-wider">Tasa Rebote</span>
-            <i data-lucide="alert-triangle" class="w-4 h-4 text-slate-400"></i>
+    <div @click="tab='respuestas'; loadRespuestas()" title="Leads en conversación activa (03/04) — gestionarlos en la Bandeja"
+         class="sc-card bg-slate-900 border border-emerald-500/20 rounded-xl p-4 cursor-pointer hover:border-emerald-500/40 hover:bg-slate-800/50 transition">
+        <div class="flex items-center justify-between gap-2">
+            <span class="sc-card-label text-slate-300 text-sm uppercase tracking-wider">En conversación</span>
+            <i data-lucide="messages-square" class="w-4 h-4 text-emerald-400 shrink-0"></i>
         </div>
-        <div class="text-2xl font-semibold mt-1 <?= $tasaRebote > 5 ? 'text-rose-400' : ($tasaRebote > 2 ? 'text-amber-400' : 'text-emerald-400') ?>"><?= $tasaRebote ?>%</div>
-        <div class="text-sm text-slate-400 mt-1"><?= $totalRebotes ?> rebotes</div>
+        <div class="text-2xl font-semibold text-emerald-400 mt-1"><?= $enConversacion ?></div>
+        <div class="sc-card-sub text-sm text-slate-400 mt-1" title="<?= $esperandoRespuesta ?> esperan tu respuesta"><?= $esperandoRespuesta ?> esperan tu respuesta</div>
     </div>
-    <div @click="abrirAnalytics('bajas')" class="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-amber-500/30 hover:bg-slate-800/50 transition">
-        <div class="flex items-center justify-between">
-            <span class="text-slate-300 text-sm uppercase tracking-wider">Leads de Baja</span>
-            <i data-lucide="user-minus" class="w-4 h-4 text-slate-400"></i>
+    <div @click="abrirAnalytics('aperturas')" title="Leads que respondieron / leads contactados"
+         class="sc-card bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-emerald-500/30 hover:bg-slate-800/50 transition">
+        <div class="flex items-center justify-between gap-2">
+            <span class="sc-card-label text-slate-300 text-sm uppercase tracking-wider">Tasa respuesta</span>
+            <i data-lucide="message-square" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+        </div>
+        <div class="text-2xl font-semibold text-emerald-400 mt-1"><?= $tasaRespuestaLeads ?>%</div>
+        <div class="sc-card-sub text-sm text-slate-400 mt-1" title="<?= $leadsRespondieron ?> de <?= $leadsTocados ?> tocados"><?= $leadsRespondieron ?> de <?= $leadsTocados ?> tocados</div>
+    </div>
+    <div @click="abrirAnalytics('aperturas')" title="Leads con respuesta positiva / leads contactados"
+         class="sc-card bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-emerald-500/30 hover:bg-slate-800/50 transition">
+        <div class="flex items-center justify-between gap-2">
+            <span class="sc-card-label text-slate-300 text-sm uppercase tracking-wider">Resp. positivas</span>
+            <i data-lucide="thumbs-up" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+        </div>
+        <div class="text-2xl font-semibold text-emerald-400 mt-1"><?= $tasaPositivasLeads ?>%</div>
+        <div class="sc-card-sub text-sm text-slate-400 mt-1" title="<?= $leadsPositivas ?> con interés sobre <?= $leadsTocados ?> tocados"><?= $leadsPositivas ?> con interés sobre <?= $leadsTocados ?> tocados</div>
+    </div>
+    <div @click="tab='seguimiento'" title="Mayor caída de conversión del embudo de leads"
+         class="sc-card bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-rose-500/30 hover:bg-slate-800/50 transition">
+        <div class="flex items-center justify-between gap-2">
+            <span class="sc-card-label text-slate-300 text-sm uppercase tracking-wider">Cuello de botella</span>
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400 shrink-0"></i>
+        </div>
+        <?php if ($cuelloEmbudo): ?>
+            <div class="text-sm font-semibold text-rose-400 mt-1 leading-tight"><?= $cuelloEmbudo['origen'] ?> → <?= $cuelloEmbudo['destino'] ?></div>
+            <div class="sc-card-sub text-sm text-slate-400 mt-1" title="Solo el <?= $cuelloEmbudo['pct'] ?>% pasa de etapa"><?= $cuelloEmbudo['pct'] ?>% de conversión</div>
+        <?php else: ?>
+            <div class="text-sm font-semibold text-slate-500 mt-1">Sin datos</div>
+        <?php endif; ?>
+    </div>
+    <div @click="abrirAnalytics('bajas')" title="Leads en supresión (Opt-Out / Unsubscribed / Lista Negra)"
+         class="sc-card bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-amber-500/30 hover:bg-slate-800/50 transition">
+        <div class="flex items-center justify-between gap-2">
+            <span class="sc-card-label text-slate-300 text-sm uppercase tracking-wider">Leads de Baja</span>
+            <i data-lucide="user-minus" class="w-4 h-4 text-slate-400 shrink-0"></i>
         </div>
         <div class="text-2xl font-semibold mt-1 <?= $totalBajas > 0 ? 'text-amber-400' : 'text-slate-400' ?>"><?= $totalBajas ?></div>
-        <div class="text-sm text-slate-400 mt-1">Opt-Out / Unsubscribed / Lista Negra</div>
+        <div class="sc-card-sub text-sm text-slate-400 mt-1" title="Opt-Out / Unsubscribed / Lista Negra">Opt-Out / Unsubscribed / Lista Negra</div>
     </div>
 </div>
 
@@ -1473,6 +1629,9 @@ $db->close();
         <button @click="tab='editor'; loadCategorias()"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'editor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Plantillas y Campañas</button>
+        <button @click="tab='gestor'"
+            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
+            :class="tab === 'gestor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Leads</button>
         <button @click="tab='lista_negra'; blCargar()"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'lista_negra' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Lista Negra</button>
@@ -1482,9 +1641,6 @@ $db->close();
         <button @click="tab='inicio'; loadInicio()"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'inicio' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">🏠 Inicio</button>
-        <button @click="tab='gestor'"
-            class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
-            :class="tab === 'gestor' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Leads</button>
         <button @click="tab='kanban'"
             class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition border-b-2 whitespace-nowrap"
             :class="tab === 'kanban' ? 'border-amber-400 text-amber-400 bg-slate-900' : 'border-transparent text-slate-300 hover:text-slate-100'">Pipeline</button>

@@ -1217,6 +1217,148 @@ if ($action === 'registrar_whatsapp') {
     exit;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ENDPOINT: importar_csv — Importa leads desde un CSV (subida de archivo).
+// PHP nativo + SQLite3 + checkdnsrr (MX) — SiteGround compatible.
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'importar_csv') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        if (empty($_FILES['csv']) || $_FILES['csv']['error'] !== UPLOAD_ERR_OK) {
+            throw new Exception('No se recibió el archivo CSV');
+        }
+        $tmp = (string)$_FILES['csv']['tmp_name'];
+        $nombreArchivo = basename((string)($_FILES['csv']['name'] ?? 'leads.csv'));
+        if (strtolower(pathinfo($nombreArchivo, PATHINFO_EXTENSION)) !== 'csv') {
+            throw new Exception('Formato no permitido: usa un archivo .csv');
+        }
+        if (filesize($tmp) > 5 * 1024 * 1024) {
+            throw new Exception('El archivo supera el límite de 5 MB');
+        }
+        if (!is_readable($tmp)) {
+            throw new Exception('No se pudo leer el archivo subido');
+        }
+
+        $delim = trim((string)($_POST['delimitador'] ?? 'auto'));
+        if ($delim === '\t' || $delim === "\\t") $delim = "\t";
+        $mapeo = json_decode((string)($_POST['mapeo'] ?? '{}'), true);
+        if (!is_array($mapeo)) $mapeo = [];
+        $validarMx = (($_POST['validar_mx'] ?? '1') === '1');
+        $ignorarDup = (($_POST['ignorar_duplicados'] ?? '1') === '1');
+        $conCabecera = (($_POST['con_cabecera'] ?? '1') === '1');
+
+        $fh = fopen($tmp, 'r');
+        if ($fh === false) throw new Exception('No se pudo abrir el archivo');
+        $primera = (string)fgets($fh);
+        rewind($fh);
+        if ($delim === 'auto') {
+            $cuentas = [',' => 0, ';' => 0, '|' => 0, "\t" => 0];
+            foreach (array_keys($cuentas) as $d) $cuentas[$d] = substr_count($primera, $d);
+            arsort($cuentas);
+            $mejor = key($cuentas);
+            $delim = ($cuentas[$mejor] > 0) ? $mejor : ',';
+        }
+
+        $camposPermitidos = ['nombre_club','email','telefono_movil','telefono_fijo','persona_contacto','cargo_contacto','federacion'];
+
+        // Transacción + prepared statements (rápido y seguro).
+        $db->exec('BEGIN');
+        $stmt = $db->prepare(
+            "INSERT INTO clubes_crm
+             (nombre_club, email, telefono_movil, telefono_fijo, persona_contacto, cargo_contacto,
+              federacion, tiene_whatsapp, estado_lead, observaciones, creado_el)
+             VALUES (:n, :e, :m, :fi, :p, :c, :f, :wa, '01 Sin Contactar', :obs, CURRENT_TIMESTAMP)"
+        );
+        $stmtCheck = $db->prepare("SELECT id FROM clubes_crm WHERE LOWER(email) = LOWER(:e) LIMIT 1");
+
+        $total = 0; $importados = 0; $duplicados = 0; $emailInvalidos = 0; $mxFallidos = 0; $errores = 0;
+        $detalle = [];
+        $filaIdx = 0;
+
+        while (($fila = fgetcsv($fh, 0, $delim)) !== false) {
+            $filaIdx++;
+            if ($conCabecera && $filaIdx === 1) continue;
+            if ($filaIdx > 5000) { $detalle[] = ['fila' => $filaIdx, 'email' => '', 'motivo' => 'Límite de 5000 filas alcanzado']; break; }
+            if (count($fila) === 1 && trim((string)$fila[0]) === '') continue;
+
+            // Aplicar mapeo {indice: campo}
+            $datos = array_fill_keys($camposPermitidos, '');
+            foreach ($mapeo as $idx => $campo) {
+                $idx = (int)$idx;
+                if ($campo === '' || $idx < 0 || $idx >= count($fila)) continue;
+                if (!in_array($campo, $camposPermitidos, true)) continue;
+                $datos[$campo] = trim((string)$fila[$idx]);
+            }
+
+            $nombre = $datos['nombre_club'];
+            $email  = strtolower(trim($datos['email']));
+            $total++;
+            if ($nombre === '' || $email === '') {
+                $errores++;
+                $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => 'Falta nombre o email'];
+                continue;
+            }
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $emailInvalidos++;
+                $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => 'Email inválido'];
+                continue;
+            }
+            if ($validarMx) {
+                $dominio = substr(strrchr($email, '@'), 1);
+                if ($dominio !== '' && !@checkdnsrr($dominio, 'MX')) {
+                    $mxFallidos++;
+                    $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => "Dominio sin MX ({$dominio})"];
+                    continue;
+                }
+            }
+            $stmtCheck->bindValue(':e', $email, SQLITE3_TEXT);
+            $existe = (bool)$stmtCheck->execute()->fetchArray();
+            if ($existe) {
+                $duplicados++;
+                if (!$ignorarDup) $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => 'Ya existe (ignorado)'];
+                continue;
+            }
+
+            // WhatsApp: móvil de 9 dígitos empezando por 6/7.
+            $wa = 0;
+            $movilLimpio = preg_replace('/[^0-9]/', '', (string)$datos['telefono_movil']);
+            if (strlen($movilLimpio) === 9 && in_array($movilLimpio[0], ['6', '7'], true)) $wa = 1;
+
+            $stmt->bindValue(':n',  $nombre, SQLITE3_TEXT);
+            $stmt->bindValue(':e',  $email, SQLITE3_TEXT);
+            $stmt->bindValue(':m',  (string)$datos['telefono_movil'], SQLITE3_TEXT);
+            $stmt->bindValue(':fi', (string)$datos['telefono_fijo'], SQLITE3_TEXT);
+            $stmt->bindValue(':p',  (string)$datos['persona_contacto'], SQLITE3_TEXT);
+            $stmt->bindValue(':c',  (string)$datos['cargo_contacto'], SQLITE3_TEXT);
+            $stmt->bindValue(':f',  (string)$datos['federacion'], SQLITE3_TEXT);
+            $stmt->bindValue(':wa', $wa, SQLITE3_INTEGER);
+            $stmt->bindValue(':obs', 'Importado por CSV el ' . date('Y-m-d H:i'), SQLITE3_TEXT);
+            $stmt->execute();
+            $importados++;
+        }
+        fclose($fh);
+        $db->exec('COMMIT');
+
+        ob_clean();
+        echo json_encode([
+            'ok' => true,
+            'total' => $total,
+            'importados' => $importados,
+            'duplicados' => $duplicados,
+            'email_invalidos' => $emailInvalidos,
+            'mx_fallidos' => $mxFallidos,
+            'errores' => $errores,
+            'errores_detalle' => array_slice($detalle, 0, 30),
+        ], JSON_UNESCAPED_UNICODE);
+    } catch (\Throwable $e) {
+        if (isset($db) && $db) { try { $db->exec('ROLLBACK'); } catch (\Throwable $ig) {} }
+        ob_clean();
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+
 // Default
 header('Content-Type: application/json');
 ob_clean();

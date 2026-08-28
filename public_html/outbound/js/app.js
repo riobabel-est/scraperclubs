@@ -39,6 +39,13 @@ var app = function() {
         atencionMsgTipo: 'ok',
         // Adjuntos manuales del modal de atención (File objects).
         atencionAdjuntos: [],
+        // Lista de conversaciones de la Bandeja integrada en el modal Atender
+        // (misma fuente que el tab Respuestas: get_respuestas, agrupada por lead).
+        atencionLista: [],
+        atencionCargandoLista: false,
+        // Leads contactados SIN respuesta humana (estado 01/02 con ≥1 envío) →
+        // candidatos a "volver a escribir" (seguimiento/2º toque).
+        atencionFollowups: [],
         // ─── Mi cuenta y seguridad (perfil del header, estándar CRM) ───
         perfilAbierto: false,
         modalCuenta: false,
@@ -747,7 +754,108 @@ var app = function() {
             this.analisisIA = null; this.analizandoIA = false;
             this.atencionMsg = '';
             this.atencionAdjuntos = [];
+            await Promise.all([this.cargarCharla(), this.cargarConversacionesAtencion()]);
+        },
+        // Lista de conversaciones de la Bandeja integrada en el modal Atender.
+        // Filtra solo las que tienen lead vinculado (el modal redacta/envía por
+        // lead_id). Misma fuente que el tab Respuestas (get_respuestas).
+        async cargarConversacionesAtencion() {
+            this.atencionCargandoLista = true;
+            try {
+                const r = await fetch('?action=get_respuestas');
+                const j = await r.json();
+                this.atencionLista = (j && Array.isArray(j.conversaciones)) ? j.conversaciones : [];
+                this.atencionFollowups = (j && Array.isArray(j.leads_followup)) ? j.leads_followup : [];
+            } catch (e) {
+                this.atencionLista = [];
+                this.atencionFollowups = [];
+            } finally {
+                this.atencionCargandoLista = false;
+            }
+        },
+        get atencionConversaciones() {
+            // Días sin respuesta del club tras mi último envío → toca "volver a escribir"
+            // (follow-up). Ajustable según el ciclo de seguimiento de FutProtec.
+            const DIAS_FOLLOWUP = 3;
+            const ahora = Date.now();
+            const pendientes = (this.atencionLista || []).filter(c => {
+                const lid = parseInt(c.lead_id, 10) || 0;
+                if (lid <= 0) return false;
+                const msgs = (c.mensajes) || [];
+                const ultimo = msgs[0] || null;
+                if (!ultimo) return false;
+                // Fuera: rebotes.
+                if (ultimo.es_rebote === 1 || String(ultimo.es_rebote) === '1') return false;
+                // Fuera: archivado / borrado (estado del hilo en las respuestas).
+                const est = this.atencionEstadoHilo(c);
+                if (est === 'borrado' || est === 'archivado') return false;
+                // A) DEBO RESPONDER: el último mensaje es del club (entrante) y aún
+                //    no le he contestado. rsEstadoHilo esperando=false → "📥 Sin responder".
+                if (!this.rsEstadoHilo(c).esperando) return true;
+                // B) VOLVER A ESCRIBIR: respondí y el club no vuelve a escribir.
+                //    → snooze vencido, o sin snooze y pasados DIAS_FOLLOWUP desde mi envío.
+                const snooze = this.atencionSnooze(c);
+                if (snooze) {
+                    const t = Date.parse(String(snooze).replace(' ', 'T'));
+                    return !isNaN(t) && t <= ahora;
+                }
+                const fecha = ultimo.fecha || ultimo.fecha_envio || c.ultima_fecha || '';
+                if (!fecha) return false;
+                const tf = Date.parse(fecha);
+                if (!tf) return false;
+                return (ahora - tf) / 86400000 >= DIAS_FOLLOWUP;
+            });
+            // Leads contactados SIN respuesta humana (estado 01/02, ≥1 envío) →
+            // candidatos a "volver a escribir" (seguimiento / 2º toque).
+            const followups = (this.atencionFollowups || []).map(f => ({
+                lead_id: parseInt(f.id, 10) || 0,
+                clave: 'fu:' + f.id,
+                tipo: 'followup',
+                nombre_club: f.nombre_club || '',
+                federacion: f.federacion || '',
+                email: f.email || '',
+                estado_lead: f.estado_lead || '',
+                persona_contacto: f.persona_contacto || '',
+                n_envios: parseInt(f.n_envios, 10) || 0,
+                ult_envio: f.ult_envio || '',
+                volumen_estimado: f.volumen_estimado,
+                prioridad: 'media',
+            }));
+            // Primero lo que requiere acción de respuesta, después los follow-ups.
+            return [...pendientes, ...followups];
+        },
+        // Estado de conversación del hilo: lo llevan las respuestas entrantes
+        // (los envíos salientes no tienen la columna). Devuelve el del mensaje
+        // más reciente que lo tenga ('requiere_respuesta' | 'en_espera' | ...).
+        atencionEstadoHilo(c) {
+            const msgs = (c && c.mensajes) || [];
+            for (const m of msgs) {
+                if (m && m.estado_conversacion) return String(m.estado_conversacion);
+            }
+            return '';
+        },
+        atencionSnooze(c) {
+            const msgs = (c && c.mensajes) || [];
+            for (const m of msgs) {
+                if (m && m.snooze_until) return m.snooze_until;
+            }
+            return '';
+        },
+        // Cambia el lead atendido en el modal desde la lista de la Bandeja.
+        async atencionSeleccionar(conv) {
+            if (!conv || !conv.lead_id) return;
+            this.atencionLead = { id: parseInt(conv.lead_id, 10) };
+            this.emailAsunto = ''; this.emailCuerpo = '';
+            this.plantillaSel = 0; this.smtpSel = 0;
+            this.incluirMockup = false; this.incluirProforma = false;
+            this.analisisIA = null; this.analizandoIA = false;
+            this.atencionMsg = ''; this.atencionAdjuntos = [];
             await this.cargarCharla();
+        },
+        // Resalta la conversación actual en la lista del modal.
+        atencionEsActual(conv) {
+            return !!(this.atencionLead && conv &&
+                parseInt(conv.lead_id, 10) === parseInt(this.atencionLead.id, 10));
         },
         // Hilo cronológico de la charla (estilo Bandeja): combina envíos
         // salientes y respuestas entrantes, ordenado del más reciente al más viejo.
@@ -2289,7 +2397,12 @@ var app = function() {
                 intento++;
                 try {
                     const r = await fetch('?action=get_templates');
-                    const j = await r.json();
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    // Parseo manual: si el endpoint devolviera HTML (p.ej. pantalla de
+                    // login o un 500), JSON.parse lanza y reintentamos sin ruido.
+                    const texto = await r.text();
+                    let j = null;
+                    try { j = JSON.parse(texto); } catch (e) { throw new Error('Respuesta no JSON'); }
                     if (j && j.ok && Array.isArray(j.templates)) {
                         this.rsTemplatesRapidas = j.templates.filter(t => (t.tipo || '') !== 'whatsapp');
                         if (this.rsTemplatesRapidas.length > 0) {
@@ -2298,7 +2411,9 @@ var app = function() {
                         }
                     }
                 } catch (e) {
-                    console.error('rsCargarTemplates:', e);
+                    // Solo se muestra en consola en el último intento (evita ruido
+                    // cuando el primer fetch coincide con la carga/login).
+                    if (intento >= 3) console.warn('rsCargarTemplates: no se pudieron cargar las plantillas', e);
                 }
                 await new Promise(res => setTimeout(res, 700 * intento));
             }
@@ -2410,6 +2525,9 @@ var app = function() {
                 } else {
                     this.rsEnvioMsg = 'Error: ' + (j.error || 'No se pudo actualizar el estado.');
                     this.rsEnvioMsgOk = false;
+                    // El cambio fue rechazado (p.ej. anti-regresión a 01/02 con
+                    // conversación activa): restaurar el estado real del lead.
+                    await this.loadRespuestas();
                 }
             } catch (e) {
                 this.rsEnvioMsg = 'Error de conexión al actualizar el estado.';
@@ -2475,7 +2593,10 @@ var app = function() {
             const conv = this.rsSeleccion;
             const leadId = (conv && conv.lead_id) || 0;
             const email = (conv && (conv.remitente_email || conv.email)) || '';
-            if (!leadId && !email) {
+            // Conversaciones sin lead y sin remitente (p.ej. NDR con cabecera From
+            // vacía): se identifican por el id de la respuesta (conv.id).
+            const respuestaId = (conv && conv.id) || 0;
+            if (!leadId && !email && !respuestaId) {
                 this.rsEnvioMsg = 'Selecciona una conversación válida.';
                 this.rsEnvioMsgOk = false;
                 return;
@@ -2484,6 +2605,7 @@ var app = function() {
             f.append('action', 'conversacion_accion');
             f.append('lead_id', leadId);
             f.append('email', email);
+            if (respuestaId) f.append('respuesta_id', respuestaId);
             f.append('accion', accion);
             if (dias > 0) f.append('dias', dias);
             try {
@@ -2548,6 +2670,12 @@ var app = function() {
                     this.rsRedaccion = '';
                     this.rsPlantillaRapida = '';
                     this.rsAdjuntos = [];
+                    // Fix "vuelve a 01 Sin Contactar": al responder, el lead pasa a
+                    // conversación activa. Si el valor visible era 01/02 (desplegable
+                    // sin refrescar), forzarlo a 03 para que nunca muestre regresión.
+                    if (this.rsSeleccion && ['01 Sin Contactar', '02 Contactado'].includes(this.rsSeleccion.estado_lead)) {
+                        this.rsSeleccion.estado_lead = '03 En Conversación';
+                    }
                     // La conversación pasa a "en espera" (ya respondida).
                     this.rsAccion('espera');
                     this.loadRespuestas();
@@ -2877,6 +3005,11 @@ var app = function() {
         // Métodos del modal de atención
         atencionAdjuntarArchivos: function () {},
         atencionQuitarAdjunto: function () {},
+        atencionSeleccionar: function () {},
+        cargarConversacionesAtencion: function () {},
+        atencionEsActual: function () { return false; },
+        atencionEstadoHilo: function () { return ''; },
+        atencionSnooze: function () { return ''; },
         charlaHilo: function () { return []; },
         rsCuerpoMensaje: function () { return ''; },
         rsTiempoRelativo: function () { return ''; },
@@ -3153,6 +3286,150 @@ function tutorApp() {
             this.abierto = false;
             try { localStorage.setItem('crm_tutor_open', '0'); } catch (e) {}
         },
+    };
+}
+
+function importadorCSV() {
+    // Importación de leads desde CSV (botón "📥 Importar CSV" en la pestaña Leads).
+    // Parsing en cliente para vista previa y mapeo; el backend (api/leads.php
+    // action=importar_csv) re-lee el archivo y aplica el mismo mapeo.
+    return {
+        abierto: false,
+        archivo: null,
+        delimitador: 'auto',
+        conCabecera: true,
+        headers: [],
+        filasPreview: [],
+        mapa: {},
+        campos: ['email', 'nombre_club', 'telefono_movil', 'telefono_fijo', 'persona_contacto', 'cargo_contacto', 'federacion'],
+        camposLabel: {
+            email: 'Email', nombre_club: 'Nombre del club', telefono_movil: 'Teléfono móvil',
+            telefono_fijo: 'Teléfono fijo', persona_contacto: 'Persona de contacto', cargo_contacto: 'Cargo', federacion: 'Federación'
+        },
+        validarMx: true,
+        ignorarDuplicados: true,
+        importando: false,
+        msg: '',
+        msgOk: false,
+        resultado: null,
+
+        abrir() {
+            // Reset del estado previo al abrir el modal.
+            this.archivo = null; this.headers = []; this.filasPreview = []; this.mapa = {};
+            this.msg = ''; this.msgOk = false; this.resultado = null;
+            this.abierto = true;
+        },
+        cerrar() { this.abierto = false; },
+        cargarArchivo(ev) {
+            const file = ev && ev.target ? ev.target.files[0] : null;
+            if (!file) return;
+            this.archivo = file;
+            this.msg = ''; this.msgOk = false; this.resultado = null;
+            this.headers = []; this.filasPreview = []; this.mapa = {};
+            const reader = new FileReader();
+            reader.onload = (e) => this.parsear(String(e.target.result || ''));
+            reader.onerror = () => { this.msg = 'No se pudo leer el archivo.'; this.msgOk = false; };
+            reader.readAsText(file, 'UTF-8');
+        },
+        parsear(texto) {
+            const filas = this.csvParse(texto, this.delimitador);
+            if (!filas.length) { this.msg = 'El archivo está vacío o no se pudo parsear.'; this.msgOk = false; return; }
+            if (this.conCabecera) {
+                this.headers = filas[0].map(h => String(h).trim());
+                this.filasPreview = filas.slice(1, 6);
+            } else {
+                this.headers = filas[0].map((_, i) => 'Columna ' + (i + 1));
+                this.filasPreview = filas.slice(0, 5);
+            }
+            this.mapa = this.autoMapa(this.headers);
+            this.msg = ''; this.msgOk = false;
+        },
+        // Parser CSV robusto: comillas dobles, delimitadores comunes y saltos de
+        // línea dentro de comillas.
+        csvParse(texto, delim) {
+            const d = delim === 'auto' ? null : delim;
+            const filas = [];
+            let fila = [], campo = '', enComillas = false;
+            const pushCampo = () => { fila.push(campo); campo = ''; };
+            const pushFila = () => { pushCampo(); filas.push(fila); fila = []; };
+            for (let i = 0; i < texto.length; i++) {
+                const ch = texto[i];
+                if (enComillas) {
+                    if (ch === '"') {
+                        if (texto[i + 1] === '"') { campo += '"'; i++; }
+                        else enComillas = false;
+                    } else campo += ch;
+                    continue;
+                }
+                if (ch === '"') { enComillas = true; continue; }
+                if (d === null) {
+                    if (ch === ',' || ch === ';' || ch === '|' || ch === '\t') { pushCampo(); continue; }
+                } else if (ch === d) { pushCampo(); continue; }
+                if (ch === '\n') { pushFila(); continue; }
+                if (ch === '\r') continue;
+                campo += ch;
+            }
+            if (campo !== '' || fila.length) pushFila();
+            return filas;
+        },
+
+
+        // Mapeo automático por sinónimos del encabezado.
+        autoMapa(headers) {
+            const mapa = {};
+            const syn = {
+                email: ['email', 'e-mail', 'correo', 'correo electronico', 'correo-e'],
+                nombre_club: ['nombre', 'club', 'nombre_club', 'nombre del club', 'equipo', 'club deportivo', 'entidad'],
+                telefono_movil: ['movil', 'telefono_movil', 'telefono movil', 'celular', 'tfno', 'telefono', 'móvil'],
+                telefono_fijo: ['telefono_fijo', 'fijo', 'telefono fijo'],
+                persona_contacto: ['persona_contacto', 'contacto', 'persona', 'nombre contacto', 'responsable', 'presidente'],
+                cargo_contacto: ['cargo_contacto', 'cargo', 'puesto'],
+                federacion: ['federacion', 'fed', 'federación', 'ff', 'rffm', 'rfef']
+            };
+            headers.forEach((h, i) => {
+                const hl = String(h).toLowerCase().replace(/[\s_\-]+/g, ' ');
+                for (const campo of this.campos) {
+                    if ((syn[campo] || []).some(s => hl.includes(s))) { mapa[i] = campo; break; }
+                }
+            });
+            return mapa;
+        },
+        async importar() {
+            if (!this.archivo) { this.msg = 'Selecciona un archivo CSV primero.'; this.msgOk = false; return; }
+            const valores = Object.values(this.mapa);
+            if (!valores.includes('email') || !valores.includes('nombre_club')) {
+                this.msg = 'El mapeo necesita una columna Email y otra de Nombre del club.';
+                this.msgOk = false;
+                return;
+            }
+            this.importando = true; this.msg = ''; this.msgOk = false; this.resultado = null;
+            const f = new FormData();
+            f.append('csv', this.archivo);
+            f.append('delimitador', this.delimitador);
+            f.append('mapeo', JSON.stringify(this.mapa));
+            f.append('validar_mx', this.validarMx ? '1' : '0');
+            f.append('ignorar_duplicados', this.ignorarDuplicados ? '1' : '0');
+            f.append('con_cabecera', this.conCabecera ? '1' : '0');
+            try {
+                const r = await fetch('api/leads.php?action=importar_csv', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j && j.ok) {
+                    this.resultado = j;
+                    this.msg = 'Importación completada: ' + j.importados + ' leads creados.';
+                    this.msgOk = true;
+                    // Refresca la lista de Leads tras importar.
+                    if (window.app && window.app.loadGestor) window.app.loadGestor();
+                } else {
+                    this.msg = (j && j.error) || 'Error al importar.';
+                    this.msgOk = false;
+                }
+            } catch (e) {
+                this.msg = 'Error de conexión al importar.';
+                this.msgOk = false;
+            } finally {
+                this.importando = false;
+            }
+        }
     };
 }
 

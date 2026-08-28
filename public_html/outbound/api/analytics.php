@@ -910,6 +910,7 @@ if ($action === 'get_respuestas') {
                 e.cuenta_emision AS cuenta_destino,
                 p.nombre AS campaña_nombre,
                 c.id AS club_id,
+                COALESCE(c.federacion, '') AS federacion,
                 CASE
                     WHEN c.nombre_club IS NOT NULL AND c.nombre_club != '' THEN c.nombre_club
                     ELSE COALESCE(r.remitente, 'Club Desconocido')
@@ -1245,6 +1246,41 @@ if ($action === 'get_respuestas') {
             }));
         }
 
+        // ─── Leads para "VOLVER A ESCRIBIR" (modal Atender) ──────────────────
+        // Contactados (estado 01/02, con ≥1 envío real) que NO tienen respuesta
+        // humana: son los candidatos a seguimiento/2º toque. No aparecen en la
+        // Bandeja (no hay respuestas), pero el modal Atender debe poder atenderlos.
+        // Se limitan a los 30 que llevan MÁS días sin respuesta (los más antiguos
+        // primero): representan la cola accionable sin saturar el modal.
+        $leadsFollowup = [];
+        $resF = $db->query(
+            "SELECT c.id, c.nombre_club, c.email, c.federacion, c.estado_lead, c.persona_contacto,
+                    MAX(e.fecha_envio) AS ult_envio, COUNT(e.id) AS n_envios, c.volumen_estimado
+             FROM envios e
+             JOIN clubes_crm c ON LOWER(c.email) = LOWER(e.email)
+             WHERE COALESCE(e.es_test,0) = 0
+               AND c.estado_lead IN ('01 Sin Contactar','02 Contactado')
+               AND NOT EXISTS (SELECT 1 FROM respuestas r WHERE r.lead_id = c.id AND COALESCE(r.es_rebote,0) = 0)
+             GROUP BY c.id
+             ORDER BY MAX(e.fecha_envio) ASC
+             LIMIT 30"
+        );
+        if ($resF) {
+            while ($f = $resF->fetchArray(SQLITE3_ASSOC)) {
+                $leadsFollowup[] = [
+                    'id'             => (int)$f['id'],
+                    'nombre_club'    => (string)$f['nombre_club'],
+                    'email'          => (string)$f['email'],
+                    'federacion'     => (string)$f['federacion'],
+                    'estado_lead'    => (string)$f['estado_lead'],
+                    'persona_contacto' => (string)$f['persona_contacto'],
+                    'n_envios'       => (int)$f['n_envios'],
+                    'ult_envio'      => (string)$f['ult_envio'],
+                    'volumen_estimado' => $f['volumen_estimado'] !== null ? (int)$f['volumen_estimado'] : null,
+                ];
+            }
+        }
+
         // Payload normalizado: expone el array de conversaciones bajo múltiples
         // claves (data, conversaciones) para compatibilidad cruzada con cualquier
         // contrato que el frontend (app.js / Alpine.js) intente leer.
@@ -1257,6 +1293,7 @@ if ($action === 'get_respuestas') {
             'data' => $conversaciones,
             'conversaciones' => $conversaciones,
             'counts_triaje' => $countsTriaje,
+            'leads_followup' => $leadsFollowup,
             'count' => count($conversaciones)
         ], JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
         exit;
