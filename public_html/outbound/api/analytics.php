@@ -96,19 +96,22 @@ function limpiarCuerpoMime(string $cuerpo): string {
  * FALSE y get_respuestas entregara un JSON vacío (Bandeja en blanco).
  * mb_convert_encoding('...', 'UTF-8', 'UTF-8') descarta las secuencias
  * inválidas sustituyéndolas por '?'.
+ * (Guard: plantillas.php también la define para get_templates.)
  */
-function sanearUtf8Recursivo(array &$arr): void
-{
-    foreach ($arr as &$v) {
-        if (is_string($v)) {
-            if ($v !== '' && preg_match('//u', $v) !== 1) {
-                $v = mb_convert_encoding($v, 'UTF-8', 'UTF-8');
+if (!function_exists('sanearUtf8Recursivo')) {
+    function sanearUtf8Recursivo(array &$arr): void
+    {
+        foreach ($arr as &$v) {
+            if (is_string($v)) {
+                if ($v !== '' && preg_match('//u', $v) !== 1) {
+                    $v = mb_convert_encoding($v, 'UTF-8', 'UTF-8');
+                }
+            } elseif (is_array($v)) {
+                sanearUtf8Recursivo($v);
             }
-        } elseif (is_array($v)) {
-            sanearUtf8Recursivo($v);
         }
+        unset($v);
     }
-    unset($v);
 }
 
 // ─── get_last_envios ─────────────────────────────────────────────────────────
