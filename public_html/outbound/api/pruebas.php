@@ -98,3 +98,69 @@ if ($action === 'clear_test_history') {
     }
     exit;
 }
+
+// ─── REPOSITORIO DE ADJUNTOS (Ajustes → Adjuntos) ────────────────────────────
+// Biblioteca de archivos reutilizables (catálogo, tarifas, logos...) que se
+// pueden adjuntar a los emails desde la Bandeja o el modal Atender.
+
+// get_adjuntos_repo — lista los archivos del repositorio (sin el BLOB)
+if ($action === 'get_adjuntos_repo') {
+    header('Content-Type: application/json');
+    $items = [];
+    $res = $db->query("SELECT id, nombre, mime, tamano, creado_el FROM adjuntos_repo ORDER BY id DESC");
+    if ($res) { while ($r = $res->fetchArray(SQLITE3_ASSOC)) $items[] = $r; }
+    echo json_encode(['ok' => true, 'items' => $items]);
+    exit;
+}
+
+// add_adjunto_repo — sube uno o varios archivos al repositorio (input 'adjunto[]')
+if ($action === 'add_adjunto_repo') {
+    header('Content-Type: application/json');
+    try {
+        if (empty($_FILES['adjunto'])) {
+            echo json_encode(['ok' => false, 'error' => 'No se recibió ningún archivo.']);
+            exit;
+        }
+        $f = $_FILES['adjunto'];
+        $names = is_array($f['name'] ?? null) ? $f['name'] : (isset($f['name']) ? [$f['name']] : []);
+        $tmps  = is_array($f['tmp_name'] ?? null) ? $f['tmp_name'] : (isset($f['tmp_name']) ? [$f['tmp_name']] : []);
+        $mimes = is_array($f['type'] ?? null) ? $f['type'] : (isset($f['type']) ? [$f['type']] : []);
+        $errs  = is_array($f['error'] ?? null) ? $f['error'] : (isset($f['error']) ? [$f['error']] : []);
+        $subidos = 0;
+        $total = 0;
+        foreach ($names as $i => $nombre) {
+            if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
+            $tmpP = (string)($tmps[$i] ?? '');
+            if ($tmpP === '' || !is_uploaded_file($tmpP)) continue;
+            $bin = (string)file_get_contents($tmpP);
+            $total += strlen($bin);
+            if ($total > 20 * 1024 * 1024) { // tope 20MB acumulado
+                echo json_encode(['ok' => false, 'error' => 'El total de archivos no puede superar 20 MB.']);
+                exit;
+            }
+            $stmt = $db->prepare(
+                'INSERT INTO adjuntos_repo (nombre, mime, tamano, datos) VALUES (:n, :m, :t, :d)'
+            );
+            $stmt->bindValue(':n', basename((string)$nombre), SQLITE3_TEXT);
+            $stmt->bindValue(':m', (string)($mimes[$i] ?? 'application/octet-stream'), SQLITE3_TEXT);
+            $stmt->bindValue(':t', strlen($bin), SQLITE3_INTEGER);
+            $stmt->bindValue(':d', $bin, SQLITE3_BLOB);
+            $stmt->execute();
+            $subidos++;
+        }
+        echo json_encode(['ok' => true, 'subidos' => $subidos]);
+    } catch (\Exception $e) { echo json_encode(['ok' => false, 'error' => $e->getMessage()]); }
+    exit;
+}
+
+// delete_adjunto_repo — elimina un archivo del repositorio
+if ($action === 'delete_adjunto_repo') {
+    header('Content-Type: application/json');
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) { echo json_encode(['ok' => false, 'error' => 'ID requerido']); exit; }
+        $db->exec("DELETE FROM adjuntos_repo WHERE id = {$id}");
+        echo json_encode(['ok' => true]);
+    } catch (\Exception $e) { echo json_encode(['ok' => false, 'error' => $e->getMessage()]); }
+    exit;
+}

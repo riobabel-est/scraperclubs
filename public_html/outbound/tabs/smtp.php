@@ -1,3 +1,13 @@
+<style>
+  /* CSS de soporte (clases arbitrarias / grid 4-8 no compiladas) */
+  .lg\:grid-cols-12 { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .lg\:col-span-4 { grid-column: span 4 / span 4; }
+  .lg\:col-span-8 { grid-column: span 8 / span 8; }
+  .min-h-\[380px\] { min-height: 380px; }
+  .min-h-\[360px\] { min-height: 360px; }
+  .max-w-\[150px\] { max-width: 150px; }
+  .max-w-\[220px\] { max-width: 220px; }
+</style>
 <div class="space-y-4">
 
     <!-- ═══════════ SUB-TABS DE AJUSTES (estándar CRM: Settings con sub-navegación) ═══════════ -->
@@ -8,6 +18,8 @@
             class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition">📧 Cuentas de correo</button>
         <button @click="ajTab='pruebas'" :class="ajTab === 'pruebas' ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'"
             class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition">🧪 Pruebas</button>
+        <button @click="ajTab='adjuntos'" :class="ajTab === 'adjuntos' ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'"
+            class="px-3 py-1.5 rounded-lg text-sm font-semibold border transition">📎 Adjuntos</button>
     </div>
 
     <!-- ═══════════ PANEL IA ═══════════ -->
@@ -20,74 +32,74 @@
         </div>
 
 
-        <!-- ① CONEXIÓN: proveedor + credenciales + modelo -->
-        <div class="flex items-center gap-2 mb-3">
-            <span class="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 text-xs font-bold flex items-center justify-center border border-violet-500/40">1</span>
-            <h6 class="text-sm font-semibold uppercase tracking-wider text-violet-300">Conexión</h6>
-            <span class="text-xs text-slate-400">proveedor · API key · modelo</span>
-        </div>
-        <!-- Selector de proveedor -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div>
-                <label class="block text-sm font-semibold text-slate-300 mb-1.5">Proveedor de IA</label>
-                <select x-model="proveedor" @change="cambiarProveedor()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="openai">OpenAI (ChatGPT)</option>
-                    <option value="anthropic">Anthropic (Claude)</option>
-                    <option value="google">Google Gemini</option>
-                    <option value="mistral">Mistral AI</option>
-                    <option value="groq">Groq (Llama)</option>
-                </select>
-                <p class="text-xs text-slate-400 mt-1.5">Selecciona el proveedor activo para clasificar respuestas.</p>
-            </div>
+        <!-- Layout 4/8 responsive: Conexión (4) · Reglas de negocio (8) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
 
-            <!-- API Key (toggle mostrar/ocultar robusto: x-ref + data-ia-eye/-off) -->
-            <div>
-                <label class="block text-sm font-semibold text-slate-300 mb-1.5" x-text="'API Key de ' + nombreProveedor"></label>
-                <div class="flex gap-2">
-                    <input type="password" x-model="apiKey" x-ref="iaApiKeyInput" placeholder="sk-..." autocomplete="off"
-                        class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/50">
-                    <button @click="toggleMostrar()" type="button" x-ref="iaToggleBtn"
-                        class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-slate-200 hover:border-slate-600 transition"
-                        :title="mostrar ? 'Ocultar API Key' : 'Mostrar API Key'">
-                        <i data-lucide="eye" data-ia-eye class="w-4 h-4"></i>
-                        <i data-lucide="eye-off" data-ia-eye-off class="w-4 h-4 hidden"></i>
-                    </button>
+            <!-- ① CONEXIÓN (4/12): proveedor + credenciales + modelo -->
+            <div class="lg:col-span-4 space-y-4">
+                <div class="flex items-center gap-2">
+                    <span class="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 text-xs font-bold flex items-center justify-center border border-violet-500/40">1</span>
+                    <h6 class="text-sm font-semibold uppercase tracking-wider text-violet-300">Conexión</h6>
+                    <span class="text-xs text-slate-400">proveedor · API · modelo</span>
                 </div>
-                <p class="text-xs text-slate-400 mt-1.5">Se guarda en la BD de configuración. Nunca se expone en logs ni commits.</p>
-                <p class="text-xs mt-1" :class="apiKey ? 'text-emerald-400' : 'text-amber-400'"
-                   x-text="apiKey ? '✓ API key configurada (' + apiKey.length + ' caracteres)' : '⚠ Sin API key configurada'"></p>
+
+                <!-- Selector de proveedor -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-300 mb-1.5">Proveedor de IA</label>
+                    <select x-model="proveedor" @change="cambiarProveedor()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="openai">OpenAI (ChatGPT)</option>
+                        <option value="anthropic">Anthropic (Claude)</option>
+                        <option value="google">Google Gemini</option>
+                        <option value="mistral">Mistral AI</option>
+                        <option value="groq">Groq (Llama)</option>
+                    </select>
+                    <p class="text-xs text-slate-400 mt-1.5">Selecciona el proveedor activo para clasificar respuestas.</p>
+                </div>
+
+                <!-- API Key (toggle mostrar/ocultar robusto: x-ref + data-ia-eye/-off) -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-300 mb-1.5" x-text="'API Key de ' + nombreProveedor"></label>
+                    <div class="flex gap-2">
+                        <input type="password" x-model="apiKey" x-ref="iaApiKeyInput" placeholder="sk-..." autocomplete="off"
+                            class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/50">
+                        <button @click="toggleMostrar()" type="button" x-ref="iaToggleBtn"
+                            class="shrink-0 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-slate-200 hover:border-slate-600 transition"
+                            :title="mostrar ? 'Ocultar API Key' : 'Mostrar API Key'">
+                            <i data-lucide="eye" data-ia-eye class="w-4 h-4"></i>
+                            <i data-lucide="eye-off" data-ia-eye-off class="w-4 h-4 hidden"></i>
+                        </button>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1.5">Se guarda en la BD de configuración. Nunca se expone en logs ni commits.</p>
+                    <p class="text-xs mt-1" :class="apiKey ? 'text-emerald-400' : 'text-amber-400'"
+                       x-text="apiKey ? '✓ API key configurada (' + apiKey.length + ' caracteres)' : '⚠ Sin API key configurada'"></p>
+                </div>
+
+                <!-- Modelo -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-300 mb-1.5">Modelo / Versión</label>
+                    <select x-model="modelo" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
+                        <template x-for="m in modelosDisponibles" :key="m.value">
+                            <option :value="m.value" x-text="m.label"></option>
+                        </template>
+                    </select>
+                    <p class="text-xs text-slate-400 mt-1.5" x-text="notaModelo"></p>
+                </div>
             </div>
 
-            <!-- Modelo -->
-            <div>
-                <label class="block text-sm font-semibold text-slate-300 mb-1.5">Modelo / Versión</label>
-                <select x-model="modelo" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50">
-                    <template x-for="m in modelosDisponibles" :key="m.value">
-                        <option :value="m.value" x-text="m.label"></option>
-                    </template>
-                </select>
-                <p class="text-xs text-slate-400 mt-1.5" x-text="notaModelo"></p>
+            <!-- ② REGLAS DE NEGOCIO (8/12): lo que la IA debe saber al redactar -->
+            <div class="lg:col-span-8">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 text-xs font-bold flex items-center justify-center border border-violet-500/40">2</span>
+                    <h6 class="text-sm font-semibold uppercase tracking-wider text-violet-300">Reglas de negocio</h6>
+                    <span class="text-xs text-slate-400">producto · precios · flujo de venta · tono · firma</span>
+                </div>
+                <label class="block text-sm font-semibold text-slate-300 mb-1.5">🧠 Reglas de negocio para la IA (Conocimiento de producto)</label>
+                <textarea x-model="conocimientoProducto" rows="16"
+                    placeholder="Añade, quita o edita aquí cualquier regla que la IA deba cumplir al redactar:&#10;· Producto (qué es, para quién, características)&#10;· Precios y pedido mínimo&#10;· Flujo de venta (p.ej. solicitar el escudo y los colores del club ANTES de ofrecer un mockup)&#10;· Tono y objeciones&#10;· La firma&#10;&#10;Todo se inyecta en el prompt de los asistentes IA."
+                    class="w-full min-h-[380px] bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/50"></textarea>
+                <p class="text-xs text-slate-400 mt-1.5">Panel de reglas: modifica, añade o borra cualquier línea (producto, precios, flujo de venta, tono, firma). Se inyecta tal cual en el prompt de la IA. Guarda con el botón de abajo.</p>
             </div>
-        </div>
-
-        <!-- 🧠 REGLAS DE NEGOCIO DE LA IA (Conocimiento de producto) — panel controlado
-             Aquí se añaden, quitan o editan las reglas que la IA debe cumplir al
-             redactar (producto, precios, flujo de venta, tono, firma). Se inyecta
-             en el prompt de todos los asistentes (Atender, análisis IA, propuestas). -->
-        <!-- ② REGLAS DE NEGOCIO: lo que la IA debe saber al redactar -->
-        <div class="border-t border-violet-500/20 pt-4 mt-4 mb-3">
-            <div class="flex items-center gap-2">
-                <span class="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 text-xs font-bold flex items-center justify-center border border-violet-500/40">2</span>
-                <h6 class="text-sm font-semibold uppercase tracking-wider text-violet-300">Reglas de negocio</h6>
-                <span class="text-xs text-slate-400">producto · precios · flujo de venta · tono · firma</span>
-            </div>
-        </div>
-        <div class="mb-4">
-            <label class="block text-sm font-semibold text-slate-300 mb-1.5">🧠 Reglas de negocio para la IA (Conocimiento de producto)</label>
-            <textarea x-model="conocimientoProducto" rows="16" placeholder="Añade, quita o edita aquí cualquier regla que la IA deba cumplir al redactar:&#10;· Producto (qué es, para quién, características)&#10;· Precios y pedido mínimo&#10;· Flujo de venta (p.ej. solicitar el escudo y los colores del club ANTES de ofrecer un mockup)&#10;· Tono y objeciones&#10;· La firma&#10;&#10;Todo se inyecta en el prompt de los asistentes IA."
-                class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/50"></textarea>
-            <p class="text-xs text-slate-400 mt-1.5">Panel de reglas: modifica, añade o borra cualquier línea (producto, precios, flujo de venta, tono, firma). Se inyecta tal cual en el prompt de la IA. Guarda con el botón de abajo.</p>
         </div>
 
         <div class="flex items-center justify-end gap-3 mt-4 pt-3 border-t border-slate-800">
@@ -176,6 +188,54 @@
             </table>
         </div>
         <p class="text-xs text-slate-400 mt-3">💡 El histórico de pruebas y los leads TEST se gestionan desde la <b>Lanzadera</b>, donde se realizan los envíos de prueba.</p>
+    </div>
+
+    <!-- ═══════════ ADJUNTOS REUTILIZABLES (biblioteca para los emails) ═══════════ -->
+    <div x-show="ajTab === 'adjuntos'" class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="adjuntosRepo()" x-init="cargar()">
+        <div class="flex items-center gap-3 mb-4">
+            <i data-lucide="paperclip" class="w-5 h-5 text-sky-400"></i>
+            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Adjuntos reutilizables</h5>
+            <span class="text-xs text-slate-400 ml-auto" x-text="'Total: ' + archivos.length"></span>
+        </div>
+        <p class="text-xs text-slate-400 mb-3">Biblioteca de archivos (catálogo, tarifas, logos…) listos para adjuntar en tus emails desde la <b>Bandeja</b> y el modal <b>Atender</b>.</p>
+        <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-500/15 text-sky-400 border border-sky-500/30 rounded-lg text-sm font-semibold hover:bg-sky-500/25 transition cursor-pointer mb-4">
+            <i data-lucide="upload" class="w-4 h-4"></i> Subir archivo
+            <input type="file" multiple class="hidden" @change="subir($event)" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.zip,.txt">
+        </label>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-slate-800/50 text-slate-300 text-xs uppercase tracking-wider">
+                        <th class="px-3 py-2 text-left font-semibold">Archivo</th>
+                        <th class="px-3 py-2 text-left hidden sm:table-cell font-semibold">Tipo</th>
+                        <th class="px-3 py-2 text-right font-semibold">Tamaño</th>
+                        <th class="px-3 py-2 text-right font-semibold">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="a in archivos" :key="a.id">
+                        <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                            <td class="px-3 py-2">
+                                <a :href="'api/adjunto.php?tipo=repo&id=' + a.id" target="_blank" rel="noopener"
+                                   class="text-sky-400 hover:text-sky-300 font-semibold inline-flex items-center gap-1.5">
+                                    📎 <span class="truncate max-w-[220px]" x-text="a.nombre"></span>
+                                </a>
+                            </td>
+                            <td class="px-3 py-2 text-slate-400 hidden sm:table-cell" x-text="a.mime"></td>
+                            <td class="px-3 py-2 text-right text-slate-400" x-text="(a.tamano/1024).toFixed(1) + ' KB'"></td>
+                            <td class="px-3 py-2 text-right">
+                                <button @click="eliminar(a.id)" class="text-rose-400 hover:text-rose-300 transition" title="Eliminar">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="archivos.length === 0">
+                        <td colspan="4" class="px-3 py-6 text-center text-slate-400">Sin archivos en el repositorio.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
 </div>
@@ -386,6 +446,45 @@ function gestionPruebas() {
             } else {
                 alert(j.error || 'Error al limpiar histórico');
             }
+        }
+    };
+}
+
+// ─── Repositorio de adjuntos reutilizables (Ajustes → Adjuntos) ─────────────
+function adjuntosRepo() {
+    return {
+        archivos: [],
+        async cargar() {
+            try {
+                const r = await fetch('?action=get_adjuntos_repo');
+                const j = await r.json();
+                this.archivos = (j && j.ok) ? j.items : [];
+                if (window.lucide) lucide.createIcons();
+            } catch (e) { this.archivos = []; }
+        },
+        async subir(ev) {
+            const files = ev && ev.target ? Array.from(ev.target.files || []) : [];
+            if (!files.length) return;
+            const fd = new FormData();
+            fd.append('action', 'add_adjunto_repo');
+            for (const f of files) fd.append('adjunto[]', f, f.name);
+            try {
+                const r = await fetch('?action=add_adjunto_repo', { method: 'POST', body: fd });
+                const j = await r.json();
+                if (j.ok) await this.cargar();
+                else alert(j.error || 'Error al subir el archivo');
+            } catch (e) { alert('Error de conexión al subir el archivo'); }
+            if (ev.target) ev.target.value = '';
+        },
+        async eliminar(id) {
+            if (!confirm('¿Eliminar este archivo del repositorio? Los emails ya enviados no se ven afectados.')) return;
+            const body = new URLSearchParams({ action: 'delete_adjunto_repo', id });
+            try {
+                const r = await fetch('?action=delete_adjunto_repo', { method: 'POST', body });
+                const j = await r.json();
+                if (j.ok) await this.cargar();
+                else alert(j.error || 'Error al eliminar');
+            } catch (e) { alert('Error de conexión'); }
         }
     };
 }

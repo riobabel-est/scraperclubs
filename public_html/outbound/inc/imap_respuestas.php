@@ -1158,6 +1158,20 @@ function imap_asegurar_esquema(SQLite3 $db): void
     ");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_ea_envio ON envios_adjuntos(envio_id)");
 
+    // ─── Repositorio de adjuntos reutilizables (Ajustes → Adjuntos, 2026-08-28) ───
+    // Biblioteca de archivos (catálogo, tarifas, logos, plantillas PDF...) que el
+    // comercial puede adjuntar a los emails desde la Bandeja o el modal Atender.
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS adjuntos_repo (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+            tamano INTEGER NOT NULL DEFAULT 0,
+            datos BLOB NOT NULL,
+            creado_el TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    ");
+
     // ─── Análisis IA del lead (AI Command Center, 2026-08-27) ───
     // Guarda el resumen ejecutivo de la conversación + intención comercial con
     // confianza + próxima acción sugerida por la IA. Evita re-llamar al LLM.

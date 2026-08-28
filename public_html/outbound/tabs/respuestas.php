@@ -21,6 +21,7 @@
   .max-w-\[85\%\] { max-width: 85%; }
   /* Ancho mínimo del selector de plantilla */
   .min-w-\[200px\] { min-width: 200px; }
+  .max-w-\[220px\] { max-width: 220px; }
 </style>
 <div class="flex flex-col gap-4 h-[calc(100vh-120px)] min-h-[480px]">
 
@@ -277,6 +278,13 @@
               <input type="file" multiple class="hidden" @change="rsAdjuntarArchivos($event)"
                      accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.zip,.txt">
             </label>
+            <select @change="rsAgregarRepoAdjunto($event)"
+                    class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:border-sky-500/50 focus:outline-none max-w-[220px]">
+              <option value="">📚 Del repositorio…</option>
+              <template x-for="ra in rsRepoAdjuntos" :key="'repo' + ra.id">
+                <option :value="ra.id" x-text="ra.nombre"></option>
+              </template>
+            </select>
             <template x-for="(a, i) in (rsAdjuntos || [])" :key="'rsadj' + i">
               <span class="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300">
                 📎 <span class="truncate max-w-[150px]" x-text="a.name"></span>

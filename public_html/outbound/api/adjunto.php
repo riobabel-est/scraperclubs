@@ -30,10 +30,11 @@ if ($id <= 0) {
     exit;
 }
 
-// 'respuesta' (respuestas_adjuntos, correos entrantes) o 'envio'
-// (envios_adjuntos, adjuntos de respuestas salientes).
+// 'respuesta' (respuestas_adjuntos, correos entrantes), 'envio'
+// (envios_adjuntos, adjuntos de respuestas salientes) o 'repo'
+// (adjuntos_repo, biblioteca reutilizable de Ajustes → Adjuntos).
 $tipo = (string)($_GET['tipo'] ?? 'respuesta');
-$tabla = ($tipo === 'envio') ? 'envios_adjuntos' : 'respuestas_adjuntos';
+$tabla = ($tipo === 'envio') ? 'envios_adjuntos' : (($tipo === 'repo') ? 'adjuntos_repo' : 'respuestas_adjuntos');
 $row = $db->querySingle(
     "SELECT nombre, mime, tamano, datos FROM {$tabla} WHERE id = {$id}",
     true

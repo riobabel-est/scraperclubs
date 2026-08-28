@@ -53,8 +53,11 @@ var app = function() {
         passConfirmar: '',
         resetEmail: '',
         // Sub-tabs internos de las pestañas de configuración (UX moderna).
-        ajTab: 'ia',      // Ajustes: ia | cuentas | pruebas
+        ajTab: 'ia',      // Ajustes: ia | cuentas | pruebas | adjuntos
         edTab: 'plantillas', // Plantillas y Campañas: plantillas | campanas | secuencias
+        // Repositorio de adjuntos reutilizables (Ajustes → Adjuntos).
+        rsRepoAdjuntos: [],
+        atencionRepoAdjuntos: [],
 
         // Tab Inicio
         inicio: { kpis: { pendientes_hoy: 0, respuestas_sin_atender: 0, mockups_pendientes: 0, proformas_por_presentar: 0, acciones_vencidas: 0 }, acciones: [], conseguir: [], bandeja: [], vencidas: [], horas: [] },
@@ -406,6 +409,8 @@ var app = function() {
             try { await this.loadMockupCapacity(); } catch (e) { console.error('boot: loadMockupCapacity falló', e); }
             // Perfil del usuario (identidad del header, se carga siempre).
             try { await this.perfilCargar(); } catch (e) { console.error('boot: perfilCargar falló', e); }
+            // Repositorio de adjuntos reutilizables (Ajustes → Adjuntos).
+            try { await this.cargarRepoAdjuntos(); } catch (e) { console.error('boot: cargarRepoAdjuntos falló', e); }
         },
 
         // ─── Mi cuenta y seguridad (perfil del header) ─────────────────────────
@@ -468,6 +473,48 @@ var app = function() {
                 this.perfilMsg = j.message || (j.ok ? 'Email actualizado.' : 'Error al guardar el email.');
                 this.perfilMsgOk = !!j.ok;
             } catch (e) { this.perfilMsg = 'Error de conexión.'; this.perfilMsgOk = false; }
+        },
+
+        // ─── Repositorio de adjuntos (Ajustes → Adjuntos) ───────────────────────
+        async cargarRepoAdjuntos() {
+            try {
+                const r = await fetch('?action=get_adjuntos_repo');
+                const j = await r.json();
+                if (j && j.ok && Array.isArray(j.items)) {
+                    this.rsRepoAdjuntos = j.items;
+                    this.atencionRepoAdjuntos = j.items;
+                }
+            } catch (e) { /* silencioso */ }
+        },
+        // Bandeja: añade un archivo del repositorio a los adjuntos de la respuesta.
+        async rsAgregarRepoAdjunto(ev) {
+            const id = ev && ev.target ? ev.target.value : '';
+            if (ev.target) ev.target.value = '';
+            if (!id) return;
+            const item = (this.rsRepoAdjuntos || []).find(x => String(x.id) === String(id));
+            if (!item) return;
+            try {
+                const r = await fetch('api/adjunto.php?tipo=repo&id=' + id);
+                if (!r.ok) { this.rsEnvioMsg = 'No se pudo cargar el archivo del repositorio.'; this.rsEnvioMsgOk = false; return; }
+                const blob = await r.blob();
+                const file = new File([blob], item.nombre, { type: item.mime || 'application/octet-stream' });
+                this.rsAdjuntos.push(file);
+            } catch (e) { this.rsEnvioMsg = 'Error al cargar el archivo del repositorio.'; this.rsEnvioMsgOk = false; }
+        },
+        // Modal Atender: añade un archivo del repositorio a los adjuntos del envío.
+        async atencionAgregarRepoAdjunto(ev) {
+            const id = ev && ev.target ? ev.target.value : '';
+            if (ev.target) ev.target.value = '';
+            if (!id) return;
+            const item = (this.atencionRepoAdjuntos || []).find(x => String(x.id) === String(id));
+            if (!item) return;
+            try {
+                const r = await fetch('api/adjunto.php?tipo=repo&id=' + id);
+                if (!r.ok) { this.atencionMsg = 'No se pudo cargar el archivo del repositorio.'; this.atencionMsgTipo = 'error'; return; }
+                const blob = await r.blob();
+                const file = new File([blob], item.nombre, { type: item.mime || 'application/octet-stream' });
+                this.atencionAdjuntos.push(file);
+            } catch (e) { this.atencionMsg = 'Error al cargar el archivo del repositorio.'; this.atencionMsgTipo = 'error'; }
         },
 
         // ─── Notificador global de background ────────────────────────────────
@@ -2652,6 +2699,10 @@ var app = function() {
         perfilGuardar: function () {},
         perfilCambiarPass: function () {},
         perfilGuardarEmail: function () {},
+        // Repositorio de adjuntos
+        cargarRepoAdjuntos: function () {},
+        rsAgregarRepoAdjunto: function () {},
+        atencionAgregarRepoAdjunto: function () {},
         // Métodos de Lista Negra
         blBuscar: function () {},
         blAgregar: function () {},

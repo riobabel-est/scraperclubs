@@ -13,6 +13,7 @@
   .min-w-\[220px\] { min-width: 220px; }
   .min-w-\[200px\] { min-width: 200px; }
   .max-w-\[150px\] { max-width: 150px; }
+  .max-w-\[220px\] { max-width: 220px; }
   @media (min-width: 1024px) {
     .lg\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .lg\:border-b-0 { border-bottom-width: 0; }
@@ -323,6 +324,13 @@
                 <input type="file" multiple class="hidden" @change="atencionAdjuntarArchivos($event)"
                        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.zip,.txt">
               </label>
+              <select @change="atencionAgregarRepoAdjunto($event)"
+                      class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:border-sky-500/50 focus:outline-none max-w-[220px]">
+                <option value="">📚 Del repositorio…</option>
+                <template x-for="ra in atencionRepoAdjuntos" :key="'arepo' + ra.id">
+                  <option :value="ra.id" x-text="ra.nombre"></option>
+                </template>
+              </select>
               <template x-for="(a, i) in (atencionAdjuntos || [])" :key="'aat' + i">
                 <span class="inline-flex items-center gap-1 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-300">
                   📎 <span class="truncate max-w-[150px]" x-text="a.name"></span>
