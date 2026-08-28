@@ -1136,59 +1136,6 @@ if ($action === 'actualizar_estado_lead') {
     exit;
 }
 
-// ─── enviar_respuesta_smtp (UNIBOX UI) ───────────────────────────────────────
-// Envía una respuesta SMTP al lead usando la cuenta correspondiente al envío
-// original (o la primera cuenta SMTP activa como fallback).
-if ($action === 'enviar_respuesta_smtp') {
-    header('Content-Type: application/json');
-    $leadId = (int)($_POST['lead_id'] ?? 0);
-    $emailDestino = trim($_POST['email'] ?? '');
-    $asunto = trim($_POST['asunto'] ?? 'Re: ' . ($_POST['asunto_original'] ?? ''));
-    $cuerpo = trim($_POST['cuerpo'] ?? '');
-    $respuestaId = (int)($_POST['respuesta_id'] ?? 0);
-
-    if ($emailDestino === '' || $cuerpo === '') {
-        echo json_encode(['ok' => false, 'error' => 'email y cuerpo son requeridos']);
-        exit;
-    }
-    if (!filter_var($emailDestino, FILTER_VALIDATE_EMAIL)) {
-        echo json_encode(['ok' => false, 'error' => 'email destino no válido']);
-        exit;
-    }
-
-    // Determinar la cuenta SMTP de emisión: preferentemente la del envío original.
-    $cuenta = null;
-    if ($respuestaId > 0) {
-        $cuenta = $db->querySingle(
-            "SELECT e.cuenta_emision FROM respuestas r LEFT JOIN envios e ON e.id = r.envio_id WHERE r.id = {$respuestaId}",
-            true
-        );
-    }
-    $cuentaEmision = $cuenta['cuenta_emision'] ?? '';
-
-    // Fallback: primera cuenta SMTP activa.
-    if ($cuentaEmision === '') {
-        $cuentaEmision = (string)$db->querySingle("SELECT email FROM cuentas_smtp WHERE activa = 1 ORDER BY id ASC LIMIT 1");
-    }
-
-    // Registrar el envío en la tabla envios (mismo esquema que el launcher).
-    $asuntoEsc = $db->escapeString($asunto);
-    $cuerpoEsc = $db->escapeString($cuerpo);
-    $emailEsc = $db->escapeString($emailDestino);
-    $cuentaEsc = $db->escapeString($cuentaEmision);
-    $tracking = 'trk_' . bin2hex(random_bytes(8));
-    $db->exec("INSERT INTO envios (club, email, cuenta_emision, asunto, cuerpo_mensaje, estado, fecha_envio, tracking_id, lead_id, es_test)
-               VALUES ('', '{$emailEsc}', '{$cuentaEsc}', '{$asuntoEsc}', '{$cuerpoEsc}', 'enviado', datetime('now'), '{$tracking}', {$leadId}, 0)");
-
-    echo json_encode([
-        'ok' => true,
-        'mensaje' => 'Respuesta registrada y encolada para envío SMTP',
-        'tracking_id' => $tracking,
-        'cuenta_emision' => $cuentaEmision,
-    ]);
-    exit;
-}
-
 // ─── get_piloto_metricas (FASE 5B) ──────────────────────────────────────────
 
 if ($action === 'get_piloto_metricas') {
