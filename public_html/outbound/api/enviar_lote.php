@@ -234,17 +234,46 @@ try {
 
     $replacements = [
         '{{CLUB}}'         => $nombreClub,
-        '{{CONTACTO}}'      => $contacto,
-        '{{FEDERACION}}'    => $federacion,
-        '{{ANIO}}'          => date('Y'),
-        '{{EMAIL}}'         => $emailClub,
-        '{{SENDER_NAME}}'   => $senderName,
-        '{{SENDER_TITLE}}'  => $senderTitle,
-        '{{SENDER_EMAIL}}'  => $senderEmail,
+        '{[CLUB]}'         => $nombreClub,
+        '[[CLUB]]'         => $nombreClub,
+        '{{CONTACTO}}'     => $contacto,
+        '{[CONTACTO]}'     => $contacto,
+        '[[CONTACTO]]'     => $contacto,
+        '{{FEDERACION}}'   => $federacion,
+        '{[FEDERACION]}'   => $federacion,
+        '[[FEDERACION]]'   => $federacion,
+        '{{ANIO}}'         => date('Y'),
+        '{[ANIO]}'         => date('Y'),
+        '[[ANIO]]'         => date('Y'),
+        '{{EMAIL}}'        => $emailClub,
+        '{[EMAIL]}'        => $emailClub,
+        '[[EMAIL]]'        => $emailClub,
+        '{{SENDER_NAME}}'  => $senderName,
+        '{[SENDER_NAME]}'  => $senderName,
+        '[[SENDER_NAME]]'  => $senderName,
+        '{{SENDER_TITLE}}' => $senderTitle,
+        '{[SENDER_TITLE]}' => $senderTitle,
+        '[[SENDER_TITLE]]' => $senderTitle,
+        '{{SENDER_EMAIL}}' => $senderEmail,
+        '{[SENDER_EMAIL]}' => $senderEmail,
+        '[[SENDER_EMAIL]]' => $senderEmail,
     ];
 
     $asunto = str_replace(array_keys($replacements), array_values($replacements), $asuntoTpl);
     $cuerpo = str_replace(array_keys($replacements), array_values($replacements), $cuerpoTpl);
+
+    // RED DE SEGURIDAD anti-spam: NUNCA dejar un placeholder sin resolver en
+    // asunto/cuerpo ({{…}}, {[…]} o [[…]]) — son señal de plantilla sin procesar
+    // y los filtros (p.ej. SpamExperts de riobabel) descartan el correo.
+    $patronPlaceholders = '/\{\{[^}]*\}\}|\{\[[^\]]*\]\}|\[\[[^\]]*\]\]/';
+    $asunto = trim((string)preg_replace($patronPlaceholders, '', $asunto));
+    $asunto = trim((string)preg_replace('/\s+/', ' ', $asunto));          // espacios múltiples
+    $asunto = trim((string)preg_replace('/^\s*[-,;:.]+\s*/', '', $asunto)); // separadores residuales al inicio
+    $cuerpo = (string)preg_replace($patronPlaceholders, '', $cuerpo);
+    // Evitar asuntos vacíos tras la limpieza (fallback comercial seguro).
+    if ($asunto === '') {
+        $asunto = 'Espinilleras personalizadas - ' . $nombreClub;
+    }
 
     // Generar tracking_id único para el píxel de seguimiento
     $trackingId = 'fut_' . dechex(time()) . '_' . bin2hex(random_bytes(6));

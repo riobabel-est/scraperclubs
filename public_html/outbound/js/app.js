@@ -2209,14 +2209,22 @@ var app = function() {
             f.append('action', 'enviar_respuesta_smtp');
             f.append('lead_id', this.rsSeleccion.lead_id || '');
             f.append('email', this.rsSeleccion.email || this.rsSeleccion.remitente || '');
-            f.append('cuerpo', this.rsRedaccion);
             // Asunto de la respuesta: si no hay IA/plantilla, "Re: <asunto original>"
-            // pero limpiando placeholders sin resolver ({{\u2026}}) y evitando "Re:" vacío.
+            // pero limpiando placeholders sin resolver ({{…}}, {[…]} o [[…]]) y
+            // evitando "Re:" vacío (los placeholders sin resolver activan filtros
+            // anti-spam como el de riobabel y el correo no llega).
             const asuntoBase = String(this.rsSeleccion.subject || this.rsSeleccion.asunto_envio || '')
                 .replace(/\{\{[^}]+\}\}/g, '')
+                .replace(/\{\[[^\]]+\]\}/g, '')
+                .replace(/\[\[[^\]]+\]\]/g, '')
                 .replace(/\s+/g, ' ')
                 .trim();
             f.append('asunto', this.rsAsuntoResp || ('Re: ' + (asuntoBase || 'Espinilleras personalizadas')));
+            // Cuerpo: limpiar cualquier placeholder residual antes de enviar.
+            f.append('cuerpo', String(this.rsRedaccion)
+                .replace(/\{\{[^}]+\}\}/g, '')
+                .replace(/\{\[[^\]]+\]\}/g, '')
+                .replace(/\[\[[^\]]+\]\]/g, ''));
             f.append('envio_id', this.rsSeleccion.envio_id || '');
             // Adjuntos seleccionados (archivos locales) → multipart/mixed.
             for (const a of (this.rsAdjuntos || [])) {
