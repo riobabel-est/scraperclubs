@@ -2111,6 +2111,19 @@ var app = function() {
                 }
             } catch (e) { console.error('clasificarRespuesta:', e); }
         },
+        // Etiqueta en español para los botones de clasificación rápida del hilo
+        // (coherente con los badges de intención del resto de la UI).
+        rsClasBotonLabel(c) {
+            const mapa = {
+                PENDING: 'Sin clasificar',
+                POSITIVE: 'Solicita muestra',
+                NEGATIVE: 'No interesa',
+                NEUTRAL: 'Neutral',
+                UNSUBSCRIBE: 'Baja',
+                OOO: 'Fuera de oficina',
+            };
+            return mapa[c] || c || '—';
+        },
         // Helpers de presentación para la bandeja de conversaciones
         rsClasLabel(clas) {
             const mapa = { POSITIVE: 'Positiva', NEGATIVE: 'Rebote', UNSUBSCRIBE: 'Baja', OOO: 'Fuera de oficina', NEUTRAL: 'Automática', PENDING: 'Pendiente' };
@@ -2852,6 +2865,7 @@ var app = function() {
         rsSeleccionar: function () {},
         rsEnviarRespuesta: function () {},
         rsCerrarVisor: function () {},
+        rsClasBotonLabel: function () { return ''; },
         rsCargarTemplates: function () {},
         rsAdjuntarArchivos: function () {},
         rsQuitarAdjunto: function () {},

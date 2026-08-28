@@ -255,11 +255,12 @@
                 <div x-if="m.sentido !== 'saliente'" class="mt-2 flex items-center gap-1 flex-wrap">
                   <template x-for="c in ['PENDING','POSITIVE','NEGATIVE','NEUTRAL','UNSUBSCRIBE','OOO']" :key="c">
                     <button @click="clasificarRespuesta(m.id, c)"
+                      :title="'Clasificar como ' + c"
                       class="px-2 py-0.5 rounded text-xs font-semibold transition border"
                       :class="m.clasificacion === c
                         ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
                         : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700 hover:text-slate-300'"
-                      x-text="c"></button>
+                      x-text="rsClasBotonLabel(c)"></button>
                   </template>
                 </div>
               </div>
