@@ -899,6 +899,21 @@ if ($action === 'sync_respuestas') {
         $resumen[] = 'Backfill cuerpos: error (' . $e->getMessage() . ')';
     }
 
+    // BACKFILL DE ADJUNTOS: mensajes entrantes que no tienen adjuntos registrados
+    // (importados en modo ligero o antes de existir la tabla). Se re-descarga el
+    // mensaje por UID y se registran los adjuntos en respuestas_adjuntos para que
+    // aparezcan en el visor de la Bandeja.
+    try {
+        $backfillAdj = imap_backfill_adjuntos($db, 100);
+        if ($backfillAdj['insertados'] > 0) {
+            $resumen[] = 'Adjuntos recuperados: ' . $backfillAdj['insertados'] . ' (' . $backfillAdj['con_adjuntos'] . ' correos)';
+        } elseif ($backfillAdj['procesados'] > 0 && $backfillAdj['con_adjuntos'] === 0) {
+            $resumen[] = 'Adjuntos: ' . $backfillAdj['procesados'] . ' correos revisados sin adjuntos';
+        }
+    } catch (\Throwable $e) {
+        $resumen[] = 'Backfill adjuntos: error (' . $e->getMessage() . ')';
+    }
+
     echo json_encode(['ok' => true, 'resumen' => $resumen]);
     exit;
 }

@@ -514,6 +514,15 @@ function imap_extraer_cuerpo_partes(string $raw): array
                 && !preg_match('/content-id/i', $cabLower)) {
                 // Parte binaria sin disposition explícita (imagen, etc.) → adjunto
                 $adjuntos[] = imap_armar_adjunto($cab, $data, 'adjunto_' . (count($adjuntos) + 1) . '.bin');
+            } elseif (preg_match('/content-id/i', $cabLower)) {
+                // Imagen embebida en el HTML (fotos del club incrustadas). Se guarda
+                // como adjunto SOLO si no es diminuta (logos/firmas suelen ser < 12 KB).
+                if (preg_match('/content-type:\s*image\/(png|jpe?g|gif|webp)/i', $cab)) {
+                    $datosEmb = imap_decodificar_parte($cab, $data);
+                    if (strlen($datosEmb) >= 12 * 1024) {
+                        $adjuntos[] = imap_armar_adjunto($cab, $data, 'imagen_adjunta_' . (count($adjuntos) + 1) . '.png');
+                    }
+                }
             }
         }
     } else {
@@ -547,6 +556,11 @@ function imap_armar_adjunto(string $cab, string $data, string $nombre): array
     $mime = 'application/octet-stream';
     if (preg_match('/content-type:\s*([^;\r\n]+)/i', $cab, $mMime)) {
         $mime = trim($mMime[1]);
+    }
+    // Si el nombre es genérico (adjunto_N.bin) y el Content-Type trae `name=`,
+    // usar ese nombre real (Gmail/Outlook a veces no envían Content-Disposition).
+    if (preg_match('/name=\s*"?([^";\r\n]+)"?/i', $cab, $mName) && trim((string)($mName[1] ?? '')) !== '') {
+        $nombre = trim($mName[1]);
     }
     return [
         'nombre' => basename($nombre),
@@ -1965,6 +1979,96 @@ function imap_backfill_cuerpos(SQLite3 $db, int $limite = 200): array
                                 $stmtA->bindValue(':tam', strlen($dA), SQLITE3_INTEGER);
                                 $stmtA->bindValue(':datos', $dA, SQLITE3_BLOB);
                                 $stmtA->execute();
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        $stats['errores']++;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $stats['errores'] += count($respuestas);
+        } finally {
+            try { $imap->cerrar(); } catch (\Throwable $ign) {}
+        }
+    }
+
+    return $stats;
+}
+
+
+/**
+ * BACKFILL DE ADJUNTOS: recupera los adjuntos de las respuestas entrantes que
+ * no tienen NINGÚN adjunto registrado (importadas en modo ligero del dashboard
+ * o antes de existir la tabla). Re-descarga el mensaje RAW por UID, re-parsea
+ * las partes MIME y registra los adjuntos en respuestas_adjuntos.
+ *
+ * @return array{procesados:int, con_adjuntos:int, insertados:int, sin_uid:int, errores:int}
+ */
+function imap_backfill_adjuntos(SQLite3 $db, int $limite = 100): array
+{
+    $stats = ['procesados' => 0, 'con_adjuntos' => 0, 'insertados' => 0, 'sin_uid' => 0, 'errores' => 0];
+    $res = $db->query(
+        "SELECT id, uid_imap, destinatario, remitente, subject FROM respuestas
+         WHERE uid_imap IS NOT NULL AND uid_imap != ''
+           AND NOT EXISTS (SELECT 1 FROM respuestas_adjuntos ra WHERE ra.respuesta_id = respuestas.id)
+         ORDER BY id DESC LIMIT {$limite}"
+    );
+    $filas = [];
+    if ($res) { while ($x = $res->fetchArray(SQLITE3_ASSOC)) $filas[] = $x; }
+    if (empty($filas)) return $stats;
+
+    // Agrupar por cuenta (destinatario = email FutProtec que recibió).
+    $porCuenta = [];
+    foreach ($filas as $f) {
+        $cuentaEmail = strtolower(trim((string)($f['destinatario'] ?? '')));
+        $porCuenta[$cuentaEmail][] = $f;
+    }
+
+    foreach ($porCuenta as $cuentaEmail => $respuestas) {
+        $cuenta = $db->querySingle(
+            "SELECT * FROM cuentas_smtp WHERE LOWER(email) = '" . $db->escapeString($cuentaEmail) . "' AND activa = 1 LIMIT 1",
+            true
+        );
+        if (!$cuenta) {
+            $stats['sin_uid'] += count($respuestas);
+            continue;
+        }
+        $imap = new ClienteIMAP($GLOBALS['IMAP_HOST'], $GLOBALS['IMAP_PORT']);
+        try {
+            $imap->conectar($cuenta['usuario'], futprotec_descifrarPassword($cuenta['password'] ?? ''));
+            foreach ($GLOBALS['CARPETAS_AUDITAR'] as $carpeta) {
+                try {
+                    $imap->seleccionar($carpeta);
+                } catch (\Throwable $e) {
+                    continue;
+                }
+                foreach ($respuestas as $r) {
+                    $uid = trim((string)($r['uid_imap'] ?? ''));
+                    if ($uid === '') continue;
+                    $stats['procesados']++;
+                    try {
+                        $raw = $imap->fetchCuerpoPorUID($uid);
+                        if (trim($raw) === '') continue;
+                        $parsedRaw = imap_parsear_mensaje($raw);
+                        $cuerpoParte = $parsedRaw['cuerpo'] ?? $raw;
+                        $partes = imap_extraer_cuerpo_partes((string)$cuerpoParte);
+                        if (!empty($partes['adjuntos'])) {
+                            $stats['con_adjuntos']++;
+                            foreach ($partes['adjuntos'] as $adj) {
+                                $dA = (string)($adj['datos'] ?? '');
+                                if ($dA === '') continue;
+                                $stmtA = $db->prepare(
+                                    "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos)
+                                     VALUES (:rid, :nombre, :mime, :tam, :datos)"
+                                );
+                                $stmtA->bindValue(':rid', (int)$r['id'], SQLITE3_INTEGER);
+                                $stmtA->bindValue(':nombre', (string)($adj['nombre'] ?? 'adjunto'), SQLITE3_TEXT);
+                                $stmtA->bindValue(':mime', (string)($adj['mime'] ?? 'application/octet-stream'), SQLITE3_TEXT);
+                                $stmtA->bindValue(':tam', strlen($dA), SQLITE3_INTEGER);
+                                $stmtA->bindValue(':datos', $dA, SQLITE3_BLOB);
+                                $stmtA->execute();
+                                $stats['insertados']++;
                             }
                         }
                     } catch (\Throwable $e) {
