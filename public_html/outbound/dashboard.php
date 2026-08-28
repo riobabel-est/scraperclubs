@@ -1217,9 +1217,11 @@ $db->close();
 
         /* ── CSS de soporte (clases arbitrarias Tailwind no compiladas) ───── */
         .top-\[46px\] { top: 46px; }
+        .top-\[56px\] { top: 56px; }
         .max-w-\[140px\] { max-width: 140px; }
         .max-w-\[92vw\] { max-width: 92vw; }
         .max-h-\[92vh\] { max-height: 92vh; }
+        .max-h-\[80vh\] { max-height: 80vh; }
         .z-\[60\] { z-index: 60; }
         .z-\[80\] { z-index: 80; }
         .min-h-0 { min-height: 0; }
@@ -1291,7 +1293,7 @@ $db->close();
                     <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400"></i>
                 </button>
                 <div x-show="perfilAbierto" x-cloak @click="perfilAbierto = false"
-                     class="absolute right-0 top-[46px] z-[60] w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                     class="fixed right-4 top-[56px] z-[60] w-72 max-w-[92vw] max-h-[80vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-2xl">
                     <div class="px-4 py-3 border-b border-slate-700/60 bg-slate-800/60">
                         <div class="text-sm font-semibold text-slate-200 truncate" x-text="perfilNombre || 'Usuario'"></div>
                         <div class="text-xs text-slate-400 truncate" x-text="perfilEmail || '—'"></div>
