@@ -1980,7 +1980,9 @@ var app = function() {
                 if (this.rsTabTriaje && this.rsTabTriaje !== 'todos') p.append('estado', this.rsTabTriaje);
                 if (this.respuestasFiltro) p.append('clasificacion', this.respuestasFiltro);
                 if (this.respuestasPrioridad) p.append('prioridad', this.respuestasPrioridad);
-                if (window.app && window.app.campanaActual > 0) p.append('campaign_id', window.app.campanaActual);
+                // NOTA: la Bandeja es un INBOX GLOBAL. No se filtra por la campaña
+                // activa del header (las respuestas a medida tienen campaign_id vacío
+                // y quedarían ocultas; la campaña del header la usa la Lanzadera).
                 const r = await fetch('?' + p.toString());
                 const j = await r.json();
                 if (j && j.ok) this.respuestas = j.conversaciones || [];
