@@ -2111,13 +2111,13 @@ var app = function() {
                 }
             } catch (e) { console.error('clasificarRespuesta:', e); }
         },
-        // Etiqueta en español para los botones de clasificación rápida del hilo
-        // (coherente con los badges de intención del resto de la UI).
+        // Etiqueta genérica en español para los botones de clasificación rápida
+        // (clasificación, NO la intención específica: "Positivo", no "Solicita muestra").
         rsClasBotonLabel(c) {
             const mapa = {
-                PENDING: 'Sin clasificar',
-                POSITIVE: 'Solicita muestra',
-                NEGATIVE: 'No interesa',
+                PENDING: 'Pendiente',
+                POSITIVE: 'Positivo',
+                NEGATIVE: 'Negativo',
                 NEUTRAL: 'Neutral',
                 UNSUBSCRIBE: 'Baja',
                 OOO: 'Fuera de oficina',
