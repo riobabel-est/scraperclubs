@@ -177,6 +177,10 @@ try {
     // se resuelven igual en el paso 4, así que el texto a medida puede usarlos.
     $asuntoOverride = trim((string)($_POST['asunto'] ?? ''));
     $cuerpoOverride = trim((string)($_POST['cuerpo'] ?? ''));
+    // Sanear UTF-8 (bytes malformados del editor rompían json_encode de la Bandeja).
+    if ($cuerpoOverride !== '' && preg_match('//u', $cuerpoOverride) !== 1) {
+        $cuerpoOverride = mb_convert_encoding($cuerpoOverride, 'UTF-8', 'UTF-8');
+    }
     if ($asuntoOverride !== '') $asuntoTpl = $asuntoOverride;
     if ($cuerpoOverride !== '') $cuerpoTpl = $cuerpoOverride;
     // Envío A MEDIDA / respuesta (modal "Atender"): asunto o cuerpo personalizados

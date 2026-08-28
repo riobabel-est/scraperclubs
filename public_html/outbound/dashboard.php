@@ -792,7 +792,14 @@ if ($action === 'enviar_respuesta_smtp') {
     $leadId  = (int)($_POST['lead_id'] ?? 0);
     $email   = trim((string)($_POST['email'] ?? ''));
     $cuerpo  = trim((string)($_POST['cuerpo'] ?? ''));
+    // Sanear UTF-8: bytes malformados del editor rompían json_encode de la Bandeja.
+    if ($cuerpo !== '' && preg_match('//u', $cuerpo) !== 1) {
+        $cuerpo = mb_convert_encoding($cuerpo, 'UTF-8', 'UTF-8');
+    }
     $asunto  = trim((string)($_POST['asunto'] ?? 'Re: FutProtec'));
+    if ($asunto !== '' && preg_match('//u', $asunto) !== 1) {
+        $asunto = mb_convert_encoding($asunto, 'UTF-8', 'UTF-8');
+    }
     $smtpIdHeredado = (int)($_POST['smtp_id'] ?? 0);
     $formato = (($_POST['formato'] ?? 'texto') === 'html') ? 'html' : 'texto';
     // El front indica cuántos adjuntos espera el servidor recibir (trazabilidad:

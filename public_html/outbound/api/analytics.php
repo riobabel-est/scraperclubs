@@ -79,7 +79,36 @@ function limpiarCuerpoMime(string $cuerpo): string {
     $t = preg_replace('/[ \t]+/', ' ', $t);
     $t = preg_replace('/\n{3,}/', "\n\n", $t);
 
+    // 6. Garantizar UTF-8 válido en la salida. html_entity_decode() puede generar
+    // secuencias inválidas (p.ej. entidades a surrogates) que rompen json_encode
+    // de la Bandeja (JSON_ERROR_UTF8 → Bandeja en blanco).
+    if ($t !== '' && preg_match('//u', $t) !== 1) {
+        $t = mb_convert_encoding($t, 'UTF-8', 'UTF-8');
+    }
+
     return trim($t);
+}
+
+/**
+ * Sanea TODOS los strings de un array (recursivo) eliminando bytes UTF-8
+ * inválidos. Red de seguridad crítica: un único string malformado (p.ej. un
+ * cuerpo importado con encoding no UTF-8) hacía que json_encode devolviera
+ * FALSE y get_respuestas entregara un JSON vacío (Bandeja en blanco).
+ * mb_convert_encoding('...', 'UTF-8', 'UTF-8') descarta las secuencias
+ * inválidas sustituyéndolas por '?'.
+ */
+function sanearUtf8Recursivo(array &$arr): void
+{
+    foreach ($arr as &$v) {
+        if (is_string($v)) {
+            if ($v !== '' && preg_match('//u', $v) !== 1) {
+                $v = mb_convert_encoding($v, 'UTF-8', 'UTF-8');
+            }
+        } elseif (is_array($v)) {
+            sanearUtf8Recursivo($v);
+        }
+    }
+    unset($v);
 }
 
 // ─── get_last_envios ─────────────────────────────────────────────────────────
@@ -1035,13 +1064,16 @@ if ($action === 'get_respuestas') {
         // Payload normalizado: expone el array de conversaciones bajo múltiples
         // claves (data, conversaciones) para compatibilidad cruzada con cualquier
         // contrato que el frontend (app.js / Alpine.js) intente leer.
+        // Saneo UTF-8 antes de serializar: un solo string malformado rompía
+        // json_encode (JSON_ERROR_UTF8) y entregaba la Bandeja vacía.
+        sanearUtf8Recursivo($conversaciones);
         echo json_encode([
             'ok' => true,
             'success' => true,
             'data' => $conversaciones,
             'conversaciones' => $conversaciones,
             'count' => count($conversaciones)
-        ], JSON_UNESCAPED_UNICODE);
+        ], JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
         exit;
 
     } catch (\Throwable $e) {
