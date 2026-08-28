@@ -728,6 +728,14 @@ if ($action === 'get_respuestas') {
             throw new \Exception("Error de conexión a la base de datos.");
         }
 
+        // Coherencia del estado del lead: si tiene respuesta HUMANA (no rebote),
+        // no puede seguir en '01 Sin Contactar'/'02 Contactado' → avanza a
+        // '03 En Conversación' (idempotente; respeta estados posteriores manuales
+        // y estados de supresión como Lista Negra/Opt-Out).
+        $db->exec("UPDATE clubes_crm SET estado_lead = '03 En Conversación'
+                   WHERE estado_lead IN ('01 Sin Contactar','02 Contactado')
+                     AND id IN (SELECT DISTINCT lead_id FROM respuestas WHERE COALESCE(es_rebote,0)=0 AND lead_id > 0)");
+
         $filtro = trim($_GET['clasificacion'] ?? '');
         $filtroPrioridad = trim($_GET['prioridad'] ?? '');
         $where = '';

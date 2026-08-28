@@ -178,15 +178,12 @@
             <div class="min-w-0">
               <h5 class="text-base font-bold text-slate-50 truncate"
                   x-text="(rsSeleccion.nombre_club && rsSeleccion.nombre_club !== '—') ? (rsSeleccion.nombre_club || rsSeleccion.club) : (rsSeleccion.remitente_email || rsSeleccion.email || '—')"></h5>
-              <div class="text-sm text-slate-400 truncate">
-                <span x-text="rsSeleccion.contacto_nombre || rsSeleccion.persona_contacto || '—'"></span>
-                <span x-show="rsSeleccion.telefono || rsSeleccion.telefono_movil" class="text-slate-400"> · </span>
-                <span x-text="rsSeleccion.telefono || rsSeleccion.telefono_movil || ''"></span>
+              <!-- Cabecera compacta: (email del club) contacto de <cuenta FutProtec que lo atiende> -->
+              <div class="text-sm text-slate-300 truncate mt-0.5">
+                <span class="font-mono" x-text="'(' + (rsSeleccion.remitente_email || rsSeleccion.email || '—') + ')'"></span>
+                <span class="text-slate-400"> contacto de </span>
+                <span class="font-mono text-sky-300" x-text="rsSeleccion.buzon_destino || rsSeleccion.buzón_cuenta || rsSeleccion.cuenta_emision || '—'"></span>
               </div>
-              <!-- Email de Origen y Email de Destino (FutProtec) -->
-              <div class="text-xs text-amber-400 font-mono truncate mt-1" x-text="'De: ' + (rsSeleccion.remitente_email || rsSeleccion.email || '—')"></div>
-              <div class="text-xs text-blue-400 font-mono truncate" x-text="'Para: ' + (rsSeleccion.buzon_destino || rsSeleccion.buzón_cuenta || '—')"></div>
-              <div class="text-xs text-emerald-400 font-mono truncate" x-show="rsSeleccion.cuenta_emision" x-text="'✉️ Enviar desde: ' + rsSeleccion.cuenta_emision"></div>
             </div>
 
             <div class="flex items-center gap-2 flex-wrap shrink-0">
@@ -194,10 +191,10 @@
               <!-- Interés del lead (clasificación de su última respuesta) -->
               <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold border" :class="rsIntencion(rsSeleccion).color" x-text="rsIntencion(rsSeleccion).label"></span>
               <!-- Indicador de notas particulares del lead -->
-              <span x-show="rsSeleccion.tiene_notas" title="Este lead tiene notas particulares (mira su ficha)" class="px-2 py-1 rounded-full text-xs bg-amber-500/15 text-amber-400 border border-amber-500/30">📝 Notas</span>
+              <span x-show="rsSeleccion.tiene_notas" title="Este lead tiene notas particulares (mira su ficha)" class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/15 text-amber-400 border border-amber-500/30"><i data-lucide="sticky-note" class="w-3.5 h-3.5"></i> Notas</span>
               <!-- Botón: ficha completa del cliente (datos accesorios + notas) -->
               <button @click="openLead(rsSeleccion.lead_id)" x-show="rsSeleccion.lead_id" title="Ficha del cliente (datos y notas)"
-                      class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition bg-slate-800 text-slate-300 border-slate-700 hover:text-white hover:border-slate-600">👤 Ficha</button>
+                      class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition bg-slate-800 text-slate-300 border-slate-700 hover:text-white hover:border-slate-600"><i data-lucide="user" class="w-4 h-4"></i> Ficha</button>
               <!-- Desplegable de estado del lead (actualización en tiempo real) -->
               <select x-model="rsSeleccion.estado_lead" @change="rsActualizarEstadoLead()"
                       class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200 focus:border-orange-500/50 focus:outline-none">
@@ -205,13 +202,13 @@
                   <option :value="e" x-text="e"></option>
                 </template>
               </select>
-              <!-- Acciones del hilo (estado de conversación) -->
-              <button @click="rsAccion('atender')" title="Marcar como pendiente de respuesta" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-orange-500/15 text-orange-400 border-orange-500/30 hover:bg-orange-500/25">✉️</button>
-              <button @click="rsAccion('archivar')" title="Archivar conversación" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-sky-500/15 text-sky-400 border-sky-500/30 hover:bg-sky-500/25">📦</button>
-              <button @click="rsAccion('snooze', 1)" title="Posponer 1 día" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25">⏰1d</button>
-              <button @click="rsAccion('snooze', 3)" title="Posponer 3 días" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25">⏰3d</button>
-              <button @click="rsAccion('restaurar')" title="Restaurar (sacar de archivado/borrado)" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25">↩️</button>
-              <button @click="rsAccion('borrar')" title="Borrar conversación" class="px-2 py-1.5 rounded-lg text-xs font-semibold border transition bg-rose-500/15 text-rose-400 border-rose-500/30 hover:bg-rose-500/25">🗑️</button>
+              <!-- Acciones del hilo (estado de conversación) — iconos lineales Lucide -->
+              <button @click="rsAccion('atender')" title="Marcar como pendiente de respuesta" class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-semibold border transition bg-orange-500/15 text-orange-400 border-orange-500/30 hover:bg-orange-500/25"><i data-lucide="inbox" class="w-4 h-4"></i></button>
+              <button @click="rsAccion('archivar')" title="Archivar conversación" class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-semibold border transition bg-sky-500/15 text-sky-400 border-sky-500/30 hover:bg-sky-500/25"><i data-lucide="archive" class="w-4 h-4"></i></button>
+              <button @click="rsAccion('snooze', 1)" title="Posponer 1 día" class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-semibold border transition bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25"><i data-lucide="clock" class="w-4 h-4"></i><span class="text-[10px]">1d</span></button>
+              <button @click="rsAccion('snooze', 3)" title="Posponer 3 días" class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-semibold border transition bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25"><i data-lucide="clock" class="w-4 h-4"></i><span class="text-[10px]">3d</span></button>
+              <button @click="rsAccion('restaurar')" title="Restaurar (sacar de archivado/borrado)" class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-semibold border transition bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"><i data-lucide="rotate-ccw" class="w-4 h-4"></i></button>
+              <button @click="rsAccion('borrar')" title="Borrar conversación" class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-semibold border transition bg-rose-500/15 text-rose-400 border-rose-500/30 hover:bg-rose-500/25"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
             </div>
           </div>
           <!-- Mensaje de estado (feedback de actualización) -->
@@ -238,14 +235,14 @@
                 <div class="mensaje-cuerpo-texto mt-1 whitespace-pre-wrap text-sm text-slate-200" x-show="rsCuerpoMensaje(m)" x-text="rsCuerpoMensaje(m)"></div>
                 <div class="mensaje-cuerpo-html mt-1" x-show="!rsCuerpoMensaje(m) && m.contenido_html" x-html="rsSanitizarHtml(m.contenido_html)"></div>
                 <!-- Sin cuerpo ni HTML extraíble: al menos mostrar el asunto (trazabilidad). -->
-                <div class="mensaje-cuerpo-texto mt-1 text-slate-500 italic text-sm" x-show="!rsCuerpoMensaje(m) && !m.contenido_html">📄 <span x-text="m.subject_respuesta || m.asunto_envio || '(correo sin contenido de texto extraíble)'"></span></div>
+                <div class="mensaje-cuerpo-texto mt-1 text-slate-500 italic text-sm" x-show="!rsCuerpoMensaje(m) && !m.contenido_html"><i data-lucide="file-text" class="w-3.5 h-3.5 inline-block mr-1"></i><span x-text="m.subject_respuesta || m.asunto_envio || '(correo sin contenido de texto extraíble)'"></span></div>
                 <!-- Archivos adjuntos del mensaje (descarga autenticada) -->
                 <div x-show="m.adjuntos && m.adjuntos.length > 0" class="mt-2 flex items-center gap-2 flex-wrap">
                   <template x-for="a in (m.adjuntos || [])" :key="'adj' + a.id">
                     <a :href="'api/adjunto.php?id=' + a.id + (m.sentido === 'saliente' ? '&tipo=envio' : '')" target="_blank" rel="noopener"
                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition"
                        :title="a.mime">
-                      📎 <span x-text="a.nombre"></span>
+                      <i data-lucide="paperclip" class="w-3.5 h-3.5"></i> <span x-text="a.nombre"></span>
                       <span class="text-slate-400" x-text="(a.tamano ? (a.tamano/1024).toFixed(1) + ' KB' : '')"></span>
                     </a>
                   </template>
