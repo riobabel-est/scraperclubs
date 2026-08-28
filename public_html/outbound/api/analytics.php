@@ -1195,6 +1195,20 @@ if ($action === 'get_respuestas') {
 
         // ─── Filtro por ESTADO de conversación (triaje de la Bandeja) ──────────
         // estados: requiere_respuesta | rebotes | archivados | borrados | todos
+        // Conteos descriptivos para las pestañas del triaje (sobre TODAS las
+        // conversaciones, antes de aplicar el filtro de estado).
+        $countsTriaje = ['requiere_respuesta' => 0, 'en_espera' => 0, 'archivados' => 0, 'total' => 0];
+        foreach ($conversaciones as $cCount) {
+            $mC = $cCount['mensajes'][0] ?? null;
+            $estC = strtolower((string)($mC['estado_conversacion'] ?? ''));
+            $rebC = (int)($mC['es_rebote'] ?? 0);
+            if ($rebC === 1 || $estC === 'borrado') continue;
+            $countsTriaje['total']++;
+            if ($estC === 'en_espera') $countsTriaje['en_espera']++;
+            elseif ($estC === 'archivado') $countsTriaje['archivados']++;
+            else $countsTriaje['requiere_respuesta']++;
+        }
+
         $filtroEstadoConv = trim($_GET['estado'] ?? '');
         if ($filtroEstadoConv !== '') {
             $conversaciones = array_values(array_filter($conversaciones, function ($c) use ($filtroEstadoConv) {
@@ -1242,6 +1256,7 @@ if ($action === 'get_respuestas') {
             'success' => true,
             'data' => $conversaciones,
             'conversaciones' => $conversaciones,
+            'counts_triaje' => $countsTriaje,
             'count' => count($conversaciones)
         ], JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
         exit;

@@ -125,6 +125,8 @@ var app = function() {
         rsGenerandoIA: false,
         // Triaje de la Bandeja: pestaña activa (requiere_respuesta | rebotes | archivados | borrados | todos).
         rsTabTriaje: 'requiere_respuesta',
+        // Contadores descriptivos por estado (requiere_respuesta, en_espera, archivados, total).
+        rsCountsTriaje: { requiere_respuesta: 0, en_espera: 0, archivados: 0, total: 0 },
         // Búsqueda por nombre de club en el panel izquierdo.
         rsBusqueda: '',
         // Filtro de clasificación (Todas / Interesado / Duda Precio / Baja).
@@ -1987,6 +1989,7 @@ var app = function() {
                 const r = await fetch('?' + p.toString());
                 const j = await r.json();
                 if (j && j.ok) this.respuestas = j.conversaciones || [];
+                if (j && j.counts_triaje) this.rsCountsTriaje = j.counts_triaje;
                 // ─── Limpieza de estado (UNIBOX UI) ─────────────────────────
                 // Si la conversación seleccionada ya no existe en la lista
                 // recargada (p.ej. tras un envío o un cambio de filtro), se

@@ -74,27 +74,38 @@
             <option value="SIN_REBOTE">Ocultar Rebotes</option>
           </select>
         </div>
-        <!-- Triaje: pestañas por estado de conversación -->
+        <!-- Triaje: pestañas por estado de conversación (descriptivo, con contadores) -->
         <div class="flex items-center gap-1 flex-wrap">
-          <button @click="rsSetTabTriaje('requiere_respuesta')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+          <button @click="rsSetTabTriaje('requiere_respuesta')" title="Conversaciones del club que requieren tu respuesta (las que te han escrito y aún no has contestado)"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
                   :class="rsTabTriaje === 'requiere_respuesta' ? 'bg-orange-500/20 text-orange-400 border-orange-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
-            📥 Requiere respuesta
+            <i data-lucide="inbox" class="w-3.5 h-3.5"></i> Por responder
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-orange-500/15 text-orange-400" x-text="rsCountsTriaje.requiere_respuesta || 0"></span>
           </button>
-          <button @click="rsSetTabTriaje('rebotes')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
-                  :class="rsTabTriaje === 'rebotes' ? 'bg-rose-500/20 text-rose-400 border-rose-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
-            ⚠️ Rebotados
-          </button>
-          <button @click="rsSetTabTriaje('archivados')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
-                  :class="rsTabTriaje === 'archivados' ? 'bg-sky-500/20 text-sky-400 border-sky-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
-            📦 Archivados
-          </button>
-          <button @click="rsSetTabTriaje('borrados')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
-                  :class="rsTabTriaje === 'borrados' ? 'bg-slate-500/20 text-slate-300 border-slate-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
-            🗑️ Borrados
-          </button>
-          <button @click="rsSetTabTriaje('todos')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+          <button @click="rsSetTabTriaje('todos')" title="Todas las conversaciones (respondidas, en espera, pendientes...)"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
                   :class="rsTabTriaje === 'todos' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
-            🗂️ Todo
+            <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Todos
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400" x-text="rsCountsTriaje.total || 0"></span>
+          </button>
+          <span class="text-xs text-slate-400" x-show="rsCountsTriaje.en_espera > 0" title="Conversaciones que respondiste y esperas al club">
+            · <span class="text-sky-400 font-semibold" x-text="rsCountsTriaje.en_espera"></span> en espera
+          </span>
+          <button @click="rsSetTabTriaje('rebotes')" title="Correos rebotados (no entregados)"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+                  :class="rsTabTriaje === 'rebotes' ? 'bg-rose-500/20 text-rose-400 border-rose-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
+            <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> Rebotados
+          </button>
+          <button @click="rsSetTabTriaje('archivados')" title="Conversaciones archivadas"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+                  :class="rsTabTriaje === 'archivados' ? 'bg-sky-500/20 text-sky-400 border-sky-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
+            <i data-lucide="archive" class="w-3.5 h-3.5"></i> Archivados
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-400" x-text="rsCountsTriaje.archivados || 0"></span>
+          </button>
+          <button @click="rsSetTabTriaje('borrados')" title="Conversaciones borradas"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+                  :class="rsTabTriaje === 'borrados' ? 'bg-slate-500/20 text-slate-300 border-slate-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Borrados
           </button>
         </div>
       </div>
