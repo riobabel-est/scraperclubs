@@ -1290,22 +1290,6 @@ if ($action === 'clasificar_respuesta') {
     exit;
 }
 
-// ─── actualizar_estado_lead (UNIBOX UI) ──────────────────────────────────────
-// Actualiza clubes_crm.estado_lead en tiempo real desde el header del visor.
-if ($action === 'actualizar_estado_lead') {
-    header('Content-Type: application/json');
-    $leadId = (int)($_POST['lead_id'] ?? 0);
-    $estado = trim($_POST['estado_lead'] ?? '');
-    if ($leadId <= 0) { echo json_encode(['ok' => false, 'error' => 'lead_id requerido']); exit; }
-    if ($estado === '') { echo json_encode(['ok' => false, 'error' => 'estado_lead requerido']); exit; }
-    $estadoEsc = $db->escapeString($estado);
-    $existe = (int)$db->querySingle("SELECT COUNT(*) FROM clubes_crm WHERE id = {$leadId}");
-    if ($existe === 0) { echo json_encode(['ok' => false, 'error' => 'lead no encontrado']); exit; }
-    $db->exec("UPDATE clubes_crm SET estado_lead = '{$estadoEsc}', ultimo_contacto = datetime('now') WHERE id = {$leadId}");
-    echo json_encode(['ok' => true, 'lead_id' => $leadId, 'estado_lead' => $estado]);
-    exit;
-}
-
 // ─── get_piloto_metricas (FASE 5B) ──────────────────────────────────────────
 
 if ($action === 'get_piloto_metricas') {

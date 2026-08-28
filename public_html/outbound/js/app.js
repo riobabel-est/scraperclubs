@@ -2402,6 +2402,8 @@ var app = function() {
                 if (j && j.ok) {
                     this.rsEnvioMsg = 'Estado actualizado a "' + (this.rsSeleccion.estado_lead || '') + '".';
                     this.rsEnvioMsgOk = true;
+                    // Aplicación inmediata: refleja el nuevo estado en la lista y el hilo.
+                    await this.loadRespuestas();
                 } else {
                     this.rsEnvioMsg = 'Error: ' + (j.error || 'No se pudo actualizar el estado.');
                     this.rsEnvioMsgOk = false;

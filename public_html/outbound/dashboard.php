@@ -558,12 +558,17 @@ function updateLeadCampo($db, int $id, string $field, string $value): array {
 }
 
 /**
- * ESTADOS_UNIBOX_PERMITIDOS — Vocabulario de intención del visor Unibox.
+ * ESTADOS_UNIBOX_PERMITIDOS — Estados editables desde el desplegable del visor.
  * Se traduce al estado canónico del Kanban (7 columnas) mediante
  * mapearEstadoUnibox(). Mantener sincronizado con el desplegable del tab
  * Respuestas (app.js rsEstadosLead / respuestas.php).
+ * Incluye el vocabulario de intención LEGACY (mapeado) por compatibilidad.
  */
-const ESTADOS_UNIBOX_PERMITIDOS = ['Interesado', 'Duda Precio', 'Baja', 'Neutral', 'No Interesa', 'Pendiente'];
+const ESTADOS_UNIBOX_PERMITIDOS = [
+    '01 Sin Contactar', '02 Contactado', '03 En Conversación', '04 Propuesta',
+    '05 Ganado', '06 Perdido', '07 Baja',
+    'Interesado', 'Duda Precio', 'Baja', 'Neutral', 'No Interesa', 'Pendiente',
+];
 
 /**
  * mapearEstadoUnibox — Traduce el vocabulario de intención del Unibox al
