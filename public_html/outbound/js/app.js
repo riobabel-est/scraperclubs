@@ -2255,9 +2255,16 @@ var app = function() {
                 .replace(/\{\{[^}]+\}\}/g, '')
                 .replace(/\{\[[^\]]+\]\}/g, '')
                 .replace(/\[\[[^\]]+\]\]/g, '');
-            this.rsRedaccion = rep(tpl.cuerpo);
+            this.rsRedaccion = this.rsATextoHtml(rep(tpl.cuerpo));
             if (tpl.asunto) this.rsAsuntoResp = rep(tpl.asunto);
             this.rsSyncEditorHtml();
+        },
+        // Convierte texto plano (con saltos de línea) a HTML para el editor.
+        // Si ya contiene etiquetas HTML, lo deja tal cual.
+        rsATextoHtml(t) {
+            if (!t) return '';
+            if (/<[a-zA-Z\/!][^>]*>/.test(String(t))) return String(t);
+            return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
         },
         // ─── Editor HTML de respuesta (sencillo, tipo TinyMCE) ────────────────
         // Sincroniza el HTML del editor (contenteditable) con rsRedaccion sin
@@ -2325,7 +2332,7 @@ var app = function() {
                 const r = await fetch('?action=generar_email_ia', { method: 'POST', body: f });
                 const j = await r.json();
                 if (j.ok) {
-                    this.rsRedaccion = j.cuerpo || '';
+                    this.rsRedaccion = this.rsATextoHtml(j.cuerpo || '');
                     this.rsSyncEditorHtml();
                     this.rsAsuntoResp = j.asunto || '';
                     this.rsEnvioMsg = '✨ Borrador generado con la IA — revísalo y edítalo antes de enviar.';
@@ -2762,6 +2769,7 @@ var app = function() {
         rsEditorInput: function () {},
         rsEditorCmd: function () {},
         rsEditorLink: function () {},
+        rsATextoHtml: function () {},
         // Métodos de Lista Negra
         blBuscar: function () {},
         blAgregar: function () {},
