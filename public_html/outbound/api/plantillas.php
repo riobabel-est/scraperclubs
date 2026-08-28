@@ -80,6 +80,22 @@ if ($action === 'delete_template') {
 }
 
 // ─── get_templates ───────────────────────────────────────────────────────────
+if (!function_exists('sanearUtf8Recursivo')) {
+    /** Sanea strings UTF-8 inválidos de un array (evita json_encode=false). */
+    function sanearUtf8Recursivo(array &$arr): void
+    {
+        foreach ($arr as &$v) {
+            if (is_string($v)) {
+                if ($v !== '' && preg_match('//u', $v) !== 1) {
+                    $v = mb_convert_encoding($v, 'UTF-8', 'UTF-8');
+                }
+            } elseif (is_array($v)) {
+                sanearUtf8Recursivo($v);
+            }
+        }
+        unset($v);
+    }
+}
 if ($action === 'get_templates') {
     header('Content-Type: application/json');
     $cat = trim($_GET['categoria'] ?? '');
@@ -107,7 +123,9 @@ if ($action === 'get_templates') {
     while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $items[] = $r; }
     // El frontend (app.js) consume la clave 'templates' en la Lanzadera y el Editor.
     // Se mantiene 'items' por compatibilidad con cualquier otro consumidor.
-    echo json_encode(['ok' => true, 'templates' => $items, 'items' => $items]);
+    // Saneo UTF-8: un campo malformado no debe vaciar el selector (bug Bandeja).
+    sanearUtf8Recursivo($items);
+    echo json_encode(['ok' => true, 'templates' => $items, 'items' => $items], JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
     exit;
 }
 

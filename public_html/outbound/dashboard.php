@@ -1517,7 +1517,8 @@ $db->close();
 <div x-show="tab === 'analytics'" x-cloak class="max-w-full mx-auto px-4 py-4">
     <?php include __DIR__ . '/tabs/analytics.php'; ?>
 </div>
-<div x-show="tab === 'respuestas'" x-cloak class="max-w-full mx-auto px-4 pt-4 pb-8">
+<div x-show="tab === 'respuestas'" x-cloak class="max-w-full mx-auto px-4 pt-4 pb-8"
+     x-effect="if (tab === 'respuestas' && rsTemplatesRapidas.length === 0) rsCargarTemplates()">
     <?php include __DIR__ . '/tabs/respuestas.php'; ?>
 </div>
 <div x-show="tab === 'seguimiento'" x-cloak class="max-w-full mx-auto px-4 py-4">

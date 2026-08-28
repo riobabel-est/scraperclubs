@@ -161,6 +161,7 @@ var app = function() {
         // Plantillas de respuesta REALES (cargadas desde la BD vía get_templates,
         // las mismas que se editan en la pestaña Plantillas; sin las de WhatsApp).
         rsTemplatesRapidas: [],
+        rsTemplatesMsg: '',
 
         // Cuenta SMTP activa para el envío de respuesta.
         rsCuentaSmtp: null,
@@ -2207,14 +2208,30 @@ var app = function() {
         },
         // Carga las plantillas de respuesta REALES desde la BD (get_templates),
         // filtrando las de WhatsApp (el selector de la Bandeja es solo email).
+        // Robusto: reintenta si el fetch falla o viene vacío (una única petición
+        // fallida no debe dejar el selector sin plantillas).
         async rsCargarTemplates() {
-            try {
-                const r = await fetch('?action=get_templates');
-                const j = await r.json();
-                if (j.ok && Array.isArray(j.templates)) {
-                    this.rsTemplatesRapidas = j.templates.filter(t => (t.tipo || '') !== 'whatsapp');
+            let intento = 0;
+            while (intento < 3) {
+                intento++;
+                try {
+                    const r = await fetch('?action=get_templates');
+                    const j = await r.json();
+                    if (j && j.ok && Array.isArray(j.templates)) {
+                        this.rsTemplatesRapidas = j.templates.filter(t => (t.tipo || '') !== 'whatsapp');
+                        if (this.rsTemplatesRapidas.length > 0) {
+                            this.rsTemplatesMsg = '';
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.error('rsCargarTemplates:', e);
                 }
-            } catch (e) { console.error('rsCargarTemplates:', e); }
+                await new Promise(res => setTimeout(res, 700 * intento));
+            }
+            // Última oportunidad: mensaje visible para el usuario.
+            this.rsTemplatesRapidas = [];
+            this.rsTemplatesMsg = '⚠️ No se pudieron cargar las plantillas. Usa ↻ para reintentar.';
         },
         // Añade los archivos seleccionados como adjuntos pendientes de la respuesta.
         rsAdjuntarArchivos(ev) {

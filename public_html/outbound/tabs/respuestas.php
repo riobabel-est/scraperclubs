@@ -270,7 +270,10 @@
                 <option :value="t.id" x-text="(t.categoria ? t.categoria + ' · ' : '') + t.nombre"></option>
               </template>
             </select>
+            <button @click="rsCargarTemplates()" title="Recargar plantillas"
+                    class="w-8 h-8 shrink-0 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-600 transition text-sm">↻</button>
           </div>
+          <p x-show="rsTemplatesMsg" class="text-xs text-amber-400 mb-2" x-text="rsTemplatesMsg"></p>
           <!-- Editor de respuesta (HTML sencillo, tipo Tiny) -->
           <div class="rounded-lg border border-slate-700 bg-slate-900 overflow-hidden">
             <div class="flex items-center gap-1 px-2 py-1.5 border-b border-slate-700 bg-slate-950 flex-wrap">
