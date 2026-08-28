@@ -190,7 +190,14 @@
             </div>
 
             <div class="flex items-center gap-2 flex-wrap shrink-0">
-              <span x-show="rsSeleccion.variant" class="px-2 py-1 rounded-full text-xs bg-slate-800 text-slate-300 border border-slate-700" x-text="'Variante ' + rsSeleccion.variant"></span>
+              <span x-show="rsSeleccion.variant" class="px-2 py-1 rounded-full text-xs bg-slate-800 text-slate-300 border border-slate-700" x-text="'🧭 Variante ' + rsSeleccion.variant"></span>
+              <!-- Interés del lead (clasificación de su última respuesta) -->
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold border" :class="rsIntencion(rsSeleccion).color" x-text="rsIntencion(rsSeleccion).label"></span>
+              <!-- Indicador de notas particulares del lead -->
+              <span x-show="rsSeleccion.tiene_notas" title="Este lead tiene notas particulares (mira su ficha)" class="px-2 py-1 rounded-full text-xs bg-amber-500/15 text-amber-400 border border-amber-500/30">📝 Notas</span>
+              <!-- Botón: ficha completa del cliente (datos accesorios + notas) -->
+              <button @click="openLead(rsSeleccion.lead_id)" x-show="rsSeleccion.lead_id" title="Ficha del cliente (datos y notas)"
+                      class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition bg-slate-800 text-slate-300 border-slate-700 hover:text-white hover:border-slate-600">👤 Ficha</button>
               <!-- Desplegable de estado del lead (actualización en tiempo real) -->
               <select x-model="rsSeleccion.estado_lead" @change="rsActualizarEstadoLead()"
                       class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200 focus:border-orange-500/50 focus:outline-none">

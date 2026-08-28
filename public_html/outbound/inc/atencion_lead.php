@@ -290,6 +290,12 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
         $varianteDom = (string)$fV['variant'];
     }
 
+    // Interés actual del lead: clasificación de su última respuesta humana.
+    // Guía al LLM para adaptar la estrategia (avanzar, resolver duda o no insistir).
+    $interesLead = (string)$db->querySingle(
+        "SELECT clasificacion FROM respuestas WHERE lead_id = " . (int)$lead['id'] . " AND COALESCE(es_rebote,0)=0 ORDER BY id DESC LIMIT 1"
+    );
+
     $contacto = $charla['contacto_real'];
     if ($contacto !== '') {
         $reglaSaludo = "Hay persona de contacto: {$contacto}. Usa su nombre en el saludo.";
@@ -365,6 +371,7 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
         . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO (úsalo como base):\n" . mb_substr($ctx, 0, 4000) : '')
         . "\n\nREGLA DE SALUDO: {$reglaSaludo}"
         . ($varianteDom !== '' ? "\nRAMAL DE INTERÉS: el lead validó con sus aperturas el enfoque de la variante {$varianteDom} del test de prospección (A=General/Producto, B=Identidad/Cantera, C=Financiero/Rentabilidad). CONTINÚA exactamente esa misma línea argumental: no cambies de tema ni mezcles ángulos." : '')
+        . ($interesLead !== '' ? "\nINTERÉS ACTUAL DEL LEAD: su última respuesta se clasificó como '{$interesLead}'. Adáptate a ese interés: si es positivo (solicita muestra/presupuesto) AVANZA hacia la propuesta concreta sin rodeos; si expresa dudas o es neutral, resuelve la objeción y refuerza la MISMA variante; si no interesa, no insistas y deja la puerta abierta." : '')
         . ($formatoReferencia !== '' ? "\nIMITA el tono y la estructura del FORMATO DE REFERENCIA del negocio que se te da (sin copiar textualmente)." : '')
         . "\nTAREA: lee el HISTORIAL CRONOLÓGICO del club y responde DIRECTAMENTE a la última pregunta, objeción o solicitud que haya hecho (presupuesto, boceto de espinilleras, dudas, plazos, etc.)."
         . "\nADJUNTOS ENVIADOS: el HISTORIAL incluye en cada envío la línea ADJUNTOS ENVIADOS con el nombre y el contenido extraído de los archivos que se entregaron (presupuesto, boceto, tarifas). Usa esa información para saber qué YA se envió: no ofrezcas ni repitas algo ya entregado, y si falta algo pendiente, indícalo con naturalidad."

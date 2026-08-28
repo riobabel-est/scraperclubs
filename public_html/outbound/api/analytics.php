@@ -877,7 +877,7 @@ if ($action === 'get_respuestas') {
                 if ($leadId > 0) {
                     $leadInfo = $db->querySingle(
                         "SELECT id, nombre_club, email, estado_lead, ultimo_contacto, proxima_accion,
-                                volumen_estimado, num_jugadores, telefono_movil, tiene_whatsapp
+                                volumen_estimado, num_jugadores, telefono_movil, tiene_whatsapp, observaciones
                          FROM clubes_crm WHERE id = " . $leadId, true
                     );
                 }
@@ -955,6 +955,8 @@ if ($action === 'get_respuestas') {
                     'contacto_nombre' => $r['persona_contacto'] ?? $r['lead_contacto_nombre'] ?? $leadInfo['persona_contacto'] ?? null,
                     'volumen_equipos' => $r['volumen_equipos'] ?? $r['lead_volumen_equipos'] ?? $leadInfo['volumen_estimado'] ?? null,
                     'variante' => $r['lead_variante'] ?? $r['variant'] ?? null,
+                    // Indicador de notas particulares del lead (observaciones).
+                    'tiene_notas' => (int)(($leadInfo['observaciones'] ?? '') !== '' ? 1 : 0),
                     'tiene_whatsapp' => $r['lead_tiene_whatsapp'] ?? $leadInfo['tiene_whatsapp'] ?? null,
                     'campaña_nombre' => $r['campaña_nombre'] ?? null,
                     'variant' => $r['variant'] ?? null,

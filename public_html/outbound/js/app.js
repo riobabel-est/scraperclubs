@@ -2121,7 +2121,8 @@ var app = function() {
             return mapa[clas] || 'text-slate-400 bg-slate-500/10 border-slate-500/30';
         },
         rsPrioLabel(p) {
-            const mapa = { alta: 'Alta', media: 'Media', baja: 'Baja' };
+            // Mismos códigos que la pestaña Seguimiento (Urgente/Atender hoy/Sin urgencia).
+            const mapa = { alta: 'Urgente', media: 'Atender hoy', baja: 'Sin urgencia' };
             return mapa[p] || p || '—';
         },
         rsPrioColor(p) {
