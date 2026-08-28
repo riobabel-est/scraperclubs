@@ -1293,7 +1293,8 @@ $db->close();
                     <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400"></i>
                 </button>
                 <div x-show="perfilAbierto" x-cloak @click="perfilAbierto = false"
-                     class="fixed right-4 top-[56px] z-[60] w-72 max-w-[92vw] max-h-[80vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-2xl">
+                     style="position:fixed; top:56px; right:16px; width:288px; max-width:92vw; max-height:80vh; overflow-y:auto; z-index:60;"
+                     class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl">
                     <div class="px-4 py-3 border-b border-slate-700/60 bg-slate-800/60">
                         <div class="text-sm font-semibold text-slate-200 truncate" x-text="perfilNombre || 'Usuario'"></div>
                         <div class="text-xs text-slate-400 truncate" x-text="perfilEmail || '—'"></div>
