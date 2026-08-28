@@ -605,7 +605,7 @@ function actualizarEstadoLeadUnibox($db, int $id, string $estado): array {
  * activa con rotación y límite diario, y registra el envío en `envios`.
  * Devuelve ['ok'=>true,'tracking_id'=>...] o ['ok'=>false,'error'=>...].
  */
-function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo, string $asunto, array $adjuntos = []): array {
+function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo, string $asunto, array $adjuntos = [], int $smtpIdHeredado = 0, string $formato = 'texto'): array {
     if ($email === '' || $cuerpo === '') {
         return ['ok' => false, 'error' => 'Faltan destinatario o cuerpo del mensaje'];
     }
@@ -615,8 +615,18 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
 
     require_once __DIR__ . '/inc/smtp_transport.php';
 
-    // Seleccionar cuenta SMTP activa disponible (recuento REAL de hoy, E-2/FI-005).
-    $cuenta = elegirCuentaSmtpDisponible($db);
+    // Cuenta de envío: si el lead ya tiene una cuenta heredada (la misma con la
+    // que se comunicó), úsala; si no está activa/disponible, se rota a una libre.
+    $cuenta = null;
+    if ($smtpIdHeredado > 0) {
+        $cuenta = $db->querySingle(
+            "SELECT * FROM cuentas_smtp WHERE id = {$smtpIdHeredado} AND activa = 1",
+            true
+        );
+    }
+    if (!$cuenta) {
+        $cuenta = elegirCuentaSmtpDisponible($db);
+    }
     if (!$cuenta) {
         return ['ok' => false, 'error' => 'No hay cuentas SMTP activas disponibles'];
     }
@@ -632,10 +642,26 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
         'nombre_emisor' => $cuenta['nombre_emisor'] ?? $cuenta['email'],
     ];
 
-    // Cuerpo en HTML simple (párrafos) para el envío.
-    $cuerpoHtml = '<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1e293b;">'
-        . nl2br(htmlspecialchars($cuerpo, ENT_QUOTES, 'UTF-8'))
-        . '</div>';
+    // Cuerpo: si viene del editor (formato=html), sanitizar y usar el HTML tal
+    // cual (negritas, listas, enlaces); si es texto plano, convertir a HTML simple.
+    if ($formato === 'html') {
+        $permitidas = '<p><br><b><strong><i><em><u><s><ul><ol><li><a><span><div><h1><h2><h3><h4><blockquote><hr><img>';
+        $cuerpoHtml = strip_tags($cuerpo, $permitidas);
+        // Seguridad: eliminar atributos on* y javascript: de los enlaces.
+        $cuerpoHtml = (string)preg_replace('/\son\w+\s*=\s*"[^"]*"/i', '', $cuerpoHtml);
+        $cuerpoHtml = (string)preg_replace('/\son\w+\s*=\s*\'[^\']*\'/i', '', $cuerpoHtml);
+        $cuerpoHtml = (string)preg_replace('/href\s*=\s*"javascript:[^"]*"/i', 'href="#"', $cuerpoHtml);
+        $textoPlano = trim((string)strip_tags(str_replace(
+            ['<br>', '<br/>', '<br />', '</p>', '</div>', '</li>', '</h1>', '</h2>', '</h3>', '</h4>'],
+            "\n",
+            $cuerpoHtml
+        )));
+    } else {
+        $cuerpoHtml = '<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1e293b;">'
+            . nl2br(htmlspecialchars($cuerpo, ENT_QUOTES, 'UTF-8'))
+            . '</div>';
+        $textoPlano = $cuerpo;
+    }
 
     // Message-ID propio: permite emparejar la respuesta con el hilo IMAP
     // (In-Reply-To/References) y trazarlo en la bandeja.
@@ -647,7 +673,7 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
         // Multipart/alternative con texto plano + HTML: mejora la deliverability
         // (los envíos masivos que sí llegan usan texto_plano) y evita el filtro
         // anti-spam de correos "solo HTML".
-        'texto_plano' => $cuerpo,
+        'texto_plano' => $textoPlano,
         'message_id'  => $messageId,
     ];
     if (!empty($adjuntos)) {
@@ -754,6 +780,8 @@ if ($action === 'enviar_respuesta_smtp') {
     $email   = trim((string)($_POST['email'] ?? ''));
     $cuerpo  = trim((string)($_POST['cuerpo'] ?? ''));
     $asunto  = trim((string)($_POST['asunto'] ?? 'Re: FutProtec'));
+    $smtpIdHeredado = (int)($_POST['smtp_id'] ?? 0);
+    $formato = (($_POST['formato'] ?? 'texto') === 'html') ? 'html' : 'texto';
 
     // Adjuntos opcionales (input file multiple → 'adjunto[]').
     $adjuntos = [];
@@ -782,7 +810,7 @@ if ($action === 'enviar_respuesta_smtp') {
         }
     }
     try {
-        echo json_encode(enviarRespuestaSmtpLead($db, $leadId, $email, $cuerpo, $asunto, $adjuntos));
+        echo json_encode(enviarRespuestaSmtpLead($db, $leadId, $email, $cuerpo, $asunto, $adjuntos, $smtpIdHeredado, $formato));
     } catch (\Exception $e) {
         echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
     }

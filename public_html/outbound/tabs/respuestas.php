@@ -22,6 +22,8 @@
   /* Ancho mínimo del selector de plantilla */
   .min-w-\[200px\] { min-width: 200px; }
   .max-w-\[220px\] { max-width: 220px; }
+  .min-h-\[110px\] { min-height: 110px; }
+  .max-h-\[260px\] { max-height: 260px; }
 </style>
 <div class="flex flex-col gap-4 h-[calc(100vh-120px)] min-h-[480px]">
 
@@ -175,6 +177,7 @@
               <!-- Email de Origen y Email de Destino (FutProtec) -->
               <div class="text-xs text-amber-400 font-mono truncate mt-1" x-text="'De: ' + (rsSeleccion.remitente_email || rsSeleccion.email || '—')"></div>
               <div class="text-xs text-blue-400 font-mono truncate" x-text="'Para: ' + (rsSeleccion.buzon_destino || rsSeleccion.buzón_cuenta || '—')"></div>
+              <div class="text-xs text-emerald-400 font-mono truncate" x-show="rsSeleccion.cuenta_emision" x-text="'✉️ Enviar desde: ' + rsSeleccion.cuenta_emision"></div>
             </div>
 
             <div class="flex items-center gap-2 flex-wrap shrink-0">
@@ -268,9 +271,22 @@
               </template>
             </select>
           </div>
-          <!-- Editor de respuesta -->
-          <textarea x-model="rsRedaccion" rows="3" placeholder="Escribe tu respuesta aquí... (o usa la IA / una plantilla)"
-                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-orange-500/50 focus:outline-none resize-none"></textarea>
+          <!-- Editor de respuesta (HTML sencillo, tipo Tiny) -->
+          <div class="rounded-lg border border-slate-700 bg-slate-900 overflow-hidden">
+            <div class="flex items-center gap-1 px-2 py-1.5 border-b border-slate-700 bg-slate-950 flex-wrap">
+              <button type="button" @click="rsEditorCmd('bold')" class="w-7 h-7 rounded hover:bg-slate-700 transition text-sm font-bold text-slate-200" title="Negrita"><b>B</b></button>
+              <button type="button" @click="rsEditorCmd('italic')" class="w-7 h-7 rounded hover:bg-slate-700 transition text-sm italic text-slate-200" title="Cursiva"><i>I</i></button>
+              <button type="button" @click="rsEditorCmd('underline')" class="w-7 h-7 rounded hover:bg-slate-700 transition text-sm underline text-slate-200" title="Subrayado"><u>U</u></button>
+              <button type="button" @click="rsEditorCmd('insertUnorderedList')" class="w-7 h-7 rounded hover:bg-slate-700 transition text-sm text-slate-200" title="Lista con viñetas">•≡</button>
+              <button type="button" @click="rsEditorCmd('insertOrderedList')" class="w-7 h-7 rounded hover:bg-slate-700 transition text-sm text-slate-200" title="Lista numerada">1≡</button>
+              <button type="button" @click="rsEditorLink()" class="px-2 h-7 rounded hover:bg-slate-700 transition text-sm text-sky-400" title="Insertar enlace">🔗</button>
+              <span class="mx-1 w-px h-5 bg-slate-700"></span>
+              <span class="text-[11px] text-slate-400 ml-auto" x-text="(rsRedaccion || '').length + ' caracteres'"></span>
+            </div>
+            <div x-ref="rsEditorBody" contenteditable="true" @input="rsEditorInput()"
+                 class="p-2 min-h-[110px] max-h-[260px] overflow-y-auto text-sm text-slate-200 focus:outline-none bg-slate-900"
+                 placeholder="Escribe tu respuesta aquí... (o usa la IA / una plantilla)"></div>
+          </div>
           <!-- Adjuntos de la respuesta (archivos a enviar) -->
           <div class="flex items-center gap-2 mt-2 flex-wrap">
             <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-semibold text-slate-300 hover:text-slate-100 hover:border-slate-600 transition cursor-pointer">

@@ -115,6 +115,11 @@ var app = function() {
         // ─── UNIBOX SPLIT-VIEW (FASE UNIBOX UI) ─────────────────────────────
         // Conversación seleccionada en el panel derecho (visor).
         rsSeleccion: null,
+        // Cuenta SMTP heredada del lead (responder desde la misma cuenta) y datos del remitente.
+        rsSmtpHeredada: 0,
+        rsSenderEmail: '',
+        rsSenderName: '',
+        rsSenderTitle: 'Atención a Clubes - FutProtec',
         // Respuesta asistida por IA (asunto + borrador) y flags de la caja rápida.
         rsAsuntoResp: '',
         rsGenerandoIA: false,
@@ -2179,7 +2184,14 @@ var app = function() {
             this.rsEnvioMsg = '';
             this.rsEnvioMsgOk = false;
             this.rsWaUrl = this.rsConstruirWaUrl(conv);
+            // Cuenta SMTP heredada del lead: responder desde la misma cuenta con la
+            // que ya se comunicó el club (p.ej. gonzalo.vega@getfutprotec.com).
+            this.rsSmtpHeredada = parseInt(conv.smtp_heredada, 10) || 0;
+            this.rsSenderEmail = conv.cuenta_emision || '';
+            this.rsSenderName = conv.smtp_nombre_emisor || (this.rsSenderEmail ? this.rsSenderEmail.split('@')[0].replace(/\b\w/g, c => c.toUpperCase()) : '');
+            this.rsSenderTitle = 'Atención a Clubes - FutProtec';
             setTimeout(() => lucide.createIcons(), 50);
+            this.rsSyncEditorHtml();
         },
         // Construye el enlace dinámico de WhatsApp para el lead seleccionado.
         rsConstruirWaUrl(conv) {
@@ -2225,13 +2237,56 @@ var app = function() {
             const tpl = (this.rsTemplatesRapidas || []).find(t => String(t.id) === String(this.rsPlantillaRapida));
             if (!tpl || !this.rsSeleccion) return;
             const conv = this.rsSeleccion;
-            this.rsRedaccion = (tpl.cuerpo || '')
+            // Sustitución contextual: rellena TODOS los placeholders con datos reales
+            // del lead y de la cuenta SMTP heredada (la misma con la que se comunicó).
+            const senderName = this.rsSenderName || 'FutProtec';
+            const senderEmail = this.rsSenderEmail || '';
+            const rep = (s) => String(s || '')
                 .replace(/{{CONTACTO}}/g, conv.contacto_nombre || conv.persona_contacto || 'responsable')
                 .replace(/{{VOLUMEN}}/g, conv.volumen_equipos || conv.volumen_estimado || '')
                 .replace(/{{CLUB}}/g, conv.nombre_club || conv.club || '')
-                .replace(/\[\[SENDER_NAME\]\]/g, '')
-                .replace(/\[\[SENDER_TITLE\]\]/g, '');
-            if (tpl.asunto) this.rsAsuntoResp = tpl.asunto;
+                .replace(/{{EMAIL}}/g, conv.email || senderEmail)
+                .replace(/{{FEDERACION}}/g, conv.federacion || '')
+                .replace(/{{ANIO}}/g, String(new Date().getFullYear()))
+                .replace(/{{SENDER_NAME}}/g, senderName)
+                .replace(/{{SENDER_TITLE}}/g, this.rsSenderTitle || 'Atención a Clubes - FutProtec')
+                .replace(/{{SENDER_EMAIL}}/g, senderEmail)
+                // Residuales: nunca dejar un placeholder sin resolver (evita filtros anti-spam).
+                .replace(/\{\{[^}]+\}\}/g, '')
+                .replace(/\{\[[^\]]+\]\}/g, '')
+                .replace(/\[\[[^\]]+\]\]/g, '');
+            this.rsRedaccion = rep(tpl.cuerpo);
+            if (tpl.asunto) this.rsAsuntoResp = rep(tpl.asunto);
+            this.rsSyncEditorHtml();
+        },
+        // ─── Editor HTML de respuesta (sencillo, tipo TinyMCE) ────────────────
+        // Sincroniza el HTML del editor (contenteditable) con rsRedaccion sin
+        // re-renderizar (para no perder el cursor).
+        rsSyncEditorHtml() {
+            this.$nextTick(() => {
+                const el = this.$refs && this.$refs.rsEditorBody;
+                if (el) el.innerHTML = this.rsRedaccion || '';
+            });
+        },
+        rsEditorInput() {
+            const el = this.$refs && this.$refs.rsEditorBody;
+            if (el) this.rsRedaccion = el.innerHTML;
+        },
+        rsEditorCmd(cmd) {
+            const el = this.$refs && this.$refs.rsEditorBody;
+            if (!el) return;
+            el.focus();
+            try { document.execCommand(cmd, false, null); } catch (e) { /* execCommand deprecated pero funcional */ }
+            this.rsEditorInput();
+        },
+        rsEditorLink() {
+            const url = prompt('URL del enlace:');
+            if (!url) return;
+            const el = this.$refs && this.$refs.rsEditorBody;
+            if (!el) return;
+            el.focus();
+            try { document.execCommand('createLink', false, url); } catch (e) {}
+            this.rsEditorInput();
         },
         // Actualiza el estado del lead en clubes_crm en tiempo real.
         async rsActualizarEstadoLead() {
@@ -2271,6 +2326,7 @@ var app = function() {
                 const j = await r.json();
                 if (j.ok) {
                     this.rsRedaccion = j.cuerpo || '';
+                    this.rsSyncEditorHtml();
                     this.rsAsuntoResp = j.asunto || '';
                     this.rsEnvioMsg = '✨ Borrador generado con la IA — revísalo y edítalo antes de enviar.';
                     this.rsEnvioMsgOk = true;
@@ -2345,7 +2401,10 @@ var app = function() {
                 .replace(/\{\{[^}]+\}\}/g, '')
                 .replace(/\{\[[^\]]+\]\}/g, '')
                 .replace(/\[\[[^\]]+\]\]/g, ''));
+            f.append('formato', 'html'); // el editor produce HTML (negritas, listas...)
             f.append('envio_id', this.rsSeleccion.envio_id || '');
+            // Responder desde la misma cuenta SMTP con la que ya se comunicó el club.
+            f.append('smtp_id', this.rsSmtpHeredada || 0);
             // Adjuntos seleccionados (archivos locales) → multipart/mixed.
             for (const a of (this.rsAdjuntos || [])) {
                 f.append('adjunto[]', a, a.name);
@@ -2698,6 +2757,11 @@ var app = function() {
         cargarRepoAdjuntos: function () {},
         rsAgregarRepoAdjunto: function () {},
         atencionAgregarRepoAdjunto: function () {},
+        // Editor HTML de respuesta
+        rsSyncEditorHtml: function () {},
+        rsEditorInput: function () {},
+        rsEditorCmd: function () {},
+        rsEditorLink: function () {},
         // Métodos de Lista Negra
         blBuscar: function () {},
         blAgregar: function () {},

@@ -837,6 +837,16 @@ if ($action === 'get_respuestas') {
                     );
                 }
                 $indice[$clave] = count($conversaciones);
+                // Cuenta SMTP heredada del último envío del lead (para responder
+                // desde la MISMA cuenta con la que ya se comunicó el club).
+                $smtpHeredada = 0; $cuentaEmision = ''; $smtpNombreEmisor = '';
+                if ($leadId > 0) {
+                    $smtpHeredada = (int)$db->querySingle("SELECT e.smtp_id FROM envios e WHERE e.lead_id = {$leadId} AND COALESCE(e.es_test,0)=0 AND e.smtp_id > 0 ORDER BY e.id DESC LIMIT 1");
+                    $cuentaEmision = (string)$db->querySingle("SELECT e.cuenta_emision FROM envios e WHERE e.lead_id = {$leadId} AND COALESCE(e.es_test,0)=0 ORDER BY e.id DESC LIMIT 1");
+                    if ($smtpHeredada > 0) {
+                        $smtpNombreEmisor = (string)$db->querySingle("SELECT COALESCE(nombre_emisor,'') FROM cuentas_smtp WHERE id = {$smtpHeredada}");
+                    }
+                }
                 // Los metadatos del lead se toman preferentemente del LEFT JOIN a
                 // clubes_crm (lead_*), con fallback al query individual ($leadInfo).
                 $conversaciones[] = [
@@ -871,6 +881,9 @@ if ($action === 'get_respuestas') {
                     'tiene_whatsapp' => $r['lead_tiene_whatsapp'] ?? $leadInfo['tiene_whatsapp'] ?? null,
                     'campaña_nombre' => $r['campaña_nombre'] ?? null,
                     'variant' => $r['variant'] ?? null,
+                    'smtp_heredada' => $smtpHeredada,
+                    'cuenta_emision' => $cuentaEmision,
+                    'smtp_nombre_emisor' => $smtpNombreEmisor,
                     'mensajes' => [],
                     'score' => 0,
                     'prioridad' => 'media',
