@@ -733,6 +733,19 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
         }
     }
 
+    // Trazabilidad: registrar el envío de la Bandeja con el nº de adjuntos
+    // (comunicaciones_log, misma fuente que el lote para el timeline).
+    if ($leadId > 0) {
+        $nAdjLog = count($adjuntos);
+        $stmtLog = $db->prepare(
+            'INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+             VALUES (:l, NULL, \'envio_email\', :d, CURRENT_TIMESTAMP)'
+        );
+        $stmtLog->bindValue(':l', $leadId, SQLITE3_INTEGER);
+        $stmtLog->bindValue(':d', 'Envío (Bandeja) a ' . $email . ($nAdjLog > 0 ? ' · adjuntos: ' . $nAdjLog : ''), SQLITE3_TEXT);
+        $stmtLog->execute();
+    }
+
     return ['ok' => true, 'tracking_id' => $trackingId];
 }
 
@@ -782,9 +795,13 @@ if ($action === 'enviar_respuesta_smtp') {
     $asunto  = trim((string)($_POST['asunto'] ?? 'Re: FutProtec'));
     $smtpIdHeredado = (int)($_POST['smtp_id'] ?? 0);
     $formato = (($_POST['formato'] ?? 'texto') === 'html') ? 'html' : 'texto';
+    // El front indica cuántos adjuntos espera el servidor recibir (trazabilidad:
+    // si el usuario adjuntó archivos pero no llegan, NO enviar en silencio).
+    $conAdjuntosEsperado = (int)($_POST['con_adjuntos'] ?? 0);
 
     // Adjuntos opcionales (input file multiple → 'adjunto[]').
     $adjuntos = [];
+    $fallosSubida = [];
     if (!empty($_FILES['adjunto'])) {
         $f = $_FILES['adjunto'];
         $nombres = is_array($f['name'] ?? null) ? $f['name'] : (isset($f['name']) ? [$f['name']] : []);
@@ -793,9 +810,25 @@ if ($action === 'enviar_respuesta_smtp') {
         $errores = is_array($f['error'] ?? null) ? $f['error'] : (isset($f['error']) ? [$f['error']] : []);
         $totalBytes = 0;
         foreach ($nombres as $i => $nombre) {
-            if (($errores[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
+            $err = $errores[$i] ?? UPLOAD_ERR_NO_FILE;
+            if ($err !== UPLOAD_ERR_OK) {
+                // Solo se reporta si es un fallo REAL de subida (no un campo vacío).
+                if ($err !== UPLOAD_ERR_NO_FILE) {
+                    $mapa = [
+                        UPLOAD_ERR_INI_SIZE   => 'supera el límite del servidor',
+                        UPLOAD_ERR_FORM_SIZE  => 'supera el límite del formulario',
+                        UPLOAD_ERR_PARTIAL    => 'subida incompleta',
+                        UPLOAD_ERR_EXTENSION  => 'extensión rechazada por PHP',
+                    ];
+                    $fallosSubida[] = basename((string)$nombre) . ' → ' . ($mapa[$err] ?? 'error ' . $err);
+                }
+                continue;
+            }
             $tmpPath = (string)($tmp[$i] ?? '');
-            if ($tmpPath === '' || !is_uploaded_file($tmpPath)) continue;
+            if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+                $fallosSubida[] = basename((string)$nombre) . ' → no subido al servidor';
+                continue;
+            }
             $contenido = (string)file_get_contents($tmpPath);
             $totalBytes += strlen($contenido);
             if ($totalBytes > 8 * 1024 * 1024) {
@@ -808,6 +841,15 @@ if ($action === 'enviar_respuesta_smtp') {
                 'contenido' => $contenido,
             ];
         }
+    }
+    // Nunca enviar en silencio sin los adjuntos que el usuario seleccionó.
+    if (!empty($fallosSubida)) {
+        echo json_encode(['ok' => false, 'error' => 'No se pudieron adjuntar: ' . implode(', ', array_slice($fallosSubida, 0, 4))]);
+        exit;
+    }
+    if ($conAdjuntosEsperado > 0 && empty($adjuntos)) {
+        echo json_encode(['ok' => false, 'error' => 'Los adjuntos no llegaron al servidor (' . $conAdjuntosEsperado . ' esperados). Reintenta o reduce el tamaño de las imágenes.']);
+        exit;
     }
     try {
         echo json_encode(enviarRespuestaSmtpLead($db, $leadId, $email, $cuerpo, $asunto, $adjuntos, $smtpIdHeredado, $formato));

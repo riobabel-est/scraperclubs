@@ -2416,11 +2416,15 @@ var app = function() {
             for (const a of (this.rsAdjuntos || [])) {
                 f.append('adjunto[]', a, a.name);
             }
+            // El servidor verifica que si aquí hay adjuntos, los recibe (nunca enviar
+            // en silencio sin ellos: trazabilidad de subida).
+            f.append('con_adjuntos', (this.rsAdjuntos || []).length);
             try {
                 const r = await fetch('', { method: 'POST', body: f });
                 const j = await r.json();
                 if (j && j.ok) {
-                    this.rsEnvioMsg = 'Respuesta enviada correctamente.';
+                    const nAdjEnv = (this.rsAdjuntos || []).length;
+                    this.rsEnvioMsg = 'Respuesta enviada correctamente' + (nAdjEnv > 0 ? ' con ' + nAdjEnv + ' adjunto(s).' : '.');
                     this.rsEnvioMsgOk = true;
                     this.rsRedaccion = '';
                     this.rsPlantillaRapida = '';
