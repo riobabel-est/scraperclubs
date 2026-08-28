@@ -203,7 +203,7 @@ if ($action === 'generar_plantilla_ia') {
     $tonoDesc = ['profesional' => 'profesional y cercano', 'cercano' => 'cercano y natural', 'directo' => 'directo y conciso', 'formal' => 'formal e institucional'][$tono] ?? 'profesional y cercano';
 
     $system = "Eres un redactor de ventas B2B de un software de gestión de clubes de fútbol (FutProtec)."
-        . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO (úsalo como base, no inventes datos):\n" . mb_substr($ctx, 0, 2000) : '')
+        . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO (úsalo como base, no inventes datos):\n" . mb_substr($ctx, 0, 4000) : '')
         . "\n\nREGLA: Escribe en español, tono {$tonoDesc}, máximo {$maxPalabras} palabras. Usa los placeholders {{CLUB}}, {{CONTACTO}}, {{FEDERACION}} y {{ANIO}} donde corresponda. No inventes precios, cifras ni hechos. El email debe ser accionable (una sola llamada a la acción).";
 
     $user = "Crea un email de la categoría '{$categoria}' con el enfoque: {$enfoque}."

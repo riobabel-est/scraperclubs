@@ -136,7 +136,7 @@ function generarResumenDiaIA(SQLite3 $db, int $campaignId): ?string {
         . "3) Franja horaria recomendada para los envíos según la actividad real de aperturas.\n"
         . "4) Recordatorio de pendientes por cliente (mockups/proformas).\n"
         . "Sé directo y accionable. No inventes números, clubes ni datos que no estén en la lista."
-        . ($ctx !== '' ? "\n\nCONTEXTO DE PRODUCTO:\n" . mb_substr($ctx, 0, 1500) : '');
+        . ($ctx !== '' ? "\n\nCONTEXTO DE PRODUCTO:\n" . mb_substr($ctx, 0, 4000) : '');
 
     return llm_chat($db, $system, $txt, 400, 0.4);
 }

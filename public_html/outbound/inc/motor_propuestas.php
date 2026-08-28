@@ -117,7 +117,7 @@ function motor_reglas_candidatos(SQLite3 $db, int $campaignId): array {
 function motor_redactar_con_ia(SQLite3 $db, array $prop): array {
     $ctx = contextoProducto($db);
     $system = "Eres un copywriter de ventas B2B para un software de gestión de clubes de fútbol."
-        . ($ctx !== '' ? "\n\nCONTEXTO DE PRODUCTO (úsalo como base):\n" . mb_substr($ctx, 0, 2000) : '')
+        . ($ctx !== '' ? "\n\nCONTEXTO DE PRODUCTO (úsalo como base):\n" . mb_substr($ctx, 0, 4000) : '')
         . "\n\nRedacta un email comercial breve, en español, profesional y cercano (máximo 120 palabras), con asunto y cuerpo. Devuelve SOLO el texto del email.";
 
     $lead = $prop['datos'] ?? [];

@@ -316,7 +316,7 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
     }
 
     $system = "Eres un asistente comercial B2B de FutProtec (software de gestión para clubes de fútbol) que RESPONDE dentro de una conversación por email ya iniciada."
-        . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO (úsalo como base):\n" . mb_substr($ctx, 0, 2000) : '')
+        . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO (úsalo como base):\n" . mb_substr($ctx, 0, 4000) : '')
         . "\n\nREGLA DE SALUDO: {$reglaSaludo}"
         . ($varianteDom !== '' ? "\nRAMAL DE INTERÉS: el lead validó con sus aperturas el enfoque de la variante {$varianteDom} del test de prospección (A=General/Producto, B=Identidad/Cantera, C=Financiero/Rentabilidad). CONTINÚA exactamente esa misma línea argumental: no cambies de tema ni mezcles ángulos." : '')
         . ($formatoReferencia !== '' ? "\nIMITA el tono y la estructura del FORMATO DE REFERENCIA del negocio que se te da (sin copiar textualmente)." : '')
@@ -388,7 +388,7 @@ function ia_analizar_lead(SQLite3 $db, int $leadId, int $campaignId = 0): ?array
 
     $system = "Eres el ANALISTA SENIOR DE VENTAS B2B de FutProtec (software de gestión para clubes de fútbol)."
         . " Lee el HISTORIAL COMPLETO de la conversación de un club y produce un análisis ejecutivo accionable."
-        . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO:\n" . mb_substr($ctx, 0, 1500) : '')
+        . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO:\n" . mb_substr($ctx, 0, 4000) : '')
         . "\n\nResponde SOLO con un JSON válido (sin texto fuera), con estas claves exactas:"
         . "\n- resumen: 2-3 frases ejecutivas de qué está pasando en la conversación."
         . "\n- intencion: una de [interesado, duda_precio, baja, neutral, no_interesa, otro, pendiente]. Usa 'pendiente' si NO hay información suficiente para decidir."

@@ -58,12 +58,15 @@
             </div>
         </div>
 
-        <!-- Conocimiento de producto: base para que la IA redacte mensajes comerciales B2B -->
+        <!-- 🧠 REGLAS DE NEGOCIO DE LA IA (Conocimiento de producto) — panel controlado
+             Aquí se añaden, quitan o editan las reglas que la IA debe cumplir al
+             redactar (producto, precios, flujo de venta, tono, firma). Se inyecta
+             en el prompt de todos los asistentes (Atender, análisis IA, propuestas). -->
         <div class="mb-4">
-            <label class="block text-sm font-semibold text-slate-300 mb-1.5">Conocimiento de producto (base para el Asistente IA)</label>
-            <textarea x-model="conocimientoProducto" rows="4" placeholder="Describe tu producto: qué es, para quién, características clave, precios, casos de éxito, enlaces... La IA usará esto para redactar emails de venta, 2ºs toques y presentaciones de mockups/proformas."
+            <label class="block text-sm font-semibold text-slate-300 mb-1.5">🧠 Reglas de negocio para la IA (Conocimiento de producto)</label>
+            <textarea x-model="conocimientoProducto" rows="16" placeholder="Añade, quita o edita aquí cualquier regla que la IA deba cumplir al redactar:&#10;· Producto (qué es, para quién, características)&#10;· Precios y pedido mínimo&#10;· Flujo de venta (p.ej. solicitar el escudo y los colores del club ANTES de ofrecer un mockup)&#10;· Tono y objeciones&#10;· La firma&#10;&#10;Todo se inyecta en el prompt de los asistentes IA."
                 class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/50"></textarea>
-            <p class="text-xs text-slate-400 mt-1.5">No hace falta pegar URLs: la IA no navega. Pega el contenido (catálogo, precios, ventajas). Se inyecta en el prompt del asistente.</p>
+            <p class="text-xs text-slate-400 mt-1.5">Panel de reglas: modifica, añade o borra cualquier línea (producto, precios, flujo de venta, tono, firma). Se inyecta tal cual en el prompt de la IA. Guarda con el botón de abajo.</p>
         </div>
 
         <div class="flex items-center justify-end gap-3 mt-4 pt-3 border-t border-slate-800">
