@@ -71,6 +71,11 @@ function limpiarCuerpoMime(string $cuerpo): string {
         if ($l === '' || str_starts_with($l, '>') || str_starts_with($l, '--')) {
             continue;
         }
+        // Recortar el bloque de cita de respuesta ("El dd/mm/aaaa ... escribió:",
+        // "On ... wrote:", "Enviado el ..."): el texto REAL del cliente va ANTES.
+        if (preg_match('/^(El|On|Le|Enviado el)[ \t]+([a-záéíóú]{3,},?[ \t]+)?\d{1,2}[ \t]*(de[ \t]*)?(jul|ago|sept?|oct|nov|dic|ene|feb|mar|abr|may|jun|\d{1,2}|\d{2,4})[^\r\n]*?(escribi[oó]|wrote:|sent:)/iu', $l)) {
+            break;
+        }
         $limpias[] = $l;
     }
     $t = implode("\n", $limpias);

@@ -216,19 +216,13 @@
                   <span x-show="m.sentido !== 'saliente' && m.clasificacion" class="px-1.5 py-0.5 rounded-full text-xs font-semibold border" :class="rsClasColor(m.clasificacion)" x-text="rsClasLabel(m.clasificacion)"></span>
                 </div>
                 <div class="text-sm text-slate-300 font-medium" x-text="m.subject_respuesta || m.asunto_envio || ''"></div>
-                <!-- Cuerpo del mensaje: prioriza el texto limpio (cuerpo_limpio/cuerpo_texto)
-                     para garantizar que se vea TODO el contenido legible del email.
-                     Solo si no hay texto limpio se muestra el HTML sanitizado. -->
-                <template x-if="(m.cuerpo_limpio && m.cuerpo_limpio.trim() && m.cuerpo_limpio !== 'Sin contenido de texto') || (m.cuerpo_texto && m.cuerpo_texto.trim() && m.cuerpo_texto !== 'Sin contenido de texto')">
-                  <div class="mensaje-cuerpo-texto mt-1 whitespace-pre-wrap text-sm text-slate-200" x-text="m.cuerpo_limpio || m.cuerpo_texto || ''"></div>
-                </template>
-                <template x-if="!((m.cuerpo_limpio && m.cuerpo_limpio.trim() && m.cuerpo_limpio !== 'Sin contenido de texto') || (m.cuerpo_texto && m.cuerpo_texto.trim() && m.cuerpo_texto !== 'Sin contenido de texto'))">
-                  <div class="mensaje-cuerpo-html mt-1" x-html="rsSanitizarHtml(m.contenido_html)"></div>
-                </template>
+                <!-- Cuerpo del mensaje (render ROBUSTO): rsCuerpoMensaje devuelve el
+                     mejor texto disponible (limpio → texto → extraído del HTML).
+                     Solo si no hay nada legible se muestra el HTML sanitizado o el asunto. -->
+                <div class="mensaje-cuerpo-texto mt-1 whitespace-pre-wrap text-sm text-slate-200" x-show="rsCuerpoMensaje(m)" x-text="rsCuerpoMensaje(m)"></div>
+                <div class="mensaje-cuerpo-html mt-1" x-show="!rsCuerpoMensaje(m) && m.contenido_html" x-html="rsSanitizarHtml(m.contenido_html)"></div>
                 <!-- Sin cuerpo ni HTML extraíble: al menos mostrar el asunto (trazabilidad). -->
-                <template x-if="!((m.cuerpo_limpio && m.cuerpo_limpio.trim() && m.cuerpo_limpio !== 'Sin contenido de texto') || (m.cuerpo_texto && m.cuerpo_texto.trim() && m.cuerpo_texto !== 'Sin contenido de texto') || m.contenido_html)">
-                  <div class="mensaje-cuerpo-texto mt-1 text-slate-500 italic text-sm">📄 <span x-text="m.subject_respuesta || m.asunto_envio || '(correo sin contenido de texto extraíble)'"></span></div>
-                </template>
+                <div class="mensaje-cuerpo-texto mt-1 text-slate-500 italic text-sm" x-show="!rsCuerpoMensaje(m) && !m.contenido_html">📄 <span x-text="m.subject_respuesta || m.asunto_envio || '(correo sin contenido de texto extraíble)'"></span></div>
                 <!-- Archivos adjuntos del mensaje (descarga autenticada) -->
                 <div x-show="m.adjuntos && m.adjuntos.length > 0" class="mt-2 flex items-center gap-2 flex-wrap">
                   <template x-for="a in (m.adjuntos || [])" :key="'adj' + a.id">

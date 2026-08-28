@@ -2148,6 +2148,30 @@ var app = function() {
             if (m && m.sentido) return m.sentido === 'entrante';
             return !!m.remitente && m.remitente !== m.email;
         },
+        // Devuelve el cuerpo legible de un mensaje de forma ROBUSTA:
+        // 1) texto limpio (cuerpo_limpio/cuerpo_texto/cuerpo), 2) texto extraído
+        // del HTML, 3) '' (el visor mostrará entonces el HTML o el asunto).
+        // Nunca devuelve los literales 'Sin contenido de texto' ni strings solo
+        // de cita: si el cuerpo limpio es irrelevante, se intenta el HTML.
+        rsCuerpoMensaje(m) {
+            if (!m) return '';
+            const util = (s) => {
+                const x = String(s || '').trim();
+                if (!x) return '';
+                const l = x.toLowerCase();
+                if (l === 'sin contenido de texto' || l === 'sin contenido html') return '';
+                return x;
+            };
+            const t = util(m.cuerpo_limpio) || util(m.cuerpo_texto) || util(m.cuerpo);
+            if (t) return t;
+            const h = util(m.contenido_html);
+            if (h) {
+                const d = document.createElement('div');
+                d.innerHTML = h;
+                return (d.textContent || '').replace(/\s+/g, ' ').trim();
+            }
+            return '';
+        },
         // Hilo en orden WhatsApp: el primer mensaje ARRIBA y el último ABAJO.
         // (el backend mantiene mensajes en DESC para snippets/intención; aquí
         //  se invierte SOLO para el visor, facilitando leer el último mensaje).
@@ -2777,6 +2801,7 @@ var app = function() {
         atencionAdjuntarArchivos: function () {},
         atencionQuitarAdjunto: function () {},
         charlaHilo: function () { return []; },
+        rsCuerpoMensaje: function () { return ''; },
         // Métodos de perfil / Mi cuenta
         perfilIniciales: function () { return 'FP'; },
         perfilCargar: function () {},
