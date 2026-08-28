@@ -163,6 +163,36 @@ function charlaLead(SQLite3 $db, int $leadId, int $campaignId = 0): array {
 
 
 /**
+ * atencion_extraerTextoAdjunto — Extrae texto legible de un adjunto enviado
+ * (para que la IA sepa qué se entregó: presupuesto, boceto, tarifas...).
+ * Soporta PDFs generados por construirPdfSimple (texto en streams "(...) Tj")
+ * y archivos de texto plano. Otros tipos devuelven '' (solo se indica el nombre).
+ */
+function atencion_extraerTextoAdjunto(string $nombre, string $mime, string $datos): string
+{
+    $mimeL = strtolower(trim((string)$mime));
+    $nombreL = strtolower(trim((string)$nombre));
+    if ($mimeL === 'text/plain' || str_ends_with($nombreL, '.txt')) {
+        return trim($datos);
+    }
+    if ($mimeL === 'application/pdf' || str_ends_with($nombreL, '.pdf')) {
+        $texto = '';
+        if (preg_match_all('/\(([^)]*)\)\s*Tj/i', $datos, $m)) {
+            foreach ($m[1] as $t) {
+                $t = str_replace(['\\(', '\\)', '\\\\'], ['(', ')', '\\'], (string)$t);
+                // El PDF se genera en Windows-1252 → convertir a UTF-8 para tildes/ñ.
+                $t = @iconv('Windows-1252', 'UTF-8//TRANSLIT', $t);
+                $texto .= ($t === false ? $m[1] : $t) . "\n";
+            }
+        }
+        return trim($texto);
+    }
+    // Imágenes, ZIP y otros: sin texto extraíble (se indica solo el nombre).
+    return '';
+}
+
+
+/**
  * contextoDialogoCompleto — Construye el DIÁLOGO COMPLETO y estructurado de un
  * lead (envíos de FutProtec + respuestas del club + aperturas) en orden
  * cronológico, con el CUERPO REAL de cada mensaje (no solo asunto). Es lo que la
@@ -174,7 +204,7 @@ function contextoDialogoCompleto(SQLite3 $db, int $leadId): string
 
     // Envíos salientes (con cuerpo completo, no solo asunto)
     $r = $db->query(
-        "SELECT e.fecha_envio, e.asunto, e.cuerpo_mensaje, e.cuenta_emision, e.variant
+        "SELECT e.id, e.fecha_envio, e.asunto, e.cuerpo_mensaje, e.cuenta_emision, e.variant
          FROM envios e WHERE e.lead_id = {$leadId} AND COALESCE(e.es_test,0) = 0
          ORDER BY e.id ASC"
     );
@@ -182,9 +212,25 @@ function contextoDialogoCompleto(SQLite3 $db, int $leadId): string
         while ($e = $r->fetchArray(SQLITE3_ASSOC)) {
             $cuerpo = atencion_limpiarCuerpoRespuesta((string)($e['cuerpo_mensaje'] ?? ''));
             $cuerpo = mb_substr($cuerpo, 0, 800);
-            $lineas[] = "[envío {$e['fecha_envio']}] de {$e['cuenta_emision']} · variante " . ($e['variant'] ?? '')
+            $bloque = "[envío {$e['fecha_envio']}] de {$e['cuenta_emision']} · variante " . ($e['variant'] ?? '')
                 . "\nASUNTO: " . trim((string)$e['asunto'])
                 . "\nCUERPO: " . $cuerpo;
+
+            // Adjuntos enviados (presupuesto, boceto, tarifas...) con su contenido,
+            // para que la IA reconozca QUÉ se ha entregado y qué no.
+            $rAdj = $db->query("SELECT nombre, mime, datos FROM envios_adjuntos WHERE envio_id = " . (int)$e['id'] . " ORDER BY id");
+            if ($rAdj) {
+                $adjBloque = [];
+                while ($adj = $rAdj->fetchArray(SQLITE3_ASSOC)) {
+                    $txt = mb_substr(atencion_extraerTextoAdjunto((string)$adj['nombre'], (string)$adj['mime'], (string)$adj['datos']), 0, 400);
+                    $adjBloque[] = trim((string)$adj['nombre'])
+                        . ($txt !== '' ? " → \"{$txt}\"" : ' (sin texto extraíble)');
+                }
+                if (!empty($adjBloque)) {
+                    $bloque .= "\nADJUNTOS ENVIADOS: " . implode('; ', $adjBloque);
+                }
+            }
+            $lineas[] = $bloque;
         }
     }
 
@@ -321,6 +367,7 @@ function generarEmailIA(SQLite3 $db, int $leadId, ?int $plantillaId = null): ?ar
         . ($varianteDom !== '' ? "\nRAMAL DE INTERÉS: el lead validó con sus aperturas el enfoque de la variante {$varianteDom} del test de prospección (A=General/Producto, B=Identidad/Cantera, C=Financiero/Rentabilidad). CONTINÚA exactamente esa misma línea argumental: no cambies de tema ni mezcles ángulos." : '')
         . ($formatoReferencia !== '' ? "\nIMITA el tono y la estructura del FORMATO DE REFERENCIA del negocio que se te da (sin copiar textualmente)." : '')
         . "\nTAREA: lee el HISTORIAL CRONOLÓGICO del club y responde DIRECTAMENTE a la última pregunta, objeción o solicitud que haya hecho (presupuesto, boceto de espinilleras, dudas, plazos, etc.)."
+        . "\nADJUNTOS ENVIADOS: el HISTORIAL incluye en cada envío la línea ADJUNTOS ENVIADOS con el nombre y el contenido extraído de los archivos que se entregaron (presupuesto, boceto, tarifas). Usa esa información para saber qué YA se envió: no ofrezcas ni repitas algo ya entregado, y si falta algo pendiente, indícalo con naturalidad."
         . "\nReglas: no repitas mensajes anteriores ni uses frases de prospección inicial; usa SOLO datos reales del historial (no inventes hechos, precios ni plazos); sé concreto y cercano; máximo 140 palabras."
         . "\nResponde EXACTAMENTE con este formato de dos líneas:\nASUNTO: <texto>\nCUERPO: <texto>";
 
@@ -388,6 +435,7 @@ function ia_analizar_lead(SQLite3 $db, int $leadId, int $campaignId = 0): ?array
 
     $system = "Eres el ANALISTA SENIOR DE VENTAS B2B de FutProtec (software de gestión para clubes de fútbol)."
         . " Lee el HISTORIAL COMPLETO de la conversación de un club y produce un análisis ejecutivo accionable."
+        . "\nEl HISTORIAL incluye los ADJUNTOS ENVIADOS de cada mensaje (con su contenido extraído): úsalos para reconocer qué se ha entregado (presupuesto, boceto, tarifas...) y qué queda pendiente en tu análisis y próxima acción."
         . ($ctx !== '' ? "\n\nCONOCIMIENTO DE PRODUCTO:\n" . mb_substr($ctx, 0, 4000) : '')
         . "\n\nResponde SOLO con un JSON válido (sin texto fuera), con estas claves exactas:"
         . "\n- resumen: 2-3 frases ejecutivas de qué está pasando en la conversación."
