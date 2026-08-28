@@ -882,10 +882,42 @@ if ($action === 'get_respuestas') {
                     );
                 }
                 $indice[$clave] = count($conversaciones);
-                // Cuenta SMTP heredada del último envío del lead (para responder
-                // desde la MISMA cuenta con la que ya se comunicó el club).
+                // ─── Cuenta de EMISIÓN (regla de oro) ───────────────────────────
+                // Se responde SIEMPRE desde la MISMA cuenta en la que el cliente nos
+                // escribió (el "Para:" / buzón destino del correo entrante más
+                // reciente). Cada lead va con la misma cuenta SMTP desde el inicio
+                // hasta que se decida "derivarlo". Solo si no hay respuesta entrante
+                // (o su cuenta no está activa) se usa la cuenta del último envío.
                 $smtpHeredada = 0; $cuentaEmision = ''; $smtpNombreEmisor = '';
+                $condBuz = '';
                 if ($leadId > 0) {
+                    $condBuz = "r.lead_id = {$leadId}";
+                } elseif ($emailRemR !== '') {
+                    $condBuz = "LOWER(r.remitente) = '" . $db->escapeString($emailRemR) . "'";
+                }
+                if ($condBuz !== '') {
+                    $buzonDestino = (string)$db->querySingle(
+                        "SELECT r.destinatario FROM respuestas r
+                         WHERE {$condBuz} AND COALESCE(r.es_rebote,0)=0
+                           AND r.destinatario IS NOT NULL AND r.destinatario != '' AND LOWER(r.destinatario) LIKE '%@%'
+                         ORDER BY r.id DESC LIMIT 1"
+                    );
+                    if ($buzonDestino !== '') {
+                        $cuentaDest = $db->querySingle(
+                            "SELECT id, email, COALESCE(nombre_emisor,'') AS nombre_emisor FROM cuentas_smtp
+                             WHERE LOWER(email) = '" . $db->escapeString(strtolower(trim($buzonDestino))) . "' AND activa = 1 LIMIT 1",
+                            true
+                        );
+                        if ($cuentaDest) {
+                            $smtpHeredada = (int)$cuentaDest['id'];
+                            $cuentaEmision = (string)$cuentaDest['email'];
+                            $smtpNombreEmisor = (string)($cuentaDest['nombre_emisor'] ?? '');
+                        }
+                    }
+                }
+                // Fallback: sin respuesta entrante (o cuenta del buzón inactiva) →
+                // cuenta SMTP del último envío del lead.
+                if ($smtpHeredada <= 0 && $leadId > 0) {
                     $smtpHeredada = (int)$db->querySingle("SELECT e.smtp_id FROM envios e WHERE e.lead_id = {$leadId} AND COALESCE(e.es_test,0)=0 AND e.smtp_id > 0 ORDER BY e.id DESC LIMIT 1");
                     $cuentaEmision = (string)$db->querySingle("SELECT e.cuenta_emision FROM envios e WHERE e.lead_id = {$leadId} AND COALESCE(e.es_test,0)=0 ORDER BY e.id DESC LIMIT 1");
                     if ($smtpHeredada > 0) {
