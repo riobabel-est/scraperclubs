@@ -840,11 +840,12 @@ if ($action === 'get_respuestas') {
             $items[] = $row;
         }
 
-        // ─── Agrupar por lead (lead_id si existe, si no cada respuesta es individual) ──
-        // IMPORTANTE: NO se agrupa por email. Cuando una respuesta no tiene lead_id
-        // asociado (correos entrantes sin envío original), cada fila de `respuestas`
-        // se entrega como una conversación individual para no colapsar correos
-        // distintos (p.ej. de la misma cuenta de pruebas) en un único hilo artificial.
+        // ─── Agrupar por lead (lead_id si existe, si no por EMAIL del remitente) ──
+        // IMPORTANTE: las respuestas entrantes sin lead_id se agrupan por EMAIL del
+        // remitente, de modo que un mismo hilo (varias respuestas del mismo club +
+        // envíos de FutProtec) quede en UNA única entrada de la lista que enlaza a
+        // toda la conversación. Solo si no hay email se crea una conversación
+        // individual por respuesta.
         $conversaciones = [];
         $indice = []; // clave de agrupación -> índice en $conversaciones
 
@@ -854,15 +855,20 @@ if ($action === 'get_respuestas') {
             // IMAP no asignó lead_id/envio_id).
             $leadId = (int)($r['lead_id'] ?? 0);
             if ($leadId <= 0) $leadId = (int)($r['envio_lead_id'] ?? 0);
-            if ($leadId <= 0) {
-                $emailRemR = strtolower(trim((string)($r['remitente_email'] ?? $r['remitente'] ?? '')));
-                if ($emailRemR !== '') {
-                    $clubIdR = (int)$db->querySingle("SELECT id FROM clubes_crm WHERE LOWER(email) = '" . $db->escapeString($emailRemR) . "' LIMIT 1");
-                    if ($clubIdR > 0) $leadId = $clubIdR;
-                }
+            $emailRemR = strtolower(trim((string)($r['remitente_email'] ?? $r['remitente'] ?? '')));
+            if ($leadId <= 0 && $emailRemR !== '') {
+                $clubIdR = (int)$db->querySingle("SELECT id FROM clubes_crm WHERE LOWER(email) = '" . $db->escapeString($emailRemR) . "' LIMIT 1");
+                if ($clubIdR > 0) $leadId = $clubIdR;
             }
-            // Sin lead_id → cada respuesta es su propia conversación (clave única por id).
-            $clave = $leadId > 0 ? 'lead:' . $leadId : 'resp:' . (int)($r['id'] ?? 0);
+            // Clave de agrupación:
+            //  - Con lead_id real → UNA conversación por lead (todo el hilo).
+            //  - Sin lead_id pero con remitente → UNA conversación por EMAIL del
+            //    remitente (evita que cada respuesta entrante y cada envío creen
+            //    una entrada duplicada en la lista; el clic abre todo el hilo).
+            //  - Sin lead_id ni email → conversación individual por respuesta.
+            $clave = $leadId > 0
+                ? 'lead:' . $leadId
+                : (($emailRemR !== '') ? 'email:' . $emailRemR : 'resp:' . (int)($r['id'] ?? 0));
 
             if (!isset($indice[$clave])) {
                 // Datos del lead (clubes_crm)
