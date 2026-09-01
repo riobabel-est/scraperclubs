@@ -121,3 +121,96 @@ function analyticsCampana() {
         }
     };
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// resumenDia — Resumen global del día (bloque de la Lanzadera)
+// Consume get_analytics_federaciones con desde=hasta=hoy.
+// ═════════════════════════════════════════════════════════════════════════════
+function resumenDia() {
+    return {
+        datos: null, cargando: false, error: '',
+        async cargar() {
+            this.cargando = true; this.error = '';
+            const hoy = new Date();
+            const iso = hoy.toISOString().slice(0, 10);
+            try {
+                const r = await fetch('?action=get_analytics_federaciones&desde=' + iso + '&hasta=' + iso);
+                const j = await r.json();
+                this.datos = (j && j.ok) ? j : null;
+            } catch (e) { this.error = 'No se pudo cargar el resumen del día.'; }
+            this.cargando = false;
+            if (window.lucide) lucide.createIcons();
+        },
+        get r() { return this.datos ? this.datos.resumen : null; },
+        get porFed() { return this.datos ? this.datos.por_federacion : []; }
+    };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// marketingFederaciones — Cuadro de mando de marketing por federación
+// (Analytics). Filtros: fechas, campaña, federación. Gráficos CSS puros.
+// ═════════════════════════════════════════════════════════════════════════════
+function marketingFederaciones() {
+    return {
+        campanas: [], campaignId: 0, federaciones: [], fedSel: '',
+        desde: '', hasta: '', datos: null, cargando: false, error: '',
+        async init() {
+            const hoy = new Date();
+            this.hasta = hoy.toISOString().slice(0, 10);
+            const inicio = new Date(); inicio.setDate(inicio.getDate() - 30);
+            this.desde = inicio.toISOString().slice(0, 10);
+            try {
+                const r = await fetch('?action=get_piloto_campanas');
+                const j = await r.json();
+                this.campanas = j.campanas || [];
+            } catch (e) {}
+            const ctx = (typeof window._campanaActual !== 'undefined' && window._campanaActual > 0) ? window._campanaActual : 0;
+            if (ctx) this.campaignId = ctx;
+            await this.cargar();
+        },
+        async cargar() {
+            this.cargando = true; this.error = '';
+            const q = new URLSearchParams({ action: 'get_analytics_federaciones' });
+            if (this.desde) q.set('desde', this.desde);
+            if (this.hasta) q.set('hasta', this.hasta);
+            if (this.campaignId) q.set('campaign_id', this.campaignId);
+            if (this.fedSel) q.set('federacion', this.fedSel);
+            try {
+                const r = await fetch('?' + q.toString());
+                const j = await r.json();
+                if (j && j.ok) {
+                    this.datos = j;
+                    this.federaciones = j.por_federacion.map(f => f.fed).filter(f => f && f !== '(sin federación)');
+                }
+            } catch (e) { this.error = 'No se pudo cargar la analítica.'; }
+            this.cargando = false;
+            if (window.lucide) lucide.createIcons();
+        },
+        get r() { return this.datos ? this.datos.resumen : null; },
+        get porFed() { return this.datos ? this.datos.por_federacion : []; },
+        get serie() { return this.datos ? this.datos.serie : []; },
+        get maxSerie() { return Math.max.apply(null, this.serie.map(s => s.envios).concat([1])); },
+        get donutStyle() {
+            if (!this.porFed.length) return 'background: conic-gradient(#1e293b 0 100%);';
+            const colores = ['#f59e0b','#10b981','#38bdf8','#a78bfa','#f472b6','#f97316','#22d3ee','#84cc16','#e11d48','#8b5cf6','#14b8a6','#64748b'];
+            let acc = 0; const segs = [];
+            this.porFed.forEach((f, i) => {
+                const pct = Number(f.pct_envios) || 0;
+                if (pct <= 0) return;
+                segs.push(colores[i % colores.length] + ' ' + acc + '% ' + (acc + pct) + '%');
+                acc += pct;
+            });
+            if (acc < 100) segs.push('#1e293b ' + acc + '% 100%');
+            return 'background: conic-gradient(' + segs.join(', ') + ');';
+        },
+        color(i) {
+            const c = ['#f59e0b','#10b981','#38bdf8','#a78bfa','#f472b6','#f97316','#22d3ee','#84cc16','#e11d48','#8b5cf6','#14b8a6','#64748b'];
+            return c[i % c.length];
+        },
+        claseTasa(v, umbral) {
+            if (v === null || v === undefined) return 'text-slate-500';
+            return v >= umbral ? 'text-emerald-400' : 'text-amber-400';
+        }
+    };
+}
+

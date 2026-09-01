@@ -47,6 +47,38 @@ function convertirContenidoAHtml(string $texto, string $trackUrl, string $tracki
     );
 
 
+    // FASE 3 — Clics medibles: convertir las URLs de la web de FutProtec
+    // (www.futprotec.com) en enlaces a través del redirector api/click.php, que
+    // registra el clic (CTA_WEB / CTA_PRESUPUESTO / CTA_CONTACTO) y redirige.
+    // La URL de baja (getfutprotec.com) NO se reescribe: es un dominio distinto.
+    $baseClick = (string)preg_replace('#track\.php$#', 'click.php', $trackUrl);
+    if ($baseClick !== '' && $baseClick !== $trackUrl) {
+        $conSaltos = (string)preg_replace_callback(
+            '#(https?://(?:www\.)?futprotec\.com(?:/[^\s<]*)?)#i',
+            function ($m) use ($baseClick, $trackingId) {
+                return '<a href="' . $baseClick . '?t=' . $trackingId . '&amp;u='
+                    . rawurlencode($m[1]) . '" style="color:#1a73e8;">' . $m[1] . '</a>';
+            },
+            $conSaltos
+        );
+    }
+
+
+    // WhatsApp: reescribir wa.me / api.whatsapp.com a click.php (CTA_WHATSAPP).
+    // Se aplica después del bloque de futprotec.com; las URLs ya reescritas no
+    // vuelven a coincidir (la pasada es única sobre el string original).
+    if ($baseClick !== '' && $baseClick !== $trackUrl) {
+        $conSaltos = (string)preg_replace_callback(
+            '#(https?://(?:wa\.me|api\.whatsapp\.com)(?:/[^\s<]*)?)#i',
+            function ($m) use ($baseClick, $trackingId) {
+                return '<a href="' . $baseClick . '?t=' . $trackingId . '&amp;u='
+                    . rawurlencode($m[1]) . '" style="color:#1a73e8;">' . $m[1] . '</a>';
+            },
+            $conSaltos
+        );
+    }
+
+
     // Píxel de tracking (solo en la parte HTML).
     $pixel = '<img src="' . $trackUrl . '?id=' . $trackingId . '" width="1" height="1" style="display:none" alt="">';
 

@@ -7,7 +7,15 @@
 
 declare(strict_types=1);
 
-const CLASIFICACIONES_VALIDAS = ['PENDING', 'POSITIVE', 'NEGATIVE', 'NEUTRAL', 'UNSUBSCRIBE', 'OOO'];
+// FASE 4: set rápido de clasificación comercial (9 estados del megaprompt) +
+// vocabularios legacy (IMAP/heurística/IA y Unibox) para no romper lectura ni
+// reclasificación histórica.
+const CLASIFICACIONES_VALIDAS = [
+    'PENDING', 'POSITIVE', 'NEGATIVE', 'NEUTRAL', 'UNSUBSCRIBE', 'OOO',
+    'INTERESADO', 'SOLICITA_INFO', 'SOLICITA_PRECIO', 'SOLICITA_MOCKUP', 'SOLICITA_MUESTRA',
+    'NO_INTERESADO', 'FUERA_DE_OFICINA', 'HARD_BOUNCE', 'OTRO',
+    'HUMANA', 'REBOTE', 'DUDA_PRECIO', 'NO_INTERESA', 'AUTOMATICA', 'DESCONOCIDA', 'BAJA', 'OPT-OUT',
+];
 
 /**
  * estadoDestinoPorClasificacion — Mapea la clasificación de una respuesta al
@@ -29,10 +37,11 @@ const CLASIFICACIONES_VALIDAS = ['PENDING', 'POSITIVE', 'NEGATIVE', 'NEUTRAL', '
 function estadoDestinoPorClasificacion(string $clasificacion): ?string
 {
     $c = strtoupper(trim($clasificacion));
-    if (in_array($c, ['INTERESADO', 'HUMANA', 'POSITIVE', 'DUDA_PRECIO', 'NEUTRAL'], true)) {
+    if (in_array($c, ['INTERESADO', 'HUMANA', 'POSITIVE', 'DUDA_PRECIO', 'NEUTRAL',
+        'SOLICITA_INFO', 'SOLICITA_PRECIO', 'SOLICITA_MOCKUP', 'SOLICITA_MUESTRA'], true)) {
         return '03 En Conversación';
     }
-    if (in_array($c, ['NO_INTERESA', 'NEGATIVE'], true)) {
+    if (in_array($c, ['NO_INTERESA', 'NO_INTERESADO', 'NEGATIVE'], true)) {
         return '06 Perdido';
     }
     if (in_array($c, ['BAJA', 'UNSUBSCRIBE', 'OPT-OUT'], true)) {
@@ -252,4 +261,119 @@ function contextoEnvio(SQLite3 $db, int $envioId): ?array
          FROM envios WHERE id = {$envioId}",
         true
     ) ?: null;
+}
+
+/**
+ * FASE 4.1 — Clasificación rápida COMPLETA (set de 9 estados comerciales).
+ * Extiende clasificarRespuesta() añadiendo `intencion` y `proxima_accion`, y
+ * crea automáticamente la oportunidad comercial cuando la clasificación es
+ * positiva (POSITIVE / INTERESADO / SOLICITA_*).
+ *
+ * @return array{ok:bool, id:int|null, clasificacion:string, oportunidad_id:?int, error?:string}
+ */
+function clasificarRespuestaCompleta(
+    SQLite3 $db,
+    int $respuestaId,
+    string $clasificacion,
+    ?string $intencion = null,
+    ?string $proximaAccion = null
+): array {
+    $clasif = strtoupper(trim($clasificacion));
+    $res = clasificarRespuesta($db, $respuestaId, $clasif);
+    if (!$res['ok']) {
+        return $res;
+    }
+
+    // Persistir intención y próxima acción (FASE 4.1).
+    if ($intencion !== null || $proximaAccion !== null) {
+        $stmt = $db->prepare(
+            'UPDATE respuestas SET intencion = COALESCE(:i, intencion),
+                    proxima_accion = COALESCE(:pa, proxima_accion) WHERE id = :id'
+        );
+        $stmt->bindValue(':i', $intencion !== '' ? $intencion : null, SQLITE3_TEXT);
+        $stmt->bindValue(':pa', $proximaAccion !== '' ? $proximaAccion : null, SQLITE3_TEXT);
+        $stmt->bindValue(':id', $respuestaId, SQLITE3_INTEGER);
+        $stmt->execute();
+    }
+
+    // FASE 4.2 — Auto-oportunidad: una respuesta comercial positiva crea la
+    // oportunidad (si no existe una activa). El estado del Kanban lo sigue
+    // gobernando clubes_crm.estado_lead; oportunidades es la capa comercial.
+    $opId = null;
+    if (in_array($clasif, ['POSITIVE', 'INTERESADO', 'SOLICITA_INFO', 'SOLICITA_PRECIO', 'SOLICITA_MOCKUP', 'SOLICITA_MUESTRA'], true)) {
+        $op = crearOportunidadDesdeRespuesta($db, $respuestaId);
+        if ($op['ok']) {
+            $opId = $op['id'] ?? null;
+        }
+    }
+
+    return ['ok' => true, 'id' => $res['id'] ?? $respuestaId, 'clasificacion' => $clasif, 'oportunidad_id' => $opId];
+}
+
+/**
+ * FASE 4.2 — Crea (o reutiliza) la oportunidad comercial de un lead a partir de
+ * una respuesta. Idempotente: si ya existe una oportunidad activa para el lead,
+ * devuelve la existente. Registra el evento `oportunidad_creada` en
+ * comunicaciones_log. `oportunidades.estado` será la fuente comercial cuando
+ * exista; `clubes_crm.estado_lead` se conserva como histórico.
+ *
+ * @return array{ok:bool, id:?int, existente:bool, error?:string}
+ */
+function crearOportunidadDesdeRespuesta(SQLite3 $db, int $respuestaId, array $datos = []): array
+{
+    $resp = $db->querySingle(
+        "SELECT envio_id, lead_id, campaign_id FROM respuestas WHERE id = {$respuestaId}",
+        true
+    );
+    if (!$resp) {
+        return ['ok' => false, 'id' => null, 'existente' => false, 'error' => 'respuesta no encontrada'];
+    }
+
+    $leadId     = (int)($resp['lead_id'] ?? 0);
+    $campaignId = (int)($resp['campaign_id'] ?? 0);
+    if ($leadId <= 0) {
+        $envio = $db->querySingle("SELECT lead_id, campaign_id FROM envios WHERE id = " . (int)($resp['envio_id'] ?? 0), true);
+        if ($envio) {
+            $leadId     = (int)$envio['lead_id'];
+            $campaignId = (int)($envio['campaign_id'] ?? 0);
+        }
+    }
+    if ($leadId <= 0) {
+        return ['ok' => false, 'id' => null, 'existente' => false, 'error' => 'lead no resuelto'];
+    }
+
+    // Idempotencia: no crear duplicados (oportunidad activa existente).
+    $exist = $db->querySingle(
+        "SELECT id FROM oportunidades WHERE lead_id = {$leadId} AND estado NOT IN ('GANADA','PERDIDA','CANCELADA') ORDER BY id DESC LIMIT 1"
+    );
+    if ($exist) {
+        return ['ok' => true, 'id' => (int)$exist, 'existente' => true];
+    }
+
+    $estado = (string)($datos['estado'] ?? 'NUEVA');
+    $origen = (string)($datos['origen'] ?? 'RESPUESTA');
+    $leadRow = $db->querySingle("SELECT email, nombre_club FROM clubes_crm WHERE id = {$leadId}", true);
+    $esTest  = ($leadRow && esLeadTest($leadRow)) ? 1 : 0;
+    $notas   = (string)($datos['notas'] ?? 'Creada desde respuesta #' . $respuestaId);
+
+    $stmt = $db->prepare(
+        'INSERT INTO oportunidades (lead_id, campaign_id, estado, origen, fecha_creacion, fecha_actualizacion, es_test, notas)
+         VALUES (:l, :c, :e, :o, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :et, :n)'
+    );
+    $stmt->bindValue(':l', $leadId, SQLITE3_INTEGER);
+    $stmt->bindValue(':c', $campaignId > 0 ? $campaignId : null, SQLITE3_INTEGER);
+    $stmt->bindValue(':e', $estado, SQLITE3_TEXT);
+    $stmt->bindValue(':o', $origen, SQLITE3_TEXT);
+    $stmt->bindValue(':et', $esTest, SQLITE3_INTEGER);
+    $stmt->bindValue(':n', $notas, SQLITE3_TEXT);
+    $stmt->execute();
+    $newId = (int)$db->lastInsertRowID();
+
+    // Evento en comunicaciones_log (trazabilidad del embudo).
+    $db->exec(
+        "INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha)
+         VALUES ({$leadId}, {$leadId}, 'oportunidad_creada', 'Oportunidad creada desde respuesta #{$respuestaId} (origen: {$origen})', CURRENT_TIMESTAMP)"
+    );
+
+    return ['ok' => true, 'id' => $newId, 'existente' => false];
 }

@@ -867,6 +867,21 @@ EOT2;
     $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_envios_sec_paso ON envios(lead_id, campaign_id, paso_secuencia) WHERE paso_secuencia IS NOT NULL");
 
     // ─────────────────────────────────────────────────────────────────────
+    // 4c. ADJUNTOS PREDETERMINADOS POR PLANTILLA (editor → repositorio)
+    //     Vincula una plantilla con adjuntos del repositorio (adjuntos_repo)
+    //     que se adjuntan automáticamente al enviar esa plantilla.
+    // ─────────────────────────────────────────────────────────────────────
+    $db->exec("CREATE TABLE IF NOT EXISTS plantillas_adjuntos (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        plantilla_id     INTEGER NOT NULL,
+        adjunto_repo_id  INTEGER NOT NULL,
+        orden            INTEGER NOT NULL DEFAULT 0,
+        activo           INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(plantilla_id, adjunto_repo_id)
+    )");
+
+
+    // ─────────────────────────────────────────────────────────────────────
     // 4b. ROTACIÓN ABC PARA NO ABRIDORES (O-1b)
     //     El índice único (lead_id, campaign_id) pasa a incluir es_rotacion para
     //     permitir un envío de rotación (es_rotacion=1) junto al envío base

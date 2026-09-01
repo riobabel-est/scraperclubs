@@ -104,6 +104,7 @@ require_once __DIR__ . '/inc/metricas.php';
 require_once __DIR__ . '/inc/helpers.php';
 require_once __DIR__ . '/inc/imap_respuestas.php';
 require_once __DIR__ . '/inc/lead_scoring.php';
+require_once __DIR__ . '/inc/adjuntos.php';
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
@@ -676,7 +677,7 @@ function actualizarEstadoLeadUnibox($db, int $id, string $estado): array {
  * activa con rotación y límite diario, y registra el envío en `envios`.
  * Devuelve ['ok'=>true,'tracking_id'=>...] o ['ok'=>false,'error'=>...].
  */
-function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo, string $asunto, array $adjuntos = [], int $smtpIdHeredado = 0, string $formato = 'texto'): array {
+function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo, string $asunto, array $adjuntos = [], int $smtpIdHeredado = 0, string $formato = 'texto', ?int $respuestaOrigenId = 0, ?int $campaignId = 0): array {
     if ($email === '' || $cuerpo === '') {
         return ['ok' => false, 'error' => 'Faltan destinatario o cuerpo del mensaje'];
     }
@@ -768,10 +769,77 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
     $db->exec("UPDATE cuentas_smtp SET ultimo_uso = CURRENT_TIMESTAMP WHERE id = " . (int)$cuenta['id']);
     sincronizarEnviadosHoyCuenta($db, (int)$cuenta['id']);
 
+    // ─── Trazabilidad FASE 2: encadenar el follow-up al envío/campaña original ──
+    // Objetivo: ningún envío comercial sin campaign_id/plantilla/variant/parent.
+    $campaignIdUsado   = (int)($campaignId ?? 0);
+    $plantillaId       = null;
+    $variantUsada      = null;
+    $parentEnvioId     = 0;
+    $esTestUsado       = 0;
+
+    // 1) Fuente primaria: la respuesta de origen (respuesta_id → envio_id → envio).
+    $rid = (int)($respuestaOrigenId ?? 0);
+    if ($rid > 0) {
+        $rRow = $db->querySingle(
+            "SELECT envio_id, lead_id, campaign_id FROM respuestas WHERE id = {$rid}", true
+        );
+        if ($rRow) {
+            if ((int)($rRow['campaign_id'] ?? 0) > 0) {
+                $campaignIdUsado = (int)$rRow['campaign_id'];
+            }
+            $envioOrigenId = (int)($rRow['envio_id'] ?? 0);
+            if ($envioOrigenId > 0) {
+                $eRow = $db->querySingle(
+                    "SELECT id, campaign_id, plantilla_id, variant, es_test FROM envios WHERE id = {$envioOrigenId}",
+                    true
+                );
+                if ($eRow) {
+                    $parentEnvioId = (int)$eRow['id'];
+                    if ((int)($eRow['campaign_id'] ?? 0) > 0) {
+                        $campaignIdUsado = (int)$eRow['campaign_id'];
+                    }
+                    $plantillaId = ($eRow['plantilla_id'] ?? null) ? (int)$eRow['plantilla_id'] : null;
+                    $variantUsada = ($eRow['variant'] ?? null) ? (string)$eRow['variant'] : null;
+                    $esTestUsado  = (int)($eRow['es_test'] ?? 0);
+                }
+            }
+        }
+    }
+
+    // 2) Fallback: último envío REAL del lead con campaña (no perder el hilo).
+    if ($campaignIdUsado <= 0 && $leadId > 0) {
+        $eRow = $db->querySingle(
+            "SELECT id, campaign_id, plantilla_id, variant, es_test FROM envios
+             WHERE lead_id = {$leadId} AND campaign_id IS NOT NULL
+             ORDER BY id DESC LIMIT 1",
+            true
+        );
+        if ($eRow) {
+            $campaignIdUsado = (int)$eRow['campaign_id'];
+            $parentEnvioId   = (int)$eRow['id'];
+            $plantillaId     = ($eRow['plantilla_id'] ?? null) ? (int)$eRow['plantilla_id'] : null;
+            $variantUsada    = ($eRow['variant'] ?? null) ? (string)$eRow['variant'] : null;
+            $esTestUsado     = (int)($eRow['es_test'] ?? 0);
+        }
+    }
+
+    // 3) Red de seguridad TEST/REAL por lead (nunca registrar un follow-up REAL
+    //    sobre un lead TEST ni viceversa).
+    if ($leadId > 0) {
+        $leadRow = $db->querySingle(
+            "SELECT email, nombre_club FROM clubes_crm WHERE id = {$leadId}", true
+        );
+        if ($leadRow && esLeadTest($leadRow)) {
+            $esTestUsado = 1;
+        }
+    }
+
     // Registrar en envios para trazabilidad (usa lead_id para vincular la respuesta).
+    // FASE 2: incluye campaign_id/plantilla_id/smtp_id/variant/es_test/parent_envio_id/
+    // respuesta_origen_id para que ningún follow-up quede huérfano.
     $stmt = $db->prepare(
-        'INSERT INTO envios (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje, lead_id, message_id, resultado_envio, fecha_resultado_envio)
-         VALUES (:club, :email, :fed, :cuenta, :estado, :tid, :asunto, :cuerpo, :lead_id, :mid, :res, CURRENT_TIMESTAMP)'
+        'INSERT INTO envios (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje, lead_id, campaign_id, plantilla_id, smtp_id, variant, es_test, parent_envio_id, respuesta_origen_id, message_id, resultado_envio, fecha_resultado_envio)
+         VALUES (:club, :email, :fed, :cuenta, :estado, :tid, :asunto, :cuerpo, :lead_id, :cid, :pid, :sid, :variant, :estest, :paren, :rorig, :mid, :res, CURRENT_TIMESTAMP)'
     );
     $stmt->bindValue(':club',   $leadId > 0 ? ('Lead #' . $leadId) : $email, SQLITE3_TEXT);
     $stmt->bindValue(':email',  $email, SQLITE3_TEXT);
@@ -782,24 +850,34 @@ function enviarRespuestaSmtpLead($db, int $leadId, string $email, string $cuerpo
     $stmt->bindValue(':asunto', $asunto, SQLITE3_TEXT);
     $stmt->bindValue(':cuerpo', $cuerpoHtml, SQLITE3_TEXT);
     $stmt->bindValue(':lead_id', $leadId > 0 ? $leadId : null, SQLITE3_INTEGER);
+    $stmt->bindValue(':cid',    $campaignIdUsado > 0 ? $campaignIdUsado : null, SQLITE3_INTEGER);
+    $stmt->bindValue(':pid',    $plantillaId, SQLITE3_INTEGER);
+    $stmt->bindValue(':sid',    (int)($cuenta['id'] ?? 0) > 0 ? (int)$cuenta['id'] : null, SQLITE3_INTEGER);
+    $stmt->bindValue(':variant',$variantUsada, SQLITE3_TEXT);
+    $stmt->bindValue(':estest', $esTestUsado, SQLITE3_INTEGER);
+    $stmt->bindValue(':paren',  $parentEnvioId > 0 ? $parentEnvioId : null, SQLITE3_INTEGER);
+    $stmt->bindValue(':rorig',  $rid > 0 ? $rid : null, SQLITE3_INTEGER);
     $stmt->bindValue(':mid',    $messageId, SQLITE3_TEXT);
     $stmt->bindValue(':res',    'ACCEPTED', SQLITE3_TEXT);
     $stmt->execute();
     $envioId = (int)$db->lastInsertRowID();
 
     // Guardar los adjuntos salientes para trazabilidad y mostrarlos en el hilo.
+    // FASE ADJUNTOS: se guardan en disco (data/adjuntos/<club>/enviados) + ruta.
     if ($envioId > 0 && !empty($adjuntos)) {
-        $stmtA = $db->prepare(
-            'INSERT INTO envios_adjuntos (envio_id, nombre, mime, tamano, datos)
-             VALUES (:e, :n, :m, :t, :d)'
-        );
         foreach ($adjuntos as $adj) {
             $bin = (string)($adj['contenido'] ?? '');
+            $rutaA = futprotec_guardar_adjunto((int)($leadId ?? 0), 'enviados', (string)($adj['nombre'] ?? 'adjunto'), $bin);
+            $stmtA = $db->prepare(
+                'INSERT INTO envios_adjuntos (envio_id, nombre, mime, tamano, datos, ruta)
+                 VALUES (:e, :n, :m, :t, :d, :r)'
+            );
             $stmtA->bindValue(':e', $envioId, SQLITE3_INTEGER);
             $stmtA->bindValue(':n', (string)($adj['nombre'] ?? 'adjunto'), SQLITE3_TEXT);
             $stmtA->bindValue(':m', (string)($adj['mime'] ?? 'application/octet-stream'), SQLITE3_TEXT);
             $stmtA->bindValue(':t', strlen($bin), SQLITE3_INTEGER);
             $stmtA->bindValue(':d', $bin, SQLITE3_BLOB);
+            $stmtA->bindValue(':r', $rutaA, SQLITE3_TEXT);
             $stmtA->execute();
         }
     }
@@ -938,8 +1016,12 @@ if ($action === 'enviar_respuesta_smtp') {
         echo json_encode(['ok' => false, 'error' => 'Los adjuntos no llegaron al servidor (' . $conAdjuntosEsperado . ' esperados). Reintenta o reduce el tamaño de las imágenes.']);
         exit;
     }
+    // FASE 2: la conversación envía la respuesta original (respuesta_id) y la
+    // campaña para encadenar el follow-up (parent_envio_id/respuesta_origen_id).
+    $respuestaOrigenId = (int)($_POST['respuesta_id'] ?? 0);
+    $campaignIdPost    = (int)($_POST['campaign_id'] ?? 0);
     try {
-        echo json_encode(enviarRespuestaSmtpLead($db, $leadId, $email, $cuerpo, $asunto, $adjuntos, $smtpIdHeredado, $formato));
+        echo json_encode(enviarRespuestaSmtpLead($db, $leadId, $email, $cuerpo, $asunto, $adjuntos, $smtpIdHeredado, $formato, $respuestaOrigenId, $campaignIdPost));
     } catch (\Exception $e) {
         echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
     }

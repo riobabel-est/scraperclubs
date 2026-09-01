@@ -1,0 +1,9 @@
+# Denegar acceso directo por URL a la carpeta de datos (stats.db, adjuntos, etc.).
+# Los scripts PHP acceden por filesystem, no por URL. Apache 2.4.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

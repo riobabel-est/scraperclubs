@@ -62,7 +62,7 @@
       <div x-show="cuelloLeads" class="mt-3 flex items-center gap-2 text-xs bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
         <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400 shrink-0"></i>
         <span class="text-slate-300">Cuello de botella:</span>
-        <span class="text-rose-400 font-semibold" x-text="cuelloLeads.origen + ' → ' + cuelloLeads.destino + ' (' + cuelloLeads.pct + '%)'"></span>
+        <span class="text-rose-400 font-semibold" x-text="cuelloLeads ? (cuelloLeads.origen + ' → ' + cuelloLeads.destino + ' (' + cuelloLeads.pct + '%)') : ''"></span>
       </div>
     </div>
 
@@ -172,4 +172,121 @@
     </div>
     </div>
   </div>
+</div>
+
+<!-- ═══════════ MARKETING POR FEDERACIÓN (cuadro de mando) ═══════════ -->
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-4" x-data="marketingFederaciones()" x-init="init()">
+  <div class="flex items-center gap-3 mb-3 flex-wrap">
+    <i data-lucide="pie-chart" class="w-5 h-5 text-emerald-400"></i>
+    <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Marketing por Federación</h5>
+    <button @click="cargar()" class="ml-auto px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 hover:text-slate-100 transition">↻ Recargar</button>
+  </div>
+
+  <!-- Filtros -->
+  <div class="flex flex-wrap items-end gap-3 mb-4">
+    <div><label class="block text-xs uppercase tracking-wider text-slate-400 mb-1">Desde</label>
+      <input type="date" x-model="desde" @change="cargar()" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200"></div>
+    <div><label class="block text-xs uppercase tracking-wider text-slate-400 mb-1">Hasta</label>
+      <input type="date" x-model="hasta" @change="cargar()" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200"></div>
+    <div><label class="block text-xs uppercase tracking-wider text-slate-400 mb-1">Campaña</label>
+      <select x-model="campaignId" @change="cargar()" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200">
+        <option value="0">Todas</option>
+        <template x-for="c in campanas" :key="c.id"><option :value="c.id" x-text="c.identificador || c.nombre || ('Campaña '+c.id)"></option></template>
+      </select></div>
+    <div><label class="block text-xs uppercase tracking-wider text-slate-400 mb-1">Federación</label>
+      <select x-model="fedSel" @change="cargar()" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200">
+        <option value="">Todas</option>
+        <template x-for="f in federaciones" :key="f"><option :value="f" x-text="f"></option></template>
+      </select></div>
+  </div>
+
+  <!-- KPIs globales -->
+  <div x-show="r" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-4">
+    <div class="bg-slate-800/50 rounded-lg p-2 text-center"><div class="text-[10px] uppercase text-slate-400">Envíos</div><div class="text-lg font-bold text-slate-100" x-text="r.envios"></div></div>
+    <div class="bg-slate-800/50 rounded-lg p-2 text-center"><div class="text-[10px] uppercase text-slate-400">Open</div><div class="text-lg font-bold text-amber-400" x-text="r.open_rate + '%'"></div></div>
+    <div class="bg-slate-800/50 rounded-lg p-2 text-center"><div class="text-[10px] uppercase text-slate-400">Reply</div><div class="text-lg font-bold text-sky-400" x-text="r.reply_rate + '%'"></div></div>
+    <div class="bg-slate-800/50 rounded-lg p-2 text-center"><div class="text-[10px] uppercase text-slate-400">Positivas</div><div class="text-lg font-bold text-emerald-400" x-text="r.positive_rate + '%'"></div></div>
+    <div class="bg-slate-800/50 rounded-lg p-2 text-center"><div class="text-[10px] uppercase text-slate-400">Bounce</div><div class="text-lg font-bold text-rose-400" x-text="r.bounce_rate + '%'"></div></div>
+    <div class="bg-slate-800/50 rounded-lg p-2 text-center"><div class="text-[10px] uppercase text-slate-400">Aperturas</div><div class="text-lg font-bold text-amber-300" x-text="r.aperturas_dedup"></div></div>
+    <div class="bg-slate-800/50 rounded-lg p-2 text-center"><div class="text-[10px] uppercase text-slate-400">Resp.</div><div class="text-lg font-bold text-violet-400" x-text="r.respuestas"></div></div>
+    <div class="bg-slate-800/50 rounded-lg p-2 text-center"><div class="text-[10px] uppercase text-slate-400">Rebotes</div><div class="text-lg font-bold text-rose-300" x-text="r.bounces"></div></div>
+  </div>
+
+  <div x-show="cargando" class="text-sm text-slate-400 py-4">Cargando…</div>
+  <!-- __MARKETING_FIN__ -->
+  <div x-show="!cargando && porFed.length" class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-slate-800/30 border border-slate-700/40 rounded-lg p-4">
+      <div class="text-xs font-semibold uppercase tracking-wider text-slate-300 mb-3">Distribución de envíos por federación</div>
+      <div class="flex items-center gap-4 flex-wrap">
+        <div class="w-36 h-36 rounded-full relative" :style="donutStyle">
+          <div class="absolute inset-0 flex items-center justify-center flex-col">
+            <span class="text-xl font-bold text-slate-100" x-text="r.envios"></span>
+            <span class="text-[10px] uppercase text-slate-400">envíos</span>
+          </div>
+        </div>
+        <div class="flex-1 min-w-[180px] space-y-1.5">
+          <template x-for="(f, i) in porFed" :key="f.fed">
+            <div class="flex items-center gap-2 text-xs">
+              <span class="w-3 h-3 rounded-sm shrink-0" :style="'background:' + color(i)"></span>
+              <span class="flex-1 truncate text-slate-300" :title="f.fed" x-text="f.fed"></span>
+              <span class="font-semibold text-slate-200" x-text="f.envios"></span>
+              <span class="w-10 text-right text-slate-400" x-text="f.pct_envios + '%'"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+    <div class="bg-slate-800/30 border border-slate-700/40 rounded-lg p-4">
+      <div class="text-xs font-semibold uppercase tracking-wider text-slate-300 mb-3">Evolución por día</div>
+      <div class="flex items-end gap-1 h-32">
+        <template x-for="s in serie" :key="s.fecha">
+          <div class="flex-1 flex flex-col items-center justify-end h-full min-w-0">
+            <div class="w-full rounded-t bg-emerald-500/60 transition-all" :style="'height:' + Math.max(4, Math.round(s.envios / maxSerie * 100)) + '%'" :title="s.fecha + ': ' + s.envios + ' envíos'"></div>
+          </div>
+        </template>
+      </div>
+      <div class="flex gap-1 mt-1 text-[9px] text-slate-500 overflow-hidden">
+        <template x-for="s in serie" :key="'l'+s.fecha"><span class="flex-1 truncate text-center" x-text="s.fecha.slice(5)"></span></template>
+      </div>
+    </div>
+  </div>
+
+  <div x-show="!cargando && porFed.length" class="mt-4 overflow-x-auto rounded-lg border border-slate-800">
+    <table class="w-full text-xs">
+      <thead><tr class="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider">
+        <th class="px-3 py-2 text-left">Federación</th>
+        <th class="px-3 py-2 text-right">Envíos</th>
+        <th class="px-3 py-2 text-right">%</th>
+        <th class="px-3 py-2 text-right">Acep.</th>
+        <th class="px-3 py-2 text-right">Open</th>
+        <th class="px-3 py-2 text-right">Clics</th>
+        <th class="px-3 py-2 text-right">Resp.</th>
+        <th class="px-3 py-2 text-right">Pos.</th>
+        <th class="px-3 py-2 text-right">Rebote</th>
+        <th class="px-3 py-2 text-right">Open %</th>
+        <th class="px-3 py-2 text-right">Reply %</th>
+        <th class="px-3 py-2 text-right">Bounce %</th>
+      </tr></thead>
+      <tbody>
+        <template x-for="f in porFed" :key="f.fed">
+          <tr class="border-t border-slate-800/60 hover:bg-slate-800/30">
+            <td class="px-3 py-2 text-slate-200" x-text="f.fed"></td>
+            <td class="px-3 py-2 text-right text-slate-100 font-semibold" x-text="f.envios"></td>
+            <td class="px-3 py-2 text-right text-slate-400" x-text="f.pct_envios + '%'"></td>
+            <td class="px-3 py-2 text-right text-slate-300" x-text="f.aceptados"></td>
+            <td class="px-3 py-2 text-right text-amber-400" x-text="f.aperturas_dedup"></td>
+            <td class="px-3 py-2 text-right text-sky-400" x-text="f.clics"></td>
+            <td class="px-3 py-2 text-right text-violet-400" x-text="f.respuestas"></td>
+            <td class="px-3 py-2 text-right text-emerald-400" x-text="f.positivas"></td>
+            <td class="px-3 py-2 text-right text-rose-400" x-text="f.bounces"></td>
+            <td class="px-3 py-2 text-right" :class="claseTasa(f.open_rate, 30)" x-text="f.open_rate + '%'"></td>
+            <td class="px-3 py-2 text-right" :class="claseTasa(f.reply_rate, 1)" x-text="f.reply_rate + '%'"></td>
+            <td class="px-3 py-2 text-right" :class="f.bounce_rate > 1 ? 'text-rose-400' : 'text-emerald-400'" x-text="f.bounce_rate + '%'"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+  <div x-show="!cargando && !porFed.length && !error" class="text-sm text-slate-500 py-6 text-center">Sin datos para los filtros seleccionados.</div>
+  <div x-show="error" class="text-sm text-rose-400" x-text="error"></div>
 </div>

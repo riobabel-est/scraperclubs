@@ -74,6 +74,14 @@
             <option value="SIN_REBOTE">Ocultar Rebotes</option>
           </select>
         </div>
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-slate-400 shrink-0">Orden:</label>
+          <select x-model="rsOrden" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-orange-500/50 focus:outline-none">
+            <option value="recepcion">Recepción</option>
+            <option value="nombre">Nombre cliente</option>
+            <option value="estado">Estado</option>
+          </select>
+        </div>
         <!-- Triaje: pestañas por estado de conversación (descriptivo, con contadores) -->
         <div class="flex items-center gap-1 flex-wrap">
           <button @click="rsSetTabTriaje('requiere_respuesta')" title="Conversaciones del club que requieren tu respuesta (las que te han escrito y aún no has contestado)"
@@ -95,6 +103,7 @@
                   class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
                   :class="rsTabTriaje === 'rebotes' ? 'bg-rose-500/20 text-rose-400 border-rose-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
             <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> Rebotados
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400" x-text="rsCountsTriaje.rebotes || 0"></span>
           </button>
           <button @click="rsSetTabTriaje('archivados')" title="Conversaciones archivadas"
                   class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
@@ -106,6 +115,13 @@
                   class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
                   :class="rsTabTriaje === 'borrados' ? 'bg-slate-500/20 text-slate-300 border-slate-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Borrados
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/15 text-slate-400" x-text="rsCountsTriaje.borrados || 0"></span>
+          </button>
+          <button x-show="rsTabTriaje === 'borrados' && (rsCountsTriaje.borrados || 0) > 0"
+                  @click="rsVaciarPapelera()"
+                  title="Eliminar definitivamente los correos de la papelera"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition bg-slate-800 text-rose-400 border-slate-700 hover:text-rose-300 hover:border-rose-500/40">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Vaciar papelera
           </button>
         </div>
       </div>
@@ -121,8 +137,12 @@
                  : 'border-transparent hover:bg-slate-800/40'">
             <!-- Fila 1: nombre (club → contacto → email) + tiempo transcurrido + fecha de ingreso -->
             <div class="flex items-center justify-between gap-2">
-              <span class="font-bold text-slate-50 text-sm truncate"
+              <span class="font-bold text-sm truncate"
+                    :class="(conv.nuevas || 0) > 0 ? 'text-amber-300' : 'text-slate-50'"
                     x-text="(conv.nombre_club && conv.nombre_club !== '—') ? (conv.nombre_club || conv.club) : (conv.contacto_nombre || conv.persona_contacto || conv.remitente_email || conv.email || '—')"></span>
+              <span x-show="(conv.nuevas || 0) > 0"
+                    class="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold bg-amber-500 text-slate-900"
+                    x-text="conv.nuevas"></span>
               <div class="flex items-center gap-2 shrink-0">
                 <span class="text-[11px] text-slate-500" x-text="rsTiempoRelativo(rsEstadoHilo(conv).fecha)"></span>
                 <span class="text-xs text-slate-400" x-text="rsFmtFecha(conv.ultima_fecha || conv.fecha || conv.fecha_respuesta)"></span>
@@ -259,9 +279,9 @@
                   </template>
                 </div>
 
-                <!-- Clasificación rápida del mensaje (solo respuestas entrantes) -->
-                <div x-if="m.sentido !== 'saliente'" class="mt-2 flex items-center gap-1 flex-wrap">
-                  <template x-for="c in ['PENDING','POSITIVE','NEGATIVE','NEUTRAL','UNSUBSCRIBE','OOO']" :key="c">
+                <!-- Clasificación rápida del mensaje (FASE 4: set comercial de 9 estados + legacy) -->
+                <div x-show="m.sentido !== 'saliente'" class="mt-2 flex items-center gap-1 flex-wrap">
+                  <template x-for="c in ['PENDING','POSITIVE','INTERESADO','SOLICITA_INFO','SOLICITA_PRECIO','SOLICITA_MOCKUP','NO_INTERESADO','NEGATIVE','NEUTRAL','UNSUBSCRIBE','OOO','HARD_BOUNCE','OTRO']" :key="c">
                     <button @click="clasificarRespuesta(m.id, c)"
                       :title="'Clasificar como ' + c"
                       class="px-2 py-0.5 rounded text-xs font-semibold transition border"

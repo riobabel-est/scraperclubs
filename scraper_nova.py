@@ -46,6 +46,10 @@ HAS_IP_ROTATOR = False
 # Variable global para indicar si la federación actual usa ScraperAPI
 _use_scraperapi = False
 
+# Flag global: True → forzar acceso directo (sin ScraperAPI) aunque la federación
+# tenga use_scraperapi. Se activa con --directo.
+_FORCE_DIRECTO = False
+
 OUTPUT_DIR = Path(__file__).parent / "output"
 CHECKPOINT_DIR = Path(__file__).parent / "checkpoints"
 OUTPUT_FILE = OUTPUT_DIR / "clubs_nova.csv"
@@ -244,7 +248,10 @@ def parse_club_detail(soup):
                 x in text.lower() for x in ["nova", "gestión", "intranet",
                                              "federación", "consulta", "datos",
                                              "equipación", "correspondencia",
-                                             "otros datos"]
+                                             "otros datos", "privacidad",
+                                             "cookies", "aceptar",
+                                             "consentimiento", "política de",
+                                             "socios almacenamos"]
             ):
                 nombre = text
                 break
@@ -381,6 +388,13 @@ def scrape_club(session, domain, cod_primaria, club_id, use_rotate=False):
         return None, None, None, False
 
     nombre, telefono, email = parse_club_detail(soup)
+    # Descartar emails institucionales de la propia federación (p.ej. contacto@ffcm.es)
+    # que se cuelan vía fallback mailto cuando el club no publica email.
+    if email and domain:
+        from urllib.parse import urlparse
+        fed_domain = urlparse(domain).netloc.replace("www.", "").lower()
+        if email.lower().endswith("@" + fed_domain):
+            email = ""
     return nombre, telefono, email, False
 
 
@@ -461,9 +475,13 @@ def scrape_federation(federation, writer, resume=False, delay_override=None, flu
     use_scraper = federation.get("use_scraperapi", False)
     
     global _use_scraperapi
-    _use_scraperapi = use_scraper and bool(SCRAPERAPI_KEY)
-    if _use_scraperapi:
-        print("  [scraperapi] Usando ScraperAPI como proxy anti-bloqueo")
+    if _FORCE_DIRECTO:
+        _use_scraperapi = False
+        print("  [directo] Modo acceso directo (sin ScraperAPI) — curl_cffi/requests")
+    else:
+        _use_scraperapi = use_scraper and bool(SCRAPERAPI_KEY)
+        if _use_scraperapi:
+            print("  [scraperapi] Usando ScraperAPI como proxy anti-bloqueo")
     
     session = _create_session(use_tls)
     processed = load_checkpoint(name) if resume else set()
@@ -612,7 +630,15 @@ def main():
     parser.add_argument("--delay", type=float, default=None, help="Delay global por petición")
     parser.add_argument("--fast", action="store_true", help="Modo rápido")
     parser.add_argument("--start-page", type=int, default=1, help="Comenzar desde esta página")
+    parser.add_argument("--directo", action="store_true",
+                        help="Acceso directo sin ScraperAPI (curl_cffi/requests). Útil si el crédito de proxy está agotado.")
     args = parser.parse_args()
+
+    global _FORCE_DIRECTO
+    _FORCE_DIRECTO = args.directo
+    if args.directo:
+        _use_scraperapi = False
+        print("  [directo] Flag activado: se ignorará ScraperAPI en todas las federaciones")
 
     OUTPUT_DIR.mkdir(exist_ok=True)
 

@@ -54,6 +54,7 @@ EXCLUDE_FILES = {
     "cli/migrar_estructura_local.php",
     "cli/migrar_plantillas_objetivo.php",
     "cli/migrar_secuencias.php",
+    "cli/enviar_lote_batch.php",  # runner LOCAL (depende de scripts/); FASE 6 se lanza desde la lanzadera de producción
 }
 
 subidos = 0

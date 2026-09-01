@@ -49,6 +49,31 @@ if (!function_exists('futprotec_leerRespuestaSMTP')) {
     }
 }
 
+if (!function_exists('futprotec_encodeHeaderName')) {
+    /**
+     * Codifica un nombre de emisor según RFC 2047 (encoded-word UTF-8 base64)
+     * cuando contiene caracteres no ASCII. FASE 1.3: corrige cabeceras `From`
+     * inválidas como "Adrián Cano" (que provocó el rebote Yahoo "From header invalid").
+     *
+     * - Nombre solo ASCII imprimible → se devuelve literal (válido en RFC 5322).
+     * - Nombre con no-ASCII → `=?UTF-8?B?...?=`.
+     *
+     * @return string
+     */
+    function futprotec_encodeHeaderName(string $name): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return $name;
+        }
+        // ASCII imprimible (0x20-0x7E) → literal (permite espacios).
+        if (preg_match('/^[\x20-\x7E]+$/', $name)) {
+            return $name;
+        }
+        return '=?UTF-8?B?' . base64_encode($name) . '?=';
+    }
+}
+
 if (!function_exists('futprotec_enviarSMTP')) {
     /**
      * Envía un email vía SMTP autenticado usando sockets nativos PHP.
@@ -180,7 +205,7 @@ if (!function_exists('futprotec_enviarSMTP')) {
             // Construir mensaje.
             $adjuntos = $opciones['adjuntos'] ?? []; // [{nombre, mime, contenido(bytes)}]
             $boundaryAlt = '--=_FutProtec_' . md5(uniqid((string)time(), true) . 'alt');
-            $mensaje = "From: {$fromName} <{$fromEmail}>\r\n";
+            $mensaje = "From: " . futprotec_encodeHeaderName($fromName) . " <{$fromEmail}>\r\n";
             $mensaje .= "To: <{$destinatario}>\r\n";
             $mensaje .= "Subject: =?UTF-8?B?" . base64_encode($asunto) . "?=\r\n";
             $mensaje .= "MIME-Version: 1.0\r\n";

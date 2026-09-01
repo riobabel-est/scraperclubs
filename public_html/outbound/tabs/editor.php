@@ -237,6 +237,32 @@ class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-s
 <i data-lucide="check" class="w-4 h-4"></i> Guardar
 </button>
 </div>
+
+<!-- ═══ ADJUNTOS PREDETERMINADOS (Email) ═══ -->
+<div x-show="edPlataforma === 'email'" class="mb-3 bg-slate-800/30 rounded-lg p-3 border border-sky-500/20">
+<label class="text-xs text-sky-400 font-semibold flex items-center gap-1 mb-2">📎 Adjuntos predeterminados <span class="text-slate-400 font-normal">(se adjuntan automáticamente al enviar esta plantilla)</span></label>
+<div x-show="ptAdjuntos.length" class="flex flex-wrap gap-2 mb-2">
+<template x-for="a in ptAdjuntos" :key="a.id">
+<div class="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5">
+<img :src="'api/adjunto.php?tipo=repo&id=' + a.id" class="w-8 h-8 object-contain rounded bg-white/10" alt="">
+<span class="text-xs text-slate-200 max-w-[140px] truncate" :title="a.nombre" x-text="a.nombre"></span>
+<span class="text-[10px] text-slate-400" x-text="(a.tamano/1024).toFixed(0)+' KB'"></span>
+<button type="button" @click="ptQuitarAdjunto(a.id)" class="text-rose-400 hover:text-rose-300 transition" title="Quitar">✕</button>
+</div>
+</template>
+</div>
+<div class="flex items-center gap-2 flex-wrap">
+<select x-model="ptAdjSel" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200 max-w-[220px]">
+<option value="">— Adjunto del repositorio —</option>
+<template x-for="r in ptRepo" :key="r.id"><option :value="r.id" x-text="r.nombre"></option></template>
+</select>
+<button type="button" @click="ptAgregarAdjunto()" class="px-2.5 py-1.5 bg-sky-500/15 text-sky-400 border border-sky-500/30 rounded-lg text-xs font-semibold hover:bg-sky-500/25 transition">+ Añadir</button>
+<label class="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-xs text-slate-300 hover:text-slate-100 cursor-pointer">
+📤 Subir imagen
+<input type="file" class="hidden" accept="image/*" @change="ptSubirImagen($event)">
+</label>
+</div>
+</div>
 </div>
 </div>
 

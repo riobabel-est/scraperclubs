@@ -38,7 +38,14 @@ if ($action === 'mockup_solicitar') {
     try {
         $leadId = (int)($_POST['lead_id'] ?? 0);
         if ($leadId <= 0) { echo json_encode(['ok'=>false,'error'=>'lead_id requerido']); exit; }
-        $db->exec("INSERT INTO mockups (lead_id, pipeline_id, estado, solicitado_en) VALUES ({$leadId}, NULL, 'solicitado', CURRENT_TIMESTAMP)");
+        // FASE 4.3: vinculación opcional a campaña/oportunidad.
+        $campaignIdPost    = (int)($_POST['campaign_id'] ?? 0);
+        $opportunityIdPost = (int)($_POST['opportunity_id'] ?? 0);
+        $stmtM = $db->prepare("INSERT INTO mockups (lead_id, pipeline_id, campaign_id, opportunity_id, estado, solicitado_en, fecha_creacion, version) VALUES (:l, NULL, :c, :o, 'solicitado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)");
+        $stmtM->bindValue(':l', $leadId, SQLITE3_INTEGER);
+        $stmtM->bindValue(':c', $campaignIdPost > 0 ? $campaignIdPost : null, SQLITE3_INTEGER);
+        $stmtM->bindValue(':o', $opportunityIdPost > 0 ? $opportunityIdPost : null, SQLITE3_INTEGER);
+        $stmtM->execute();
         $db->exec("UPDATE clubes_crm SET estado_lead = '04 Propuesta', ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$leadId}");
         $db->exec("INSERT INTO comunicaciones_log (lead_id, club_id, tipo_evento, detalles, fecha) VALUES ({$leadId}, {$leadId}, 'mockup_solicitado', 'Mockup solicitado', CURRENT_TIMESTAMP)");
         echo json_encode(['ok' => true, 'id' => $db->lastInsertRowID()]);

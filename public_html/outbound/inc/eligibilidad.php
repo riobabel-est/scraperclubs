@@ -225,6 +225,38 @@ function esEstadoSupresion(string $estadoLead): bool
 }
 
 /**
+ * ¿Existe un HARD BOUNCE para este email? (supresión de envío — FASE 1.1).
+ * Fuente: tabla `rebotes` (poblada desde respuestas.es_rebote=1). Emails vacíos
+ * nunca suprimen (los rebotes no identificados se registran con atribucion_parcial=1).
+ */
+function esEmailHardBounced(SQLite3 $db, string $email): bool
+{
+    $email = strtolower(trim($email));
+    if ($email === '') {
+        return false;
+    }
+    $stmt = $db->prepare('SELECT 1 FROM rebotes WHERE LOWER(email) = :em AND email <> \'\' LIMIT 1');
+    $stmt->bindValue(':em', $email, SQLITE3_TEXT);
+    return $stmt->execute()->fetchArray(SQLITE3_ASSOC) !== false;
+}
+
+/**
+ * ¿Existe un HARD BOUNCE para este lead? (FASE 1.1).
+ * Consulta `rebotes.lead_id` Y el histórico de `respuestas.es_rebote=1` por
+ * lead_id, para cubrir también futuros rebotes IMAP aún no volcados a rebotes.
+ */
+function esLeadHardBounced(SQLite3 $db, int $leadId): bool
+{
+    if ($leadId <= 0) {
+        return false;
+    }
+    $q = "SELECT 1 FROM rebotes WHERE lead_id = {$leadId}
+          UNION
+          SELECT 1 FROM respuestas WHERE es_rebote = 1 AND lead_id = {$leadId} LIMIT 1";
+    return $db->querySingle($q) ? true : false;
+}
+
+/**
  * ¿Puede este lead recibir este envío?
  *
  * Bloques (servidor, no confiar en JS):
@@ -277,6 +309,15 @@ function esElegibleParaEnvio(SQLite3 $db, int $leadId, int $campaignId = 0): arr
         if (!$campanaTest && $leadTest) {
             return ['ok' => false, 'razon' => 'lead_test_en_campana_no_test'];
         }
+    }
+
+    // SUPRESIÓN HARD BOUNCE (FASE 1.1): nunca reenviar a una dirección que haya
+    // producido un hard bounce. Sin rutas alternativas que la salten.
+    if (esLeadHardBounced($db, $leadId)) {
+        return ['ok' => false, 'razon' => 'hard_bounce'];
+    }
+    if (esEmailHardBounced($db, (string)($lead['email'] ?? ''))) {
+        return ['ok' => false, 'razon' => 'hard_bounce'];
     }
 
     return ['ok' => true, 'razon' => 'elegible'];
@@ -336,6 +377,18 @@ function plantillaEstaCongelada(SQLite3 $db, int $plantillaId): bool
  *
  * @return array{id:int, nuevo:bool, estado:string}
  */
+/**
+ * batchActivoDeCampana — Devuelve el batch AUTORIZADO más reciente de una
+ * campaña (para vincular automáticamente cada envío a su lote en campaign_batch_id).
+ */
+function batchActivoDeCampana(SQLite3 $db, int $campaignId): string {
+    if ($campaignId <= 0) return '';
+    $b = $db->querySingle(
+        "SELECT batch FROM batches WHERE campaign_id = {$campaignId} AND estado = 'AUTORIZADO' ORDER BY id DESC LIMIT 1"
+    );
+    return $b ? (string)$b : '';
+}
+
 function reservarEnvioLogico(
     SQLite3 $db,
     int $leadId,
@@ -351,7 +404,10 @@ function reservarEnvioLogico(
     ?int $plantillaId = null,
     ?int $smtpId = null,
     int $esTest = 0,
-    int $esRotacion = 0
+    int $esRotacion = 0,
+    ?int $parentEnvioId = null,
+    ?int $respuestaOrigenId = null,
+    ?string $campaignBatchId = null
 ): array {
     // INMUTABILIDAD: para campaña real la variante es determinística e
     // independiente del valor que pase el llamador (impide random por envío).
@@ -368,8 +424,12 @@ function reservarEnvioLogico(
         // Reserva idempotente: solo una fila (lead_id, campaign_id, es_rotacion)
         // con campaign no nulo (el índice único incluye es_rotacion, por lo que
         // el envío base y el de rotación conviven sin colisionar).
+        if ($campaignBatchId === null || $campaignBatchId === '') {
+            $campaignBatchId = batchActivoDeCampana($db, $campaignId);
+        }
         insertarEnvioLogico($db, $club, $email, $federacion, $cuentaEmision, $trackingId,
-            $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, true, $esRotacion);
+            $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, true, $esRotacion,
+            $parentEnvioId, $respuestaOrigenId, $campaignBatchId);
         if ($db->changes() > 0) {
             return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
         }
@@ -383,7 +443,8 @@ function reservarEnvioLogico(
 
     // Sin campaña (legacy/test): insert directo.
     insertarEnvioLogico($db, $club, $email, $federacion, $cuentaEmision, $trackingId,
-        $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, false, $esRotacion);
+        $asunto, $cuerpo, $leadId, $campaignId, $variant, $plantillaId, $smtpId, $messageId, $esTest, false, $esRotacion,
+        $parentEnvioId, $respuestaOrigenId, $campaignBatchId);
 
     return ['id' => (int)$db->lastInsertRowID(), 'nuevo' => true, 'estado' => 'pendiente'];
 }
@@ -409,14 +470,18 @@ function insertarEnvioLogico(
     string $messageId,
     int $esTest,
     bool $ignore = false,
-    int $esRotacion = 0
+    int $esRotacion = 0,
+    ?int $parentEnvioId = null,
+    ?int $respuestaOrigenId = null,
+    ?string $campaignBatchId = null
 ): void {
     $sql = ($ignore ? 'INSERT OR IGNORE INTO envios' : 'INSERT INTO envios')
         . " (club, email, federacion, cuenta_emision, estado, tracking_id, asunto, cuerpo_mensaje,
-            lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, es_test, es_rotacion)
+            lead_id, campaign_id, variant, plantilla_id, smtp_id, message_id, es_test, es_rotacion,
+            parent_envio_id, respuesta_origen_id, campaign_batch_id)
          VALUES
             (:club, :email, :fed, :cuenta, 'pendiente', :tid, :asunto, :cuerpo,
-             :lid, :cid, :variant, :pid, :sid, :mid, :estest, :esrot)";
+             :lid, :cid, :variant, :pid, :sid, :mid, :estest, :esrot, :paren, :rorig, :cbatch)";
     $stmt = $db->prepare($sql);
     $stmt->bindValue(':club',  $club,  SQLITE3_TEXT);
     $stmt->bindValue(':email', $email, SQLITE3_TEXT);
@@ -433,6 +498,9 @@ function insertarEnvioLogico(
     $stmt->bindValue(':mid',   $messageId, SQLITE3_TEXT);
     $stmt->bindValue(':estest', $esTest, SQLITE3_INTEGER);
     $stmt->bindValue(':esrot', $esRotacion, SQLITE3_INTEGER);
+    $stmt->bindValue(':paren', ($parentEnvioId ?? 0) > 0 ? $parentEnvioId : null, SQLITE3_INTEGER);
+    $stmt->bindValue(':rorig', ($respuestaOrigenId ?? 0) > 0 ? $respuestaOrigenId : null, SQLITE3_INTEGER);
+    $stmt->bindValue(':cbatch', ($campaignBatchId ?? '') !== '' ? $campaignBatchId : null, SQLITE3_TEXT);
     $stmt->execute();
 }
 

@@ -73,8 +73,13 @@ if ($action === 'presupuesto_crear') {
         $total = $subtotal - $descuento;
         $lastVer = (int)$db->querySingle("SELECT COALESCE(MAX(version),0) FROM presupuestos WHERE lead_id = {$leadId}");
         $version = $lastVer + 1;
-        $stmt = $db->prepare("INSERT INTO presupuestos (lead_id, pipeline_id, version, unidades, precio_unitario, subtotal, descuento_aplicado, condiciones_pago, transporte, importe_total, margen_potencial_club, estado, fecha) VALUES (:lid, NULL, :ver, :uni, :pu, :sub, :desc, :cp, 'Incluido Peninsula', :tot, :mar, 'creado', CURRENT_TIMESTAMP)");
+        // FASE 4.3: vinculación opcional a campaña/oportunidad (trazabilidad del embudo).
+        $campaignIdPost   = (int)($_POST['campaign_id'] ?? 0);
+        $opportunityIdPost = (int)($_POST['opportunity_id'] ?? 0);
+        $stmt = $db->prepare("INSERT INTO presupuestos (lead_id, pipeline_id, campaign_id, opportunity_id, version, unidades, precio_unitario, subtotal, descuento_aplicado, condiciones_pago, transporte, importe_total, margen_potencial_club, estado, fecha) VALUES (:lid, NULL, :cid, :oid, :ver, :uni, :pu, :sub, :desc, :cp, 'Incluido Peninsula', :tot, :mar, 'creado', CURRENT_TIMESTAMP)");
         $stmt->bindValue(':lid', $leadId, SQLITE3_INTEGER);
+        $stmt->bindValue(':cid', $campaignIdPost > 0 ? $campaignIdPost : null, SQLITE3_INTEGER);
+        $stmt->bindValue(':oid', $opportunityIdPost > 0 ? $opportunityIdPost : null, SQLITE3_INTEGER);
         $stmt->bindValue(':ver', $version, SQLITE3_INTEGER);
         $stmt->bindValue(':uni', $volumen, SQLITE3_INTEGER);
         $stmt->bindValue(':pu', $precioUnit, SQLITE3_FLOAT);

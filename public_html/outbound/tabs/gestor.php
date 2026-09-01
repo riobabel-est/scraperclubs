@@ -19,13 +19,20 @@
             <button @click="cerrar()" class="px-2.5 py-1 bg-slate-800 text-slate-400 border border-slate-700 rounded-lg text-sm hover:text-slate-100 transition">✕</button>
         </div>
         <div class="flex-1 overflow-y-auto p-4 space-y-4">
-            <!-- 1. Archivo + delimitador -->
-            <div class="flex items-center gap-3 flex-wrap">
-                <label class="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm font-semibold text-slate-300 hover:text-slate-100 hover:border-slate-600 transition cursor-pointer">
+            <!-- 1. Archivo (arrastrar y soltar) + delimitador -->
+            <div @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false"
+                 @drop.prevent="dragging = false; soltarArchivo($event)"
+                 class="rounded-lg border-2 border-dashed px-4 py-5 text-center transition cursor-pointer"
+                 :class="dragging ? 'border-emerald-400 bg-emerald-500/10' : 'border-slate-700 bg-slate-800/40 hover:border-slate-500'">
+                <i data-lucide="upload-cloud" class="w-6 h-6 mx-auto text-slate-400"></i>
+                <div class="text-sm text-slate-300 mt-1">Suelta tu CSV aquí <span class="text-slate-500">o</span></div>
+                <label class="inline-flex items-center gap-1.5 px-3 py-1.5 mt-2 bg-slate-800 border border-slate-600 rounded-lg text-sm font-semibold text-slate-200 hover:text-slate-100 cursor-pointer">
                     <i data-lucide="upload" class="w-4 h-4"></i> Seleccionar CSV
                     <input type="file" class="hidden" accept=".csv,.txt" @change="cargarArchivo($event)">
                 </label>
-                <span class="text-sm text-slate-400 truncate max-w-[220px]" x-text="archivo ? archivo.name : 'Sin archivo seleccionado'"></span>
+                <div class="text-xs text-slate-400 mt-2 truncate" x-text="archivo ? '✓ ' + archivo.name : 'Sin archivo seleccionado'"></div>
+            </div>
+            <div class="flex items-center gap-3 flex-wrap">
                 <select x-model="delimitador" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50">
                     <option value="auto">Delimitador: auto</option>
                     <option value=",">Coma (,)</option>

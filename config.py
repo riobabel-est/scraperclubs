@@ -8,7 +8,7 @@ import random
 # "tls_impersonate": True → federación que bloquea el TLS fingerprint de requests
 NOVA_FEDERATIONS = [
     {"name": "Andalucía",         "domain": "https://www.rfaf.es",                  "cod_primaria": "1000118", "skip": False, "use_scraperapi": True},
-    {"name": "Castilla-La Mancha","domain": "https://www.ffcm.es",                  "cod_primaria": "1000118", "skip": False, "use_scraperapi": True},
+    {"name": "Castilla-La Mancha","domain": "https://www.ffcm.es",                  "cod_primaria": "1000118", "skip": False, "use_scraperapi": True, "tls_impersonate": True, "render": False},
     {"name": "Extremadura",       "domain": "https://www.fexfutbol.com",             "cod_primaria": "1000118", "use_scraperapi": True},
     {"name": "Galicia",           "domain": "http://www.ffgalicia.novanet.es",       "cod_primaria": "1000118", "use_scraperapi": True},
     {"name": "Aragón",            "domain": "https://www.futbolaragon.com",          "cod_primaria": "1000118", "skip": False, "use_scraperapi": True},
@@ -18,6 +18,15 @@ NOVA_FEDERATIONS = [
     # frfutbol.com bloquea temporalmente tras muchas peticiones; usar delay mayor
     {"name": "La Rioja",          "domain": "https://www.frfutbol.com",             "cod_primaria": "1000118", "delay": 3.0, "use_scraperapi": True},
     {"name": "Castilla y León",   "domain": "https://www.rfcylf.es",               "cod_primaria": "1000118", "use_scraperapi": True},
+    # ── AÑADIDAS 2026-08-31 — verificadas como NOVA (listado NFG_Clubes responde directo) ──
+    {"name": "Tenerife",          "domain": "https://www.ftf.es",                   "cod_primaria": "1000118", "tls_impersonate": True, "use_scraperapi": True, "render": False},
+    {"name": "Ceuta",             "domain": "https://www.rffce.es",                 "cod_primaria": "1000118", "tls_impersonate": True, "use_scraperapi": True, "render": False},
+    # ── GUARDADAS, PENDIENTES (skip=True: no se scrapean aún) ──
+    # Navarra: listado NFG_Clubes -> https://www.futnavarra.es/pnfg/NPcd/NFG_Clubes?cod_primaria=1000118&cod_estado_activo=1
+    {"name": "Navarra",           "domain": "https://www.futnavarra.es",            "cod_primaria": "1000118", "skip": True, "tls_impersonate": True},
+    # Las Palmas: usa NFG_LstDirectorioEquipos (flujo tipo Castilla y León)
+    #   -> https://www.fiflp.com/pnfg/NPcd/NFG_LstDirectorioEquipos?cod_primaria=1000117
+    {"name": "Las Palmas",        "domain": "https://www.fiflp.com",                "cod_primaria": "1000117", "skip": True, "listado": "NFG_LstDirectorioEquipos"},
 ]
 
 # Clubes totales aproximados por federación (para monitorizar progreso)
@@ -36,7 +45,7 @@ EXPECTED_CLUBS = {
 }
 
 # ScraperAPI — proxy anti-bloqueo (plan gratuito: 5000 requests/mes)
-SCRAPERAPI_KEY = "b58878bcc44fd06ede6d8577c6e42b8f"
+SCRAPERAPI_KEY = "449e1b617320ef57e493eee2adc12900"
 
 # Configuración del scraper
 PAGE_SIZE = 10         # registros por página (reducido para ahorrar créditos ScraperAPI)

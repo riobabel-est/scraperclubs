@@ -1,0 +1,180 @@
+# CHECKPOINT LUNES — PRIMER ENVÍO REAL (FASE 6)
+
+> Fecha preparación: 2026-08-31 16:01 · BD: stats.db.deploy_20260831_155207
+> DECISIÓN: **READY TO SEND**
+
+## Datos
+- Campaña: 2 · Batch: 2026-08-30-A · Límite diario: 150
+- Candidatos elegibles: 200 · Ya enviados del batch: 0
+- Envíos comerciales hoy: 0 · **Disponibles hoy: 150/150**
+- Pendientes máximos a enviar HOY: 150
+- Variantes: {"A": 59, "B": 68, "C": 73}
+
+## Checks
+- [PASS] CAMPAIGN (0): Comerciales FutProtec 2026-08
+- [PASS] TEST/REAL (0): 
+- [PASS] DUPLICATE (0): 
+- [PASS] BOUNCE (0): 
+- [PASS] BLACKLIST (0): 
+- [PASS] EMAIL VALIDITY (0): 
+- [PASS] VARIANT (200): {"A": 59, "B": 68, "C": 73}
+- [PASS] TEMPLATE (1): Prospección - Paso 1 - Test ABC (Dolor/Beneficio)
+- [PASS] SMTP (1): 
+- [PASS] TRACKING (0): 
+
+## Pendientes del batch para HOY (primeros 150)
+- lead 12 | molina.perez@live.com | var B | C.D. JUDESA
+- lead 13 | cdlasoledad@gmail.com | var B | C.D. NTRA. SRA. SOLEDAD MOLINOS MARFAGONES
+- lead 14 | clubdeportivosanginesdelajara@gmail.com | var C | C.D. SAN GINES DE LA JARA
+- lead 15 | secretaria@cdbalaazul.com | var C | CLUB DEPORTIVO BALA AZUL
+- lead 16 | cdcamposdelrio@gmail.com | var A | CLUB DEPORTIVO CAMPOS
+- lead 17 | clubdeportivosmg@gmail.com | var C | CLUB DEPORTIVO SANTA MARIA DE GRACIA
+- lead 18 | alguazascf2020@outlook.es | var A | CLUB DEPORTIVO VETERANOS ALGUAZAS C.F.
+- lead 19 | clubtiempolibremurcia@hotmail.com | var C | CLUB TIEMPO LIBRE MURCIA
+- lead 20 | esperanzavirgendelacaridad@gmail.com | var A | E. F. ESPERANZA V. DE LA CARIDAD
+- lead 21 | escuelamurcia@afe-futbol.com | var B | ESCUELA DE FUTBOL AFE CBT
+- lead 22 | efsjumilla@gmail.com | var A | ESCUELA DE FUTBOL SALA BASE DE JUMILLA
+- lead 23 | deportes@caravacadelacruz.es | var A | ESCUELA DEPORTIVA MUNICIPAL CARAVACA DE LA CRUZ
+- lead 24 | feafesligamurcia@gmail.com | var C | FEDERACION SALUD MENTAL DE LA REGIÓN DE MURCIA
+- lead 25 | aynorjoven@gmail.com | var A | FUNDOWN
+- lead 26 | felix@plenainclusionmurcia.org | var C | PLENA INCLUSION
+- lead 27 | sancristobalcflorca@hotmail.com | var A | SAN CRISTOBAL CLUB DE FUTBOL DE LORCA
+- lead 28 | torresdecotillasfutsal@gmail.com | var C | TORRES DE COTILLAS FUTSAL
+- lead 29 | uniondeportivacaravaca@gmail.com | var A | UNION DEPORTIVA CARAVACA
+- lead 30 | josejoaquinarchena@hotmail.com | var B | VETERANOS SALON ARCHENA F.C.
+- lead 32 | chelescp@gmail.com | var C | C.D. CHELES
+- lead 33 | cdgevora1962@gmail.com | var B | C.D. GEVORA
+- lead 34 | clubdeportivosolana@gmail.com | var C | C.D. SOLANA
+- lead 35 | cdusagreoficial@gmail.com | var B | C.D. USAGRE
+- lead 36 | cfvaldecaballeros@gmail.com | var C | C.F. VALDECABALLEROS
+- lead 38 | uniondeportivafdc@gmail.com | var C | U.D. FUENTE DE CANTOS
+- lead 47 | club.futbol.artes@gmail.com | var A | C.D. ARTES
+- lead 48 | cyd.ciudadjardin@gmail.com | var B | C.D. CIUDAD JARDÍN
+- lead 50 | clubdeportivomarte@gmail.com | var B | C.D. MARTE
+- lead 52 | ciremelide@gmail.com | var C | C.F. CIRE DE MELIDE
+- lead 53 | juancalvor14@gmail.com | var B | CAMARIÑAS C.F.
+- lead 54 | carreiracf@outlook.es | var A | CARREIRA C.F.
+- lead 55 | batalladorsd@gmail.com | var B | CLUB DE FÚTBOL BATALLADOR S.D.
+- lead 56 | sdcgalicia@gmail.com | var B | GALICIA MUGARDOS
+- lead 57 | info@imperatoroar.com | var C | IMPERATOR OAR
+- lead 58 | clubfutbolmandia@gmail.com | var B | MANDIA C.F.
+- lead 60 | club@marinodemera.es | var C | MARINO C.F.
+- lead 61 | contacto@oparrulofs.es | var B | O PARRULO FERROL F.S.
+- lead 62 | correo@orzansd.com | var A | ORZÁN S.D.
+- lead 63 | oza@ozajuvenil.com | var C | OZA JUVENIL S.D.
+- lead 64 | pueblafccaraminal@gmail.com | var C | PUEBLA F.C.
+- lead 65 | relampagosd1944@gmail.com | var A | RELÁMPAGO SOCIEDAD DEPORTIVA DE ELVIÑA
+- lead 66 | acapelaadc@gmail.com | var A | S.C.D. A CAPELA
+- lead 67 | sdcacheiras@gmail.com | var B | S.D. CACHEIRAS
+- lead 68 | s.d.oval@hotmail.com | var A | S.D. O VAL DE NARÓN
+- lead 69 | juan_ibanez_lopez@yahoo.es | var A | S.D. OSEIRO
+- lead 70 | santamargarita1947@gmail.com | var B | S.D. SANTA MARGARITA
+- lead 71 | sdvcabodacruz@hotmail.com | var A | S.D. VALIÑO
+- lead 72 | mari.estanco@hotmail.com | var B | S.D. XUVENTÚ AGUIÑO
+- lead 73 | rapidodeneda@yahoo.es | var C | S.D.RAPIDO NEDA
+- lead 74 | srdportuarios@gmail.com | var C | S.R. Y D. PORTUARIOS
+- lead 75 | srydcanido@gmail.com | var B | S.R.D. CANIDO
+- lead 76 | info@sadacf.com | var A | SADA C.F.
+- lead 77 | sd.sanmartino@yahoo.es | var B | SAN MARTIÑO S.D.
+- lead 78 | club@santirsosd.com | var A | SAN TIRSO S.D.
+- lead 79 | info@santacruzcf.es | var A | SANTA CRUZ C.F.
+- lead 80 | soneirasd@gmail.com | var B | SONEIRA S.D.
+- lead 81 | sportingburgo@gmail.com | var C | SPORTING BURGO
+- lead 82 | sportingcambre@yahoo.es | var B | SPORTING CAMBRE
+- lead 83 | sportingcorunes@hotmail.com | var A | SPORTING CORUÑES SDC
+- lead 84 | sportingdelampon@gmail.com | var B | SPORTING LAMPON
+- lead 85 | sportingzas@gmail.com | var B | SPORTING ZAS
+- lead 86 | suevoscf@gmail.com | var A | SUEVOS C.F.
+- lead 87 | udcebarca@gmail.com | var C | U.D. CEBARCA
+- lead 88 | ud.corcubion@hotmail.com | var A | U.D. CORCUBION
+- lead 89 | directordeportivo@udjalmeiras.es | var C | U.D. JUVENIL DE ALMEIRAS
+- lead 90 | unioncampestremontrove@gmail.com | var C | UNION CAMPESTRE
+- lead 91 | unionclubcee@gmail.com | var A | UNION CLUB CEE
+- lead 92 | correo@uralcf.es | var C | URAL ESPAÑOL C.F.
+- lead 93 | victoriafutbolclub@gmail.com | var C | VICTORIA F.C.
+- lead 95 | juventuddecabanas@gmail.com | var C | XUVENTUD CABAÑAS
+- lead 105 | riverebro.rincondesoto@gmail.com | var A | CLUB ATLETICO RIVER EBRO
+- lead 106 | cdvianes@hotmail.com | var B | CLUB ATLETICO VIANES
+- lead 107 | calahorrafutbolbase@gmail.com | var A | CLUB CALAHORRA FUTBOL BASE
+- lead 108 | rapidmurillo@gmail.com | var A | CLUB DE FUTBOL RAPID
+- lead 109 | cdalberite@hotmail.com | var A | CLUB DEPORTIVO ALBERITE
+- lead 110 | mojirofal@hotmail.com | var B | CLUB DEPORTIVO ALDEANO
+- lead 111 | info@cdalfaro.com | var C | CLUB DEPORTIVO ALFARO
+- lead 112 | administracion@cdarnedo.es | var B | CLUB DEPORTIVO ARNEDO
+- lead 113 | adarrubal@gmail.com | var A | CLUB DEPORTIVO ARRUBAL
+- lead 114 | logrono1521@hotmail.com | var A | CLUB DEPORTIVO ATLETICO REVELLIN
+- lead 115 | clubdeportivoautol2223@gmail.com | var A | CLUB DEPORTIVO AUTOL
+- lead 116 | miguelcaro66@hotmail.com | var C | CLUB DEPORTIVO AZUL SPORT C.F.
+- lead 117 | miguelpelotari@hotmail.es | var B | CLUB DEPORTIVO BAÑUELOS
+- lead 118 | administracion@cdberceo.es | var B | CLUB DEPORTIVO BERCEO
+- lead 119 | comillascf@hotmail.com | var B | CLUB DEPORTIVO C.F. COMILLAS
+- lead 120 | secretaria@cdcalahorra.com | var C | CLUB DEPORTIVO CALAHORRA
+- lead 121 | cdcaminocienta@gmail.com | var C | CLUB DEPORTIVO CAMINO CIENTA
+- lead 122 | cdcenicero@hotmail.es | var C | CLUB DEPORTIVO CENICERO
+- lead 123 | manueljimenezsesma@gmail.com | var B | CLUB DEPORTIVO CERVERANO DE FUTBOL SALA
+- lead 124 | info@efmareo.com | var C | CLUB DEPORTIVO ESCUELA DE FUTBOL DE MAREO
+- lead 125 | cdfclacalzada@gmail.com | var A | CLUB DEPORTIVO FUNDACION CULTURAL LA CALZADA
+- lead 126 | cdinterdelogrono@gmail.com | var C | CLUB DEPORTIVO INTERNACIONAL DE LOGROÑO
+- lead 128 | clubdepmaristaslog@hotmail.com | var C | CLUB DEPORTIVO MARISTAS LOGROÑO
+- lead 129 | ichaso79@hotmail.com | var B | CLUB DEPORTIVO MONACO
+- lead 130 | cdsanmarcial@hotmail.com | var C | CLUB DEPORTIVO SAN MARCIAL
+- lead 132 | raulahg94@gmail.com | var B | CLUB DEPORTIVO SPORTING CASCAJOS
+- lead 134 | garri.logrono@gmail.com | var C | CLUB DEPORTIVO VALLE DEL EBRO
+- lead 135 | clubdeportivovarea@gmail.com | var C | CLUB DEPORTIVO VAREA
+- lead 136 | cdverdiblancos@gmail.com | var A | CLUB DEPORTIVO VERDIBLANCOS PRADEJON
+- lead 137 | futbolsalaalbeldafsa@gmail.com | var C | CLUB FUTBOL SALA ALBELDA
+- lead 138 | clubharodeportivo@hotmail.com | var C | CLUB HARO DEPORTIVO
+- lead 139 | rodrigo_rodriguezosma@hotmail.com | var B | ENTRENA FS
+- lead 140 | cdautol@gmail.com | var A | ESCUELA FUTBOL BASE AUTOL
+- lead 141 | fuenmayorfutbolclub@gmail.com | var B | FUENMAYOR FUTBOL CLUB
+- lead 142 | lara_lora5@hotmail.com | var A | FUTBOL SALA NAVARRETE
+- lead 143 | info@interlarioja.com | var C | INTER LA RIOJA FUTBOL CLUB
+- lead 144 | naxaracd@hotmail.com | var C | NAXARA CLUB DEPORTIVO
+- lead 145 | balsamaisocf@gmail.com | var C | PEÑA BALSAMAISO CLUB DE FUTBOL
+- lead 146 | info@escuelasdefutbol.es | var C | PROMESAS EDF
+- lead 147 | sanvicentedelasonsierrafsc@gmail.com | var B | SAN VICENTE DE LA SONSIERRA FUTBOL SALA CLUB
+- lead 149 | sdoyonesa@gmail.com | var C | SOCIEDAD DEPORTIVA OYONESA
+- lead 150 | spartaharense@hotmail.com | var B | SOCIEDAD DEPORTIVA SPARTA HARENSE
+- lead 151 | cd.sotosala@gmail.com | var C | SOTO SALA
+- lead 152 | valvaneracd@valvaneracd.com | var B | VALVANERA CLUB DEPORTIVO
+- lead 206 | laramblafutsal@gmail.com | var B | ASOCIACION LA RAMBLA FUTBOL SALA
+- lead 215 | clubatleticocordobes@gmail.com | var C | ATLETICO CORDOBES C.F.
+- lead 219 | atleticoolivarense@gmail.com | var A | ATLETICO OLIVARENSE
+- lead 254 | milikitoss@hotmail.com | var C | C.D. A.D. EL VISO
+- lead 256 | adsangarcia@hotmail.com | var B | C.D. A.D. SAN GARCIA
+- lead 258 | cdmentidero2010@gmail.com | var A | C.D. AA.VV. EL CARMEN DE LOS BARRIOS DEL MENTIDERO Y SAN LORENZO MARTIR
+- lead 259 | a.v.v.puntales@yahoo.es | var A | C.D. AA.VV. FUERTE DE SAN LORENZO
+- lead 260 | jedulaacademy@gmail.com | var B | C.D. ACADEMY JEDULA
+- lead 261 | clubdeportivoesclavascadiz@gmail.com | var A | C.D. AD FINEM
+- lead 262 | extraescolares@cadiz.esclavasscj.com | var A | C.D. AD FINEM FIDELIS
+- lead 263 | adecor@clubadecor.com | var B | C.D. ADECOR
+- lead 264 | adevalfs1987@gmail.com | var A | C.D. ADEVAL F.S.
+- lead 265 | saf@afanas.es | var C | C.D. AFANAS SCRT
+- lead 267 | aguiladepedrera@gmail.com | var C | C.D. AGUILA DE PEDRERA
+- lead 268 | raulgarzia@hotmail.com | var C | C.D. AGUILAR
+- lead 269 | almuklinfutbolsala@gmail.com | var B | C.D. AL-MUKLIN F.S.
+- lead 270 | alalacadizfutbol@gmail.com | var A | C.D. ALALA CENTRAL
+- lead 271 | jartillo@lacaixa.es | var C | C.D. ALBAIDA
+- lead 272 | cdalbolotesoccer@gmail.com | var C | C.D. ALBOLOTE SOCCER ALDA
+- lead 273 | alcalaclubdeportivo@gmail.com | var A | C.D. ALCALA
+- lead 274 | alcalafutbolsala@gmail.com | var C | C.D. ALCALA DE GUADAIRA F.S.
+- lead 275 | alcalacd@hotmail.com | var B | C.D. ALCALA DEL VALLE
+- lead 276 | josegomezgomez1952@gmail.com | var A | C.D. ALCAZAR
+- lead 277 | cdalgarensefutsal@gmail.com | var C | C.D. ALGARENSE FUTSAL
+- lead 278 | juanejb38@hotmail.com | var C | C.D. ALGARINEJO 2012 F.S.
+- lead 279 | algecirasfs@hotmail.com | var B | C.D. ALGECIRAS F.S.
+- lead 280 | club@cdatleticoalgecireno.es | var B | C.D. ALGECIREÑO ATLETICO
+- lead 281 | deportivoalgodonales2026@gmail.com | var B | C.D. ALGODONALES 2026
+- lead 283 | juancopadomartinez@gmail.com | var B | C.D. ALMENA
+- lead 284 | clubdeportivoalmensilla1932@gmail.com | var B | C.D. ALMENSILLA
+- lead 285 | escueladeportiva@altair.edu.es | var C | C.D. ALTAIR
+- lead 286 | rafagonzalo20@gmail.com | var A | C.D. ALZAHAR DEL GUADALQUIVIR
+- lead 287 | e.f.algeciras@gmail.com | var A | C.D. AMIGOS DEL FÚTBOL ALGECIRAS
+- lead 288 | cdandalitano@gmail.com | var C | C.D. AN ANDALIS
+- lead 289 | andaluciacmfutbolbase@gmail.com | var A | C.D. ANDALUCIA C.M.
+- lead 290 | coordinacion@apademar.es | var C | C.D. APADEMAR
+
+## Acciones del lunes
+1. Subir la BD preparada (si --crear-batch) o crear el batch en producción.
+2. Disparar el envío desde la lanzadera de producción (máx 150 hoy).
+3. Detener al llegar al límite · dejar motor pausado · informe final (formato sección 18).

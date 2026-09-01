@@ -27,6 +27,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/crypto.php';
 // Mapeo por sentimiento (estadoDestinoPorClasificacion) compartido con la Unibox.
 require_once __DIR__ . '/respuestas.php';
+// Almacén de adjuntos en disco (data/adjuntos/<club>/recibidos|enviados).
+require_once __DIR__ . '/adjuntos.php';
 
 // ─── Configuración ───
 $DB_PATH = __DIR__ . '/../data/stats.db';
@@ -1414,21 +1416,25 @@ function imap_insertar_respuesta(SQLite3 $db, array $msg, ?array $envio, string 
     $respuestaId = (int)$db->lastInsertRowID();
 
     // ─── Guardar ADJUNTOS de la respuesta (tabla respuestas_adjuntos) ───
+    // FASE ADJUNTOS: se guardan en disco (data/adjuntos/<club>/recibidos) y se
+    // registra la ruta; el BLOB se conserva por compatibilidad con registros antiguos.
     if ($respuestaId > 0 && !empty($msg['adjuntos']) && is_array($msg['adjuntos'])) {
         foreach ($msg['adjuntos'] as $adj) {
             $nombreA = (string)($adj['nombre'] ?? 'adjunto');
             $mimeA   = (string)($adj['mime'] ?? 'application/octet-stream');
             $datosA  = (string)($adj['datos'] ?? '');
             if ($datosA === '') continue;
+            $rutaA = futprotec_guardar_adjunto((int)($leadId ?? 0), 'recibidos', $nombreA, $datosA);
             $stmtA = $db->prepare(
-                "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos)
-                 VALUES (:rid, :nombre, :mime, :tam, :datos)"
+                "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos, ruta)
+                 VALUES (:rid, :nombre, :mime, :tam, :datos, :ruta)"
             );
             $stmtA->bindValue(':rid', $respuestaId, SQLITE3_INTEGER);
             $stmtA->bindValue(':nombre', $nombreA, SQLITE3_TEXT);
             $stmtA->bindValue(':mime', $mimeA, SQLITE3_TEXT);
             $stmtA->bindValue(':tam', strlen($datosA), SQLITE3_INTEGER);
             $stmtA->bindValue(':datos', $datosA, SQLITE3_BLOB);
+            $stmtA->bindValue(':ruta', $rutaA, SQLITE3_TEXT);
             $stmtA->execute();
         }
     }
@@ -1992,18 +1998,21 @@ function imap_backfill_cuerpos(SQLite3 $db, int $limite = 200): array
                         // ── Recuperar también ADJUNTOS si la respuesta no tiene ──
                         $nAdj = (int)$db->querySingle("SELECT COUNT(*) FROM respuestas_adjuntos WHERE respuesta_id = " . (int)$r['id']);
                         if ($nAdj === 0 && !empty($partes['adjuntos'])) {
+                            $leadIdAdj = (int)$db->querySingle("SELECT COALESCE(lead_id,0) FROM respuestas WHERE id = " . (int)$r['id']);
                             foreach ($partes['adjuntos'] as $adj) {
                                 $dA = (string)($adj['datos'] ?? '');
                                 if ($dA === '') continue;
+                                $rutaA = futprotec_guardar_adjunto($leadIdAdj, 'recibidos', (string)($adj['nombre'] ?? 'adjunto'), $dA);
                                 $stmtA = $db->prepare(
-                                    "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos)
-                                     VALUES (:rid, :nombre, :mime, :tam, :datos)"
+                                    "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos, ruta)
+                                     VALUES (:rid, :nombre, :mime, :tam, :datos, :ruta)"
                                 );
                                 $stmtA->bindValue(':rid', (int)$r['id'], SQLITE3_INTEGER);
                                 $stmtA->bindValue(':nombre', (string)($adj['nombre'] ?? 'adjunto'), SQLITE3_TEXT);
                                 $stmtA->bindValue(':mime', (string)($adj['mime'] ?? 'application/octet-stream'), SQLITE3_TEXT);
                                 $stmtA->bindValue(':tam', strlen($dA), SQLITE3_INTEGER);
                                 $stmtA->bindValue(':datos', $dA, SQLITE3_BLOB);
+                                $stmtA->bindValue(':ruta', $rutaA, SQLITE3_TEXT);
                                 $stmtA->execute();
                             }
                         }
@@ -2081,18 +2090,21 @@ function imap_backfill_adjuntos(SQLite3 $db, int $limite = 100): array
                         $partes = imap_extraer_cuerpo_partes((string)$cuerpoParte);
                         if (!empty($partes['adjuntos'])) {
                             $stats['con_adjuntos']++;
+                            $leadIdAdj = (int)$db->querySingle("SELECT COALESCE(lead_id,0) FROM respuestas WHERE id = " . (int)$r['id']);
                             foreach ($partes['adjuntos'] as $adj) {
                                 $dA = (string)($adj['datos'] ?? '');
                                 if ($dA === '') continue;
+                                $rutaA = futprotec_guardar_adjunto($leadIdAdj, 'recibidos', (string)($adj['nombre'] ?? 'adjunto'), $dA);
                                 $stmtA = $db->prepare(
-                                    "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos)
-                                     VALUES (:rid, :nombre, :mime, :tam, :datos)"
+                                    "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos, ruta)
+                                     VALUES (:rid, :nombre, :mime, :tam, :datos, :ruta)"
                                 );
                                 $stmtA->bindValue(':rid', (int)$r['id'], SQLITE3_INTEGER);
                                 $stmtA->bindValue(':nombre', (string)($adj['nombre'] ?? 'adjunto'), SQLITE3_TEXT);
                                 $stmtA->bindValue(':mime', (string)($adj['mime'] ?? 'application/octet-stream'), SQLITE3_TEXT);
                                 $stmtA->bindValue(':tam', strlen($dA), SQLITE3_INTEGER);
                                 $stmtA->bindValue(':datos', $dA, SQLITE3_BLOB);
+                                $stmtA->bindValue(':ruta', $rutaA, SQLITE3_TEXT);
                                 $stmtA->execute();
                                 $stats['insertados']++;
                             }

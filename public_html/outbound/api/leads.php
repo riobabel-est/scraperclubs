@@ -1259,17 +1259,19 @@ if ($action === 'importar_csv') {
             $delim = ($cuentas[$mejor] > 0) ? $mejor : ',';
         }
 
-        $camposPermitidos = ['nombre_club','email','telefono_movil','telefono_fijo','persona_contacto','cargo_contacto','federacion'];
+        $camposPermitidos = ['nombre_club','email','telefono_movil','telefono_fijo','persona_contacto','cargo_contacto','federacion','direccion','cp','ciudad','provincia'];
 
         // Transacción + prepared statements (rápido y seguro).
         $db->exec('BEGIN');
         $stmt = $db->prepare(
             "INSERT INTO clubes_crm
              (nombre_club, email, telefono_movil, telefono_fijo, persona_contacto, cargo_contacto,
-              federacion, tiene_whatsapp, estado_lead, observaciones, creado_el)
-             VALUES (:n, :e, :m, :fi, :p, :c, :f, :wa, '01 Sin Contactar', :obs, CURRENT_TIMESTAMP)"
+              federacion, direccion, cp, ciudad, provincia,
+              tiene_whatsapp, estado_lead, observaciones, creado_el)
+             VALUES (:n, :e, :m, :fi, :p, :c, :f, :d, :cp, :ci, :pr, :wa, '01 Sin Contactar', :obs, CURRENT_TIMESTAMP)"
         );
         $stmtCheck = $db->prepare("SELECT id FROM clubes_crm WHERE LOWER(email) = LOWER(:e) LIMIT 1");
+        $stmtCheckNombre = $db->prepare("SELECT id FROM clubes_crm WHERE LOWER(nombre_club) = LOWER(:n) LIMIT 1");
 
         $total = 0; $importados = 0; $duplicados = 0; $emailInvalidos = 0; $mxFallidos = 0; $errores = 0;
         $detalle = [];
@@ -1291,31 +1293,48 @@ if ($action === 'importar_csv') {
             }
 
             $nombre = $datos['nombre_club'];
-            $email  = strtolower(trim($datos['email']));
+            $emailOriginal = strtolower(trim($datos['email']));
+            $movilTexto = trim((string)$datos['telefono_movil']);
+            $fijoTexto  = trim((string)$datos['telefono_fijo']);
             $total++;
-            if ($nombre === '' || $email === '') {
+            if ($nombre === '' || ($emailOriginal === '' && $movilTexto === '' && $fijoTexto === '')) {
                 $errores++;
-                $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => 'Falta nombre o email'];
+                $detalle[] = ['fila' => $filaIdx, 'email' => $emailOriginal, 'motivo' => 'Falta nombre, email y teléfono'];
                 continue;
             }
-            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $emailInvalidos++;
-                $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => 'Email inválido'];
-                continue;
+            // Sin email (contacto telefónico): la columna email es NOT NULL + UNIQUE,
+            // así que se usa un placeholder único estándar (RFC 2606, dominio .invalid).
+            $sinEmail = false;
+            if ($emailOriginal === '') {
+                $sinEmail = true;
+                $email = 'sinemail_' . substr(md5($nombre . '_' . $filaIdx), 0, 8) . '@sinemail.invalid';
+            } else {
+                $email = $emailOriginal;
             }
-            if ($validarMx) {
-                $dominio = substr(strrchr($email, '@'), 1);
-                if ($dominio !== '' && !@checkdnsrr($dominio, 'MX')) {
-                    $mxFallidos++;
-                    $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => "Dominio sin MX ({$dominio})"];
+            if (!$sinEmail) {
+                if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $emailInvalidos++;
+                    $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => 'Email inválido'];
                     continue;
                 }
+                if ($validarMx) {
+                    $dominio = substr(strrchr($email, '@'), 1);
+                    if ($dominio !== '' && !@checkdnsrr($dominio, 'MX')) {
+                        $mxFallidos++;
+                        $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => "Dominio sin MX ({$dominio})"];
+                        continue;
+                    }
+                }
+                $stmtCheck->bindValue(':e', $email, SQLITE3_TEXT);
+                $existe = (bool)$stmtCheck->execute()->fetchArray();
+            } else {
+                // Sin email: deduplicar por nombre del club.
+                $stmtCheckNombre->bindValue(':n', $nombre, SQLITE3_TEXT);
+                $existe = (bool)$stmtCheckNombre->execute()->fetchArray();
             }
-            $stmtCheck->bindValue(':e', $email, SQLITE3_TEXT);
-            $existe = (bool)$stmtCheck->execute()->fetchArray();
             if ($existe) {
                 $duplicados++;
-                if (!$ignorarDup) $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => 'Ya existe (ignorado)'];
+                if (!$ignorarDup) $detalle[] = ['fila' => $filaIdx, 'email' => $emailOriginal, 'motivo' => 'Ya existe (ignorado)'];
                 continue;
             }
 
@@ -1331,9 +1350,23 @@ if ($action === 'importar_csv') {
             $stmt->bindValue(':p',  (string)$datos['persona_contacto'], SQLITE3_TEXT);
             $stmt->bindValue(':c',  (string)$datos['cargo_contacto'], SQLITE3_TEXT);
             $stmt->bindValue(':f',  (string)$datos['federacion'], SQLITE3_TEXT);
+            $stmt->bindValue(':d',  (string)$datos['direccion'], SQLITE3_TEXT);
+            $stmt->bindValue(':cp', (string)$datos['cp'], SQLITE3_TEXT);
+            $stmt->bindValue(':ci', (string)$datos['ciudad'], SQLITE3_TEXT);
+            $stmt->bindValue(':pr', (string)$datos['provincia'], SQLITE3_TEXT);
             $stmt->bindValue(':wa', $wa, SQLITE3_INTEGER);
-            $stmt->bindValue(':obs', 'Importado por CSV el ' . date('Y-m-d H:i'), SQLITE3_TEXT);
-            $stmt->execute();
+            $obs = 'Importado por CSV el ' . date('Y-m-d H:i');
+            if ($sinEmail) $obs .= ' (sin email, contacto telefónico)';
+            $stmt->bindValue(':obs', $obs, SQLITE3_TEXT);
+            try {
+                $stmt->execute();
+            } catch (Exception $e) {
+                // Duplicado real no capturado por el dedup (variante de caracteres):
+                // se cuenta como duplicado y se continúa, sin abortar la importación.
+                $duplicados++;
+                $detalle[] = ['fila' => $filaIdx, 'email' => $email, 'motivo' => 'Duplicado real (constraint)'];
+                continue;
+            }
             $importados++;
         }
         fclose($fh);

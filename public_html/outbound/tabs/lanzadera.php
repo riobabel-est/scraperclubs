@@ -17,6 +17,50 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="grid lg:grid-cols-2 gap-4 items-start">
 
+    <!-- ═══════════ BLOQUE 0: RESUMEN DEL DÍA (resultados globales) ═══════════ -->
+    <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-4" x-data="resumenDia()" x-init="cargar()">
+        <div class="flex items-center gap-3 mb-3 flex-wrap">
+            <i data-lucide="activity" class="w-5 h-5 text-emerald-400"></i>
+            <h5 class="text-base font-semibold uppercase tracking-wider text-slate-200">Resumen del día</h5>
+            <button @click="cargar()" class="ml-auto px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 hover:text-slate-100 hover:border-emerald-500/40 transition">↻ Actualizar</button>
+        </div>
+        <div x-show="cargando" class="text-sm text-slate-400">Cargando…</div>
+        <div x-show="!cargando && r" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div class="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3">
+                <div class="text-[11px] uppercase tracking-wider text-slate-400">Envíos hoy</div>
+                <div class="text-xl font-bold text-slate-100" x-text="r.envios"></div>
+                <div class="text-xs text-slate-500">REALES (sin TEST)</div>
+            </div>
+            <div class="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+                <div class="text-[11px] uppercase tracking-wider text-emerald-300">Aceptados</div>
+                <div class="text-xl font-bold text-emerald-400" x-text="r.aceptados"></div>
+                <div class="text-xs text-emerald-300/70">0 errores hoy</div>
+            </div>
+            <div class="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                <div class="text-[11px] uppercase tracking-wider text-amber-300">Aperturas</div>
+                <div class="text-xl font-bold text-amber-400" x-text="r.aperturas_dedup"></div>
+                <div class="text-xs text-amber-300/70" x-text="'open ' + r.open_rate + ' %'"></div>
+            </div>
+            <div class="bg-sky-500/10 border border-sky-500/20 rounded-lg p-3">
+                <div class="text-[11px] uppercase tracking-wider text-sky-300">Clics</div>
+                <div class="text-xl font-bold text-sky-400" x-text="r.clics"></div>
+                <div class="text-xs text-sky-300/70">CTR enlaces</div>
+            </div>
+            <div class="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3">
+                <div class="text-[11px] uppercase tracking-wider text-violet-300">Respuestas</div>
+                <div class="text-xl font-bold text-violet-400" x-text="r.respuestas"></div>
+                <div class="text-xs text-violet-300/70" x-text="r.positivas + ' positivas · ' + r.negativas + ' negativas'"></div>
+            </div>
+            <div class="bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">
+                <div class="text-[11px] uppercase tracking-wider text-rose-300">Rebotes</div>
+                <div class="text-xl font-bold text-rose-400" x-text="r.bounces"></div>
+                <div class="text-xs text-rose-300/70" x-text="'bounce ' + r.bounce_rate + ' %'"></div>
+            </div>
+        </div>
+        <div x-show="!cargando && !r && !error" class="text-sm text-slate-500 py-2">Sin envíos reales hoy.</div>
+        <div x-show="error" class="text-sm text-rose-400" x-text="error"></div>
+    </div>
+
     <!-- ═══════════ COLUMNA IZQUIERDA ═══════════ -->
     <div class="space-y-4">
 

@@ -260,3 +260,47 @@ if ($action === 'generar_plantilla_ia') {
     }
     exit;
 }
+
+// ─── get_plantilla_adjuntos — adjuntos predeterminados de una plantilla ──────
+if ($action === 'get_plantilla_adjuntos') {
+    header('Content-Type: application/json; charset=utf-8');
+    $pid = (int)($_GET['plantilla_id'] ?? 0);
+    if ($pid <= 0) { echo json_encode(['ok' => false, 'error' => 'plantilla_id requerido']); exit; }
+    $items = [];
+    $stmt = $db->prepare(
+        "SELECT pa.id AS pa_id, pa.orden, ar.id, ar.nombre, ar.mime, ar.tamano
+         FROM plantillas_adjuntos pa JOIN adjuntos_repo ar ON ar.id = pa.adjunto_repo_id
+         WHERE pa.plantilla_id = :pid AND pa.activo = 1 ORDER BY pa.orden ASC"
+    );
+    $stmt->bindValue(':pid', $pid, SQLITE3_INTEGER);
+    $res = $stmt->execute();
+    while ($r = $res->fetchArray(SQLITE3_ASSOC)) $items[] = $r;
+    echo json_encode(['ok' => true, 'items' => $items]);
+    exit;
+}
+
+// ─── plantilla_adjunto_add — vincula un adjunto del repo a una plantilla ─────
+if ($action === 'plantilla_adjunto_add') {
+    header('Content-Type: application/json; charset=utf-8');
+    $pid = (int)($_POST['plantilla_id'] ?? 0);
+    $rid = (int)($_POST['adjunto_repo_id'] ?? 0);
+    if ($pid <= 0 || $rid <= 0) { echo json_encode(['ok' => false, 'error' => 'plantilla_id y adjunto_repo_id requeridos']); exit; }
+    $existe = (int)$db->querySingle("SELECT COUNT(*) FROM adjuntos_repo WHERE id = {$rid}");
+    if ($existe === 0) { echo json_encode(['ok' => false, 'error' => 'Adjunto del repositorio no existe']); exit; }
+    $orden = (int)$db->querySingle("SELECT COALESCE(MAX(orden),0)+1 FROM plantillas_adjuntos WHERE plantilla_id = {$pid}");
+    $db->exec("INSERT OR IGNORE INTO plantillas_adjuntos (plantilla_id, adjunto_repo_id, orden, activo) VALUES ({$pid}, {$rid}, {$orden}, 1)");
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+// ─── plantilla_adjunto_remove — desvincula un adjunto de una plantilla ───────
+if ($action === 'plantilla_adjunto_remove') {
+    header('Content-Type: application/json; charset=utf-8');
+    $pid = (int)($_POST['plantilla_id'] ?? 0);
+    $rid = (int)($_POST['adjunto_repo_id'] ?? 0);
+    if ($pid <= 0 || $rid <= 0) { echo json_encode(['ok' => false, 'error' => 'plantilla_id y adjunto_repo_id requeridos']); exit; }
+    $db->exec("DELETE FROM plantillas_adjuntos WHERE plantilla_id = {$pid} AND adjunto_repo_id = {$rid}");
+    echo json_encode(['ok' => true]);
+    exit;
+}
+

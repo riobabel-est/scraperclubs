@@ -99,6 +99,9 @@ var app = function() {
         // Buscador en listado
         edSearch: '',
 
+        // Adjuntos predeterminados de plantilla (editor → repositorio)
+        ptAdjuntos: [], ptRepo: [], ptAdjSel: '',
+
         // Analytics modal
         aq: false,
         aqTab: 'envios',
@@ -133,11 +136,13 @@ var app = function() {
         // Triaje de la Bandeja: pestaña activa (requiere_respuesta | rebotes | archivados | borrados | todos).
         rsTabTriaje: 'requiere_respuesta',
         // Contadores descriptivos por estado (requiere_respuesta, en_espera, archivados, total).
-        rsCountsTriaje: { requiere_respuesta: 0, en_espera: 0, archivados: 0, total: 0 },
+        rsCountsTriaje: { requiere_respuesta: 0, en_espera: 0, archivados: 0, rebotes: 0, borrados: 0, no_leidas: 0, total: 0 },
         // Búsqueda por nombre de club en el panel izquierdo.
         rsBusqueda: '',
         // Filtro de clasificación (Todas / Interesado / Duda Precio / Baja).
         rsFiltroClas: '',
+        // Orden de la lista: 'recepcion' | 'nombre' | 'estado'.
+        rsOrden: 'recepcion',
         // Texto de la respuesta que se está redactando en el footer.
         rsRedaccion: '',
         // Plantilla rápida seleccionada.
@@ -343,6 +348,47 @@ var app = function() {
             this.en = false;
             this.autoPreview();
             setTimeout(() => lucide.createIcons(), 50);
+            this.cargarPlantillaAdjuntos(t.id);
+            this.ptCargarRepo();
+        },
+
+        // ─── Adjuntos predeterminados de plantilla (editor → repositorio) ─────
+        async ptCargarRepo() {
+            try { const r = await fetch('?action=get_adjuntos_repo'); const j = await r.json(); if (j && j.items) this.ptRepo = j.items; } catch (e) {}
+        },
+        async cargarPlantillaAdjuntos(pid) {
+            if (!pid) { this.ptAdjuntos = []; return; }
+            try { const r = await fetch('?action=get_plantilla_adjuntos&plantilla_id=' + pid); const j = await r.json(); this.ptAdjuntos = (j && j.items) ? j.items : []; } catch (e) { this.ptAdjuntos = []; }
+        },
+        async ptAgregarAdjunto() {
+            if (!this.ptAdjSel || !this.et) return;
+            const f = new FormData(); f.append('action', 'plantilla_adjunto_add'); f.append('plantilla_id', this.et); f.append('adjunto_repo_id', this.ptAdjSel);
+            try {
+                const r = await fetch('?action=plantilla_adjunto_add', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j && j.ok) { this.ptAdjSel = ''; await this.cargarPlantillaAdjuntos(this.et); }
+                else alert((j && j.error) || 'Error al añadir adjunto');
+            } catch (e) {}
+        },
+        async ptQuitarAdjunto(rid) {
+            const f = new FormData(); f.append('action', 'plantilla_adjunto_remove'); f.append('plantilla_id', this.et); f.append('adjunto_repo_id', rid);
+            try {
+                const r = await fetch('?action=plantilla_adjunto_remove', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j && j.ok) await this.cargarPlantillaAdjuntos(this.et);
+            } catch (e) {}
+        },
+        async ptSubirImagen(ev) {
+            const file = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
+            if (!file) return;
+            const f = new FormData(); f.append('action', 'add_adjunto_repo'); f.append('adjunto[]', file);
+            try {
+                const r = await fetch('?action=add_adjunto_repo', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j && j.ok) { await this.ptCargarRepo(); if (j.id) this.ptAdjSel = String(j.id); }
+                else alert((j && j.error) || 'Error al subir imagen');
+            } catch (e) {}
+            if (ev && ev.target) ev.target.value = '';
         },
 
         // ─── Analytics de Sesión (Lanzadera) ────────────────────────────────
@@ -1413,6 +1459,7 @@ var app = function() {
             this.edNombre = 'Nueva plantilla'; this.edAsunto = ''; this.edAsuntoB = ''; this.edAsuntoC = ''; this.edTestAb = 0;
             this.edCuerpo = ''; this.edCuerpoB = ''; this.edCuerpoC = ''; this.edTipo = this.edPlataforma === 'whatsapp' ? 'whatsapp' : 'html';
             this.edCategoria = this.ec || '';
+            this.ptAdjuntos = []; this.ptAdjSel = '';
             setTimeout(() => lucide.createIcons(), 50);
         },
         async eliminarPlantilla() {
@@ -1749,7 +1796,7 @@ var app = function() {
             this.lzMotorEstado = 'ACTIVO'; this.lzAbortController = new AbortController(); const signal = this.lzAbortController.signal;
             this.lzSendCalls = 0;
             const lead = this.lzSelectedLead;
-            const r = Math.random(); const vAb = r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C');
+            const vAb = await this.lzVarianteParaEnvio(lead.id, this.lzCampaignId, false, '');
             const fd = new FormData();
             fd.append('id_club', lead.id);
             fd.append('id_plantilla', this.lzIdPlantillaEmail);
@@ -1790,7 +1837,7 @@ var app = function() {
                 // ─── DOBLE SALVAGUARDA: nunca superar el tamaño de lote ────────
                 if (this.lzSendCalls >= batchSize) { this.lzMotorEstado = 'PAUSADO'; break; }
                 this.lzColaIndex = i; const lead = this.lzCola[i]; if (!lead) continue;
-                const r = Math.random(); const vAb = lead.es_rotacion ? (lead.variante_ab || 'A') : (r < 0.333 ? 'A' : (r < 0.666 ? 'B' : 'C'));
+                const vAb = await this.lzVarianteParaEnvio(lead.id, this.lzCampaignId, !!lead.es_rotacion, lead.variante_ab);
                 const fd = new FormData(); fd.append('id_club', lead.id); fd.append('id_plantilla', lead.es_rotacion ? (lead.rotacion_plantilla_id || this.lzIdPlantillaEmail) : this.lzIdPlantillaEmail); fd.append('id_cuenta_smtp', lead.smtp_asignada_id); fd.append('modo_test', this.modeTest ? '1' : '0'); fd.append('variante_ab', vAb); fd.append('campaign_id', this.lzCampaignId);
                 if (lead.es_rotacion) { fd.append('es_rotacion', '1'); }
                 if (this.modeTest && this.testEmailsList.length > 0) { fd.append('test_email', this.testEmailsList[i % this.testEmailsList.length]); }
@@ -1840,6 +1887,29 @@ var app = function() {
             await guardar('lanzadera_delay_max', max);
             await guardar('lanzadera_delay', this.lzDelay);
         },
+        // 🎯 Variante A/B/C determinista (FASE 1.6): la resuelve el BACKEND
+        // (api/lead_validate.php → inc/abc.php::asignarVariante), nunca Math.random().
+        // Misma combinación lead+campaña → misma variante (recarga, reinicio, lote).
+        // Para rotación se conserva la variante anterior del lead (el motor de
+        // rotación gestiona la "siguiente"); en producción el backend recalcula
+        // asignarVariante() como fuente de verdad definitiva.
+        async lzVarianteParaEnvio(leadId, campaignId, esRotacion, varianteAnterior) {
+            if (esRotacion) {
+                return varianteAnterior || 'A';
+            }
+            try {
+                const res = await fetch(
+                    'api/lead_validate.php?lead_id=' + encodeURIComponent(leadId) +
+                    '&campaign_id=' + encodeURIComponent(campaignId),
+                    { signal: this.lzAbortController ? this.lzAbortController.signal : undefined }
+                );
+                const j = await res.json();
+                const v = (j && j.variante_ab) ? j.variante_ab : '';
+                if (v === 'A' || v === 'B' || v === 'C') { return v; }
+            } catch (e) { /* fallback: el backend recalcula en producción */ }
+            return 'A';
+        },
+
         // 🕒 Valor aleatorio del retardo (ms) dentro del rango configurado.
         lzRandomDelay() {
             const min = Math.max(1, parseInt(this.lzDelayMin) || 5);
@@ -2114,12 +2184,15 @@ var app = function() {
                         this.rsWaUrl = '';
                     }
                 }
-                // ─── Notificación de nuevas respuestas (FASE G) ─────────────
-                const totalNuevas = (this.respuestas || []).reduce((acc, c) => acc + (parseInt(c.nuevas) || 0), 0);
-                this.rsNuevas = totalNuevas;
-                if (totalNuevas > 0 && !sessionStorage.getItem('rs_toast_mostrado')) {
+                // ─── Notificación de nuevas respuestas (FASE G + FASE UX) ─────
+                // Badge GLOBAL y coherente: counts_triaje.no_leidas (conversaciones
+                // de bandeja con novedades humanas, sin rebotes/borradas). NO se
+                // suma solo la pestaña activa (eso inflaba/desajustaba el contador).
+                const noLeidas = (j && j.counts_triaje && j.counts_triaje.no_leidas) || 0;
+                this.rsNuevas = noLeidas;
+                if (noLeidas > 0 && !sessionStorage.getItem('rs_toast_mostrado')) {
                     sessionStorage.setItem('rs_toast_mostrado', '1');
-                    this.mostrarToast('🔔 ' + totalNuevas + ' nueva' + (totalNuevas === 1 ? '' : 's') + ' respuesta' + (totalNuevas === 1 ? '' : 's') + ' sin revisar');
+                    this.mostrarToast('🔔 ' + noLeidas + ' nueva' + (noLeidas === 1 ? '' : 's') + ' respuesta' + (noLeidas === 1 ? '' : 's') + ' sin revisar');
                 }
             } catch (e) { console.error('loadRespuestas:', e); }
         },
@@ -2228,10 +2301,18 @@ var app = function() {
             const mapa = {
                 PENDING: 'Pendiente',
                 POSITIVE: 'Positivo',
+                INTERESADO: 'Interesado',
+                SOLICITA_INFO: 'Solicita info',
+                SOLICITA_PRECIO: 'Solicita precio',
+                SOLICITA_MOCKUP: 'Solicita mockup',
+                NO_INTERESADO: 'No interesado',
                 NEGATIVE: 'Negativo',
                 NEUTRAL: 'Neutral',
                 UNSUBSCRIBE: 'Baja',
                 OOO: 'Fuera de oficina',
+                FUERA_DE_OFICINA: 'Fuera de oficina',
+                HARD_BOUNCE: 'Hard bounce',
+                OTRO: 'Otro',
             };
             return mapa[c] || c || '—';
         },
@@ -2241,7 +2322,7 @@ var app = function() {
             return mapa[clas] || clas || '—';
         },
         rsClasColor(clas) {
-            const mapa = { POSITIVE: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', NEGATIVE: 'text-rose-400 bg-rose-500/10 border-rose-500/30', UNSUBSCRIBE: 'text-amber-400 bg-amber-500/10 border-amber-500/30', OOO: 'text-sky-400 bg-sky-500/10 border-sky-500/30', NEUTRAL: 'text-slate-400 bg-slate-500/10 border-slate-500/30', PENDING: 'text-slate-400 bg-slate-500/10 border-slate-500/30' };
+            const mapa = { POSITIVE: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', INTERESADO: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', SOLICITA_INFO: 'text-sky-400 bg-sky-500/10 border-sky-500/30', SOLICITA_PRECIO: 'text-violet-400 bg-violet-500/10 border-violet-500/30', SOLICITA_MOCKUP: 'text-purple-400 bg-purple-500/10 border-purple-500/30', NO_INTERESADO: 'text-rose-400 bg-rose-500/10 border-rose-500/30', NEGATIVE: 'text-rose-400 bg-rose-500/10 border-rose-500/30', UNSUBSCRIBE: 'text-amber-400 bg-amber-500/10 border-amber-500/30', OOO: 'text-sky-400 bg-sky-500/10 border-sky-500/30', FUERA_DE_OFICINA: 'text-sky-400 bg-sky-500/10 border-sky-500/30', HARD_BOUNCE: 'text-rose-400 bg-rose-500/10 border-rose-500/30', OTRO: 'text-slate-400 bg-slate-500/10 border-slate-500/30', NEUTRAL: 'text-slate-400 bg-slate-500/10 border-slate-500/30', PENDING: 'text-slate-400 bg-slate-500/10 border-slate-500/30' };
             return mapa[clas] || 'text-slate-400 bg-slate-500/10 border-slate-500/30';
         },
         rsPrioLabel(p) {
@@ -2342,7 +2423,7 @@ var app = function() {
         get rsFiltradas() {
             const q = (this.rsBusqueda || '').trim().toLowerCase();
             const cl = this.rsFiltroClas;
-            return (this.respuestas || []).filter(c => {
+            const lista = (this.respuestas || []).filter(c => {
                 if (q && !String(c.nombre_club || '').toLowerCase().includes(q)) return false;
                 // Clasificación efectiva de la conversación: la del último mensaje
                 // (mismo criterio que rsIntencion), con fallback a nivel de conversación.
@@ -2359,6 +2440,25 @@ var app = function() {
                 }
                 return true;
             });
+            // ─── Orden de la lista (FASE UX): recepción | nombre cliente | estado ───
+            const ord = this.rsOrden || 'recepcion';
+            if (ord === 'nombre') {
+                lista.sort((a, b) => String(a.nombre_club || a.club || a.email || '').localeCompare(String(b.nombre_club || b.club || b.email || ''), 'es'));
+            } else if (ord === 'estado') {
+                lista.sort((a, b) => {
+                    const ea = String(a.estado_conversacion || a.estado_lead || '');
+                    const eb = String(b.estado_conversacion || b.estado_lead || '');
+                    return ea.localeCompare(eb) || (b.nuevas || 0) - (a.nuevas || 0);
+                });
+            } else {
+                // 'recepcion': más reciente primero.
+                lista.sort((a, b) => {
+                    const ta = new Date(a.ultima_fecha || a.fecha || a.fecha_respuesta || 0).getTime();
+                    const tb = new Date(b.ultima_fecha || b.fecha || b.fecha_respuesta || 0).getTime();
+                    return (tb - ta) || 0;
+                });
+            }
+            return lista;
         },
         // Selecciona una conversación en el panel derecho y construye el enlace WhatsApp.
         rsSeleccionar(conv) {
@@ -2374,8 +2474,41 @@ var app = function() {
             this.rsSenderEmail = conv.cuenta_emision || '';
             this.rsSenderName = conv.smtp_nombre_emisor || (this.rsSenderEmail ? this.rsSenderEmail.split('@')[0].replace(/\b\w/g, c => c.toUpperCase()) : '');
             this.rsSenderTitle = 'Atención a Clubes - FutProtec';
+            // FASE UX: al abrir la conversación se notifica al servidor que ya se vio
+            // (marcar_leido → notificado=1) y el badge deja de contarla.
+            this.rsMarcarLeido(conv);
             setTimeout(() => lucide.createIcons(), 50);
             this.rsSyncEditorHtml();
+        },
+        // Marca la conversación como leída en el servidor y sincroniza el badge.
+        async rsMarcarLeido(conv) {
+            if (!conv || (conv.nuevas || 0) <= 0) return;
+            const f = new FormData();
+            f.append('action', 'marcar_leido');
+            if (conv.lead_id) f.append('lead_id', conv.lead_id);
+            else if (conv.id) f.append('respuesta_id', conv.id);
+            try {
+                await fetch('?action=marcar_leido', { method: 'POST', body: f });
+                conv.nuevas = 0;
+                (conv.mensajes || []).forEach(m => { if (m.sentido !== 'saliente') m.notificado = 1; });
+                const u = await fetch('dashboard.php?action=get_unread_count');
+                const j = await u.json();
+                this.rsNuevas = parseInt(j.unread) || 0;
+            } catch (e) { console.error('rsMarcarLeido:', e); }
+        },
+        // Vacía la papelera (borrado definitivo de los correos en estado 'borrado').
+        async rsVaciarPapelera() {
+            if (!confirm('¿Vaciar papelera? Los correos borrados y sus adjuntos se eliminarán definitivamente.')) return;
+            const f = new FormData();
+            f.append('action', 'vaciar_papelera');
+            try {
+                const r = await fetch('?action=vaciar_papelera', { method: 'POST', body: f });
+                const j = await r.json();
+                if (j && j.ok) {
+                    this.rsSeleccion = null;
+                    this.loadRespuestas();
+                }
+            } catch (e) { console.error('rsVaciarPapelera:', e); }
         },
         // Construye el enlace dinámico de WhatsApp para el lead seleccionado.
         rsConstruirWaUrl(conv) {
@@ -2651,6 +2784,9 @@ var app = function() {
                 .replace(/\[\[[^\]]+\]\]/g, ''));
             f.append('formato', 'html'); // el editor produce HTML (negritas, listas...)
             f.append('envio_id', this.rsSeleccion.envio_id || '');
+            // FASE 2: encadenar el follow-up a la respuesta original (trazabilidad).
+            if (this.rsSeleccion.id) f.append('respuesta_id', this.rsSeleccion.id);
+            if (this.rsSeleccion.campaign_id) f.append('campaign_id', this.rsSeleccion.campaign_id);
             // Responder desde la misma cuenta SMTP con la que ya se comunicó el club.
             f.append('smtp_id', this.rsSmtpHeredada || 0);
             // Adjuntos seleccionados (archivos locales) → multipart/mixed.
@@ -3295,16 +3431,18 @@ function importadorCSV() {
     // action=importar_csv) re-lee el archivo y aplica el mismo mapeo.
     return {
         abierto: false,
+        dragging: false,
         archivo: null,
         delimitador: 'auto',
         conCabecera: true,
         headers: [],
         filasPreview: [],
         mapa: {},
-        campos: ['email', 'nombre_club', 'telefono_movil', 'telefono_fijo', 'persona_contacto', 'cargo_contacto', 'federacion'],
+        campos: ['email', 'nombre_club', 'telefono_movil', 'telefono_fijo', 'persona_contacto', 'cargo_contacto', 'federacion', 'direccion', 'cp', 'ciudad', 'provincia'],
         camposLabel: {
             email: 'Email', nombre_club: 'Nombre del club', telefono_movil: 'Teléfono móvil',
-            telefono_fijo: 'Teléfono fijo', persona_contacto: 'Persona de contacto', cargo_contacto: 'Cargo', federacion: 'Federación'
+            telefono_fijo: 'Teléfono fijo', persona_contacto: 'Persona de contacto', cargo_contacto: 'Cargo',
+            federacion: 'Federación', direccion: 'Dirección', cp: 'Código postal', ciudad: 'Ciudad', provincia: 'Provincia'
         },
         validarMx: true,
         ignorarDuplicados: true,
@@ -3320,8 +3458,7 @@ function importadorCSV() {
             this.abierto = true;
         },
         cerrar() { this.abierto = false; },
-        cargarArchivo(ev) {
-            const file = ev && ev.target ? ev.target.files[0] : null;
+        procesarArchivo(file) {
             if (!file) return;
             this.archivo = file;
             this.msg = ''; this.msgOk = false; this.resultado = null;
@@ -3330,6 +3467,22 @@ function importadorCSV() {
             reader.onload = (e) => this.parsear(String(e.target.result || ''));
             reader.onerror = () => { this.msg = 'No se pudo leer el archivo.'; this.msgOk = false; };
             reader.readAsText(file, 'UTF-8');
+        },
+        cargarArchivo(ev) {
+            const file = ev && ev.target ? ev.target.files[0] : null;
+            this.procesarArchivo(file);
+        },
+        soltarArchivo(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this.dragging = false;
+            const file = ev.dataTransfer && ev.dataTransfer.files ? ev.dataTransfer.files[0] : null;
+            if (!file) return;
+            if (!/\.(csv|txt)$/i.test(file.name)) {
+                this.msg = 'Arrastra un archivo .csv o .txt.'; this.msgOk = false;
+                return;
+            }
+            this.procesarArchivo(file);
         },
         parsear(texto) {
             const filas = this.csvParse(texto, this.delimitador);
@@ -3384,7 +3537,11 @@ function importadorCSV() {
                 telefono_fijo: ['telefono_fijo', 'fijo', 'telefono fijo'],
                 persona_contacto: ['persona_contacto', 'contacto', 'persona', 'nombre contacto', 'responsable', 'presidente'],
                 cargo_contacto: ['cargo_contacto', 'cargo', 'puesto'],
-                federacion: ['federacion', 'fed', 'federación', 'ff', 'rffm', 'rfef']
+                federacion: ['federacion', 'fed', 'federación', 'ff', 'rffm', 'rfef'],
+                direccion: ['direccion', 'dirección', 'domicilio', 'address'],
+                cp: ['cp', 'codigo postal', 'codigo_postal', 'código postal', 'c.p.', 'zip'],
+                ciudad: ['ciudad', 'poblacion', 'localidad', 'municipio'],
+                provincia: ['provincia', 'region', 'prov']
             };
             headers.forEach((h, i) => {
                 const hl = String(h).toLowerCase().replace(/[\s_\-]+/g, ' ');

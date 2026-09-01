@@ -75,14 +75,22 @@ try {
         // Registrar apertura como evento sin cambiar estado Kanban (V4.3: apertura = evento, no estado)
         $club = $db->querySingle("SELECT id, estado_lead FROM clubes_crm WHERE LOWER(email) = LOWER('" . $db->escapeString($email) . "') LIMIT 1", true);
         if ($club) {
-            $ts = date('d/m H:i');
-            $nuevaObs = "[TRACKING {$ts}] Email abierto (tracking: {$trackingId})";
-            $obsExistente = $db->querySingle("SELECT observaciones FROM clubes_crm WHERE id = {$club['id']}");
-            $obsMerge = $obsExistente ? $obsExistente . "\n" . $nuevaObs : $nuevaObs;
-            $stmtUpd = $db->prepare("UPDATE clubes_crm SET observaciones = :obs, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
-            $stmtUpd->bindValue(':obs', $obsMerge, SQLITE3_TEXT);
-            $stmtUpd->bindValue(':id', $club['id'], SQLITE3_INTEGER);
-            $stmtUpd->execute();
+            // FASE 3: NO acumular una línea de observación por cada carga del píxel.
+            // Solo se añade la primera apertura de cada tracking_id; las reaperturas
+            // solo actualizan ultimo_contacto (el detalle vive en `aperturas`).
+            $obsExistente = (string)$db->querySingle("SELECT observaciones FROM clubes_crm WHERE id = {$club['id']}");
+            $tokenObs = "(tracking: {$trackingId})";
+            if (!str_contains($obsExistente, $tokenObs)) {
+                $ts = date('d/m H:i');
+                $nuevaObs = "[TRACKING {$ts}] Email abierto (tracking: {$trackingId})";
+                $obsMerge = $obsExistente !== '' ? $obsExistente . "\n" . $nuevaObs : $nuevaObs;
+                $stmtUpd = $db->prepare("UPDATE clubes_crm SET observaciones = :obs, ultimo_contacto = CURRENT_TIMESTAMP WHERE id = :id");
+                $stmtUpd->bindValue(':obs', $obsMerge, SQLITE3_TEXT);
+                $stmtUpd->bindValue(':id', $club['id'], SQLITE3_INTEGER);
+                $stmtUpd->execute();
+            } else {
+                $db->exec("UPDATE clubes_crm SET ultimo_contacto = CURRENT_TIMESTAMP WHERE id = {$club['id']}");
+            }
         }
     }
 

@@ -14,6 +14,18 @@ declare(strict_types=1);
 require_once __DIR__ . '/../inc/eligibilidad.php';
 require_once __DIR__ . '/../inc/lead_scoring.php';
 
+// Robustez (acceso directo al API sin el orquestador dashboard.php): se
+// inicializan $action y $db para evitar "Undefined variable" en la consola
+// cuando se navega a api/analytics.php... directamente desde el navegador.
+$action = $action ?? (string)($_GET['action'] ?? ($_POST['action'] ?? ''));
+if (!isset($db) || !$db instanceof SQLite3) {
+    require_once __DIR__ . '/../inc/metricas.php';
+    $db = new SQLite3(__DIR__ . '/../data/stats.db');
+    $db->enableExceptions(true);
+    $db->exec('PRAGMA journal_mode=WAL');
+    $db->exec('PRAGMA busy_timeout=5000');
+}
+
 /**
  * limpiarCuerpoMime — Extrae el texto plano legible de un cuerpo de correo.
  * Los runners IMAP guardan en `respuestas.cuerpo` el MIME crudo (multi-part,
@@ -1116,7 +1128,9 @@ if ($action === 'get_respuestas') {
             $r['adjuntos'] = $adjuntosMsg;
             $conversaciones[$idx]['mensajes'][] = $r;
 
-            if ((int)($r['notificado'] ?? 0) === 0) {
+            // FASE UX: los rebotes (NDR) NO cuentan como "nuevas" del club;
+            // van a su carpeta aparte y no deben inflar el badge ni el toast.
+            if ((int)($r['notificado'] ?? 0) === 0 && (int)($r['es_rebote'] ?? 0) === 0) {
                 $conversaciones[$idx]['nuevas']++;
             }
 
@@ -1198,16 +1212,22 @@ if ($action === 'get_respuestas') {
         // estados: requiere_respuesta | rebotes | archivados | borrados | todos
         // Conteos descriptivos para las pestañas del triaje (sobre TODAS las
         // conversaciones, antes de aplicar el filtro de estado).
-        $countsTriaje = ['requiere_respuesta' => 0, 'en_espera' => 0, 'archivados' => 0, 'total' => 0];
+        $countsTriaje = ['requiere_respuesta' => 0, 'en_espera' => 0, 'archivados' => 0, 'rebotes' => 0, 'borrados' => 0, 'no_leidas' => 0, 'total' => 0];
         foreach ($conversaciones as $cCount) {
             $mC = $cCount['mensajes'][0] ?? null;
             $estC = strtolower((string)($mC['estado_conversacion'] ?? ''));
             $rebC = (int)($mC['es_rebote'] ?? 0);
-            if ($rebC === 1 || $estC === 'borrado') continue;
+            // Carpetas aparte (estilo gestor de correo): solo la papelera queda
+            // fuera de "Todos". Los rebotes SÍ se ven en "Todos" (todo excepto
+            // papelera) pero además tienen su propia carpeta con contador.
+            if ($estC === 'borrado') { $countsTriaje['borrados']++; continue; }
+            if ($rebC === 1) { $countsTriaje['rebotes']++; $countsTriaje['total']++; continue; }
             $countsTriaje['total']++;
             if ($estC === 'en_espera') $countsTriaje['en_espera']++;
             elseif ($estC === 'archivado') $countsTriaje['archivados']++;
             else $countsTriaje['requiere_respuesta']++;
+            // No leídas (badge): conversaciones de bandeja con novedades humanas.
+            if ((int)($cCount['nuevas'] ?? 0) > 0) $countsTriaje['no_leidas']++;
         }
 
         $filtroEstadoConv = trim($_GET['estado'] ?? '');
@@ -1230,7 +1250,9 @@ if ($action === 'get_respuestas') {
                     case 'borrados':
                         return $est === 'borrado';
                     case 'todos':
-                        return true;
+                        // "Todos" = todas las conversaciones EXCEPTO la papelera
+                        // (incluye rebotes y archivados), como en un gestor normal.
+                        return $est !== 'borrado';
                     default:
                         // 'todo' por defecto: excluye borrado y rebotes.
                         return $est !== 'borrado' && $reb === 0;
@@ -1331,14 +1353,60 @@ if ($action === 'get_respuesta') {
     exit;
 }
 
-// ─── clasificar_respuesta ────────────────────────────────────────────────────
+// ─── clasificar_respuesta (FASE 4: set rápido + intención + auto-oportunidad) ─
 if ($action === 'clasificar_respuesta') {
     header('Content-Type: application/json');
     $id = (int)($_POST['id'] ?? 0);
     $clasif = strtoupper(trim($_POST['clasificacion'] ?? ''));
     if ($id <= 0) { echo json_encode(['ok' => false, 'error' => 'id requerido']); exit; }
-    $res = clasificarRespuesta($db, $id, $clasif);
+    $intencion = trim((string)($_POST['intencion'] ?? ''));
+    $proxima   = trim((string)($_POST['proxima_accion'] ?? ''));
+    $res = clasificarRespuestaCompleta($db, $id, $clasif, $intencion !== '' ? $intencion : null, $proxima !== '' ? $proxima : null);
     echo json_encode($res);
+    exit;
+}
+
+// ─── crear_oportunidad (FASE 4.2) ───────────────────────────────────────────
+if ($action === 'crear_oportunidad') {
+    header('Content-Type: application/json');
+    $rid = (int)($_POST['respuesta_id'] ?? 0);
+    if ($rid <= 0) { echo json_encode(['ok' => false, 'error' => 'respuesta_id requerido']); exit; }
+    echo json_encode(crearOportunidadDesdeRespuesta($db, $rid));
+    exit;
+}
+
+// ─── marcar_leido (FASE UX: al abrir la conversación, avisar al servidor) ───
+// Marca como leídas (notificado=1) las respuestas de la conversación abierta,
+// para que el badge de notificaciones y el toast reconozcan que ya se vio.
+if ($action === 'marcar_leido') {
+    header('Content-Type: application/json');
+    $id     = (int)($_POST['respuesta_id'] ?? 0);
+    $leadId = (int)($_POST['lead_id'] ?? 0);
+    if ($id <= 0 && $leadId <= 0) {
+        echo json_encode(['ok' => false, 'error' => 'respuesta_id o lead_id requerido']);
+        exit;
+    }
+    if ($leadId > 0) {
+        $db->exec("UPDATE respuestas SET notificado = 1 WHERE lead_id = {$leadId} AND notificado = 0");
+    } elseif ($id > 0) {
+        $db->exec("UPDATE respuestas SET notificado = 1 WHERE id = {$id} AND notificado = 0");
+    }
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+// ─── vaciar_papelera (FASE UX: borrado definitivo de la papelera) ───────────
+if ($action === 'vaciar_papelera') {
+    header('Content-Type: application/json');
+    $ids = [];
+    $res = $db->query("SELECT id FROM respuestas WHERE estado_conversacion = 'borrado'");
+    if ($res) { while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $ids[] = (int)$r['id']; } }
+    if (!empty($ids)) {
+        $in = implode(',', $ids);
+        $db->exec("DELETE FROM respuestas_adjuntos WHERE respuesta_id IN ({$in})");
+        $db->exec("DELETE FROM respuestas WHERE id IN ({$in})");
+    }
+    echo json_encode(['ok' => true, 'eliminadas' => count($ids)]);
     exit;
 }
 
@@ -1375,10 +1443,15 @@ if ($action === 'get_unread_count') {
     // get_respuestas. Antes se usaba sqlFiltroComercial('r') que generaba
     // `COALESCE(r.es_test,0)=0` → error SQL → el polling devolvía 0 y la campana
     // no se actualizaba hasta abrir la tab Respuestas.
+    // FASE UX: el badge cuenta SOLO respuestas humanas sin revisar (NO rebotes,
+    // que van a su carpeta aparte, y NO borradas/archivadas). Coherente con la
+    // bandeja: antes contaba los NDR como "mails nuevos" (badge inflado).
     $sqlNotif = "SELECT COUNT(*) as total
                  FROM respuestas r
                  LEFT JOIN envios e ON e.id = r.envio_id
                  WHERE r.notificado = 0
+                   AND COALESCE(r.es_rebote, 0) = 0
+                   AND COALESCE(r.estado_conversacion, '') NOT IN ('borrado', 'archivado')
                    AND (r.envio_id IS NULL OR COALESCE(e.es_test, 0) = 0)";
     $stmtNotif = $db->prepare($sqlNotif);
     $resNotif = $stmtNotif->execute();
@@ -1626,6 +1699,134 @@ if ($action === 'get_analytics') {
         $data = array_merge($data, getAnalyticsDashboard($db, $pipeline, $variante, $excluirTest));
     }
     echo json_encode($data);
+    exit;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// get_analytics_federaciones — CUADRO DE MANDO DE MARKETING POR FEDERACIÓN
+// Filtros: desde, hasta (YYYY-MM-DD), campaign_id, federacion. Solo REALES.
+// ═════════════════════════════════════════════════════════════════════════════
+if ($action === 'get_analytics_federaciones') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $desde = trim((string)($_GET['desde'] ?? ''));
+    $hasta = trim((string)($_GET['hasta'] ?? ''));
+    $cid   = (int)($_GET['campaign_id'] ?? 0);
+    $fed   = trim((string)($_GET['federacion'] ?? ''));
+
+    $where  = "COALESCE(e.es_test,0) = 0";
+    $params = [];
+    if ($desde !== '') { $where .= " AND date(e.fecha_envio) >= :desde"; $params[':desde'] = $desde; }
+    if ($hasta !== '') { $where .= " AND date(e.fecha_envio) <= :hasta"; $params[':hasta'] = $hasta; }
+    if ($cid > 0)      { $where .= " AND e.campaign_id = :cid";          $params[':cid']   = (int)$cid; }
+    if ($fed !== '')   { $where .= " AND e.federacion = :fed";           $params[':fed']   = $fed; }
+
+    $ejecutar = function (SQLite3 $db, string $sql, array $params): array {
+        $stmt = $db->prepare($sql);
+        foreach ($params as $k => $v) {
+            $stmt->bindValue($k, $v, is_int($v) ? SQLITE3_INTEGER : SQLITE3_TEXT);
+        }
+        $rows = [];
+        $res = $stmt->execute();
+        while ($r = $res->fetchArray(SQLITE3_ASSOC)) { $rows[] = $r; }
+        return $rows;
+    };
+
+    // 1) Envíos, aceptados y errores por federación
+    $feds = [];
+    foreach ($ejecutar($db,
+        "SELECT COALESCE(e.federacion,'(sin federación)') AS fed,
+                COUNT(*) AS envios,
+                SUM(CASE WHEN e.resultado_envio='ACCEPTED' OR e.estado IN ('enviado','abierto') THEN 1 ELSE 0 END) AS aceptados,
+                SUM(CASE WHEN e.estado='error' THEN 1 ELSE 0 END) AS errores
+         FROM envios e WHERE {$where} GROUP BY fed", $params) as $r) {
+        $r['aperturas_dedup']=0; $r['clics']=0; $r['respuestas']=0;
+        $r['positivas']=0; $r['negativas']=0; $r['bounces']=0;
+        $feds[$r['fed']] = $r;
+    }
+
+    // 2) Aperturas dedup por federación (píxel; COUNT DISTINCT tracking_id)
+    foreach ($ejecutar($db,
+        "SELECT COALESCE(e.federacion,'(sin federación)') AS fed, COUNT(DISTINCT a.tracking_id) AS ap
+         FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id
+         WHERE {$where} GROUP BY fed", $params) as $r) {
+        if (isset($feds[$r['fed']])) $feds[$r['fed']]['aperturas_dedup'] = (int)$r['ap'];
+    }
+
+    // 3) Clics por federación
+    foreach ($ejecutar($db,
+        "SELECT COALESCE(e.federacion,'(sin federación)') AS fed, COUNT(DISTINCT c.id) AS cl
+         FROM clics c JOIN envios e ON c.envio_id = e.id
+         WHERE {$where} GROUP BY fed", $params) as $r) {
+        if (isset($feds[$r['fed']])) $feds[$r['fed']]['clics'] = (int)$r['cl'];
+    }
+
+    // 4) Respuestas / positivas / negativas / rebotes por federación
+    foreach ($ejecutar($db,
+        "SELECT COALESCE(e.federacion,'(sin federación)') AS fed,
+                COUNT(*) AS resp,
+                SUM(CASE WHEN LOWER(r.clasificacion) IN ('positive','positiva') THEN 1 ELSE 0 END) AS pos,
+                SUM(CASE WHEN LOWER(r.clasificacion) IN ('negative','negativa') THEN 1 ELSE 0 END) AS neg,
+                SUM(CASE WHEN COALESCE(r.es_rebote,0)=1 OR LOWER(r.clasificacion) LIKE '%rebot%' THEN 1 ELSE 0 END) AS reb
+         FROM respuestas r JOIN envios e ON e.id = r.envio_id
+         WHERE {$where} GROUP BY fed", $params) as $r) {
+        if (isset($feds[$r['fed']])) {
+            $feds[$r['fed']]['respuestas'] = (int)$r['resp'];
+            $feds[$r['fed']]['positivas']  = (int)$r['pos'];
+            $feds[$r['fed']]['negativas']  = (int)$r['neg'];
+            $feds[$r['fed']]['bounces']    = (int)$r['reb'];
+        }
+    }
+
+    // Tasas + distribución %
+    $totalEnvios = array_sum(array_map(fn($x) => (int)$x['envios'], $feds));
+    $porFed = [];
+    foreach ($feds as $fed => $d) {
+        $acc = max(1, (int)$d['aceptados']);
+        $d['open_rate']     = round((int)$d['aperturas_dedup'] / $acc * 100, 1);
+        $d['bounce_rate']   = round((int)$d['bounces'] / $acc * 100, 1);
+        $d['reply_rate']    = round((int)$d['respuestas'] / $acc * 100, 1);
+        $d['positive_rate'] = round((int)$d['positivas'] / $acc * 100, 1);
+        $d['pct_envios']    = $totalEnvios > 0 ? round((int)$d['envios'] / $totalEnvios * 100, 1) : 0;
+        $porFed[] = $d;
+    }
+    usort($porFed, fn($a, $b) => (int)$b['envios'] <=> (int)$a['envios']);
+
+    // 5) Serie temporal (envíos/aceptados/aperturas por día)
+    $sMap = [];
+    foreach ($ejecutar($db,
+        "SELECT date(e.fecha_envio) AS d, COUNT(*) AS env,
+                SUM(CASE WHEN e.resultado_envio='ACCEPTED' OR e.estado IN ('enviado','abierto') THEN 1 ELSE 0 END) AS acc
+         FROM envios e WHERE {$where} GROUP BY d ORDER BY d", $params) as $r) {
+        $sMap[$r['d']] = ['fecha' => $r['d'], 'envios' => (int)$r['env'], 'aceptados' => (int)$r['acc'], 'aperturas' => 0];
+    }
+    foreach ($ejecutar($db,
+        "SELECT date(e.fecha_envio) AS d, COUNT(DISTINCT a.tracking_id) AS ap
+         FROM aperturas a JOIN envios e ON a.tracking_id = e.tracking_id
+         WHERE {$where} GROUP BY d ORDER BY d", $params) as $r) {
+        if (isset($sMap[$r['d']])) $sMap[$r['d']]['aperturas'] = (int)$r['ap'];
+    }
+    $serie = array_values($sMap);
+
+    // Resumen global
+    $R = ['envios'=>0,'aceptados'=>0,'errores'=>0,'aperturas_dedup'=>0,'clics'=>0,
+          'respuestas'=>0,'positivas'=>0,'negativas'=>0,'bounces'=>0];
+    foreach ($porFed as $f) {
+        foreach (array_keys($R) as $k) $R[$k] += (int)$f[$k];
+    }
+    $accG = max(1, (int)$R['aceptados']);
+    $R['open_rate']     = round((int)$R['aperturas_dedup'] / $accG * 100, 1);
+    $R['bounce_rate']   = round((int)$R['bounces'] / $accG * 100, 1);
+    $R['reply_rate']    = round((int)$R['respuestas'] / $accG * 100, 1);
+    $R['positive_rate'] = round((int)$R['positivas'] / $accG * 100, 1);
+
+    echo json_encode([
+        'ok' => true,
+        'filtros' => ['desde' => $desde, 'hasta' => $hasta, 'campaign_id' => $cid, 'federacion' => $fed],
+        'resumen' => $R,
+        'por_federacion' => $porFed,
+        'serie' => $serie,
+    ]);
     exit;
 }
 

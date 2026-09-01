@@ -20,6 +20,7 @@ if (!file_exists($DB_PATH)) {
     http_response_code(500);
     exit;
 }
+require_once __DIR__ . '/../inc/adjuntos.php';
 $db = new SQLite3($DB_PATH);
 $db->enableExceptions(true);
 
@@ -36,7 +37,7 @@ if ($id <= 0) {
 $tipo = (string)($_GET['tipo'] ?? 'respuesta');
 $tabla = ($tipo === 'envio') ? 'envios_adjuntos' : (($tipo === 'repo') ? 'adjuntos_repo' : 'respuestas_adjuntos');
 $row = $db->querySingle(
-    "SELECT nombre, mime, tamano, datos FROM {$tabla} WHERE id = {$id}",
+    "SELECT nombre, mime, tamano, datos, ruta FROM {$tabla} WHERE id = {$id}",
     true
 );
 if (!$row) {
@@ -47,7 +48,20 @@ if (!$row) {
 
 $nombre = (string)($row['nombre'] ?? 'adjunto');
 $mime   = (string)($row['mime'] ?? 'application/octet-stream');
-$datos  = (string)($row['datos'] ?? '');
+
+// Lectura dual (FASE ADJUNTOS): si hay ruta en disco se sirve el archivo; si no
+// (registro legacy), se sirve el BLOB `datos` guardado en la BD.
+$ruta = (string)($row['ruta'] ?? '');
+$datos = '';
+if ($ruta !== '') {
+    $abs = futprotec_ruta_adjunto($ruta);
+    if ($abs !== null && is_file($abs)) {
+        $datos = (string)@file_get_contents($abs);
+    }
+}
+if ($datos === '' && ($row['datos'] ?? '') !== '') {
+    $datos = (string)$row['datos'];
+}
 
 // Anti-caché (los adjuntos pueden cambiar si se re-importan).
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');

@@ -32,6 +32,7 @@ $db->exec('PRAGMA busy_timeout=5000');
 require_once __DIR__ . '/../inc/eligibilidad.php';
 require_once __DIR__ . '/../inc/mime.php';
 require_once __DIR__ . '/../inc/pdf.php';
+require_once __DIR__ . '/../inc/adjuntos.php';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FUNCIÓN: Escribir log de envío en archivo
@@ -362,7 +363,10 @@ try {
         $idPlantilla,
         $idSmtp,
         $modoTest ? 1 : 0,
-        $esRotacion
+        $esRotacion,
+        // FASE 2: encadenar el follow-up al envío/respuesta original (si procede).
+        (int)($_POST['parent_envio_id'] ?? 0) > 0 ? (int)$_POST['parent_envio_id'] : null,
+        (int)($_POST['respuesta_origen_id'] ?? 0) > 0 ? (int)$_POST['respuesta_origen_id'] : null
     );
 
 
@@ -452,6 +456,24 @@ try {
         }
     }
 
+    // ─── 7.2 Adjuntos predeterminados de la plantilla (editor → repositorio) ──
+    $stmtPA = $db->prepare(
+        "SELECT ar.id, ar.nombre, ar.mime, ar.tamano, ar.datos
+         FROM plantillas_adjuntos pa JOIN adjuntos_repo ar ON ar.id = pa.adjunto_repo_id
+         WHERE pa.plantilla_id = :pid AND pa.activo = 1 ORDER BY pa.orden ASC"
+    );
+    $stmtPA->bindValue(':pid', $idPlantilla, SQLITE3_INTEGER);
+    $resPA = $stmtPA->execute();
+    while ($pa = $resPA->fetchArray(SQLITE3_ASSOC)) {
+        $contenidoAdj = (string)($pa['datos'] ?? '');
+        if ($contenidoAdj === '') continue;
+        $adjuntos[] = [
+            'nombre'    => (string)$pa['nombre'],
+            'mime'      => (string)($pa['mime'] ?: 'application/octet-stream'),
+            'contenido' => $contenidoAdj,
+        ];
+    }
+
     $resultado = enviarSMTPAutenticado(
         $cuenta,
         $emailDestino,
@@ -483,14 +505,17 @@ try {
     // aparezcan como chips 📎 descargables en el hilo de la Bandeja y en la
     // charla del modal (tabla envios_adjuntos, consultada por get_respuestas).
     if (!empty($adjuntos) && (int)$envioRow['id'] > 0) {
-        $stmtAdj = $db->prepare('INSERT INTO envios_adjuntos (envio_id, nombre, mime, tamano, datos) VALUES (:e, :n, :m, :t, :d)');
+        $clubIdAdj = (int)($club['id'] ?? 0);
         foreach ($adjuntos as $adj) {
             $bin = (string)($adj['contenido'] ?? '');
+            $rutaA = futprotec_guardar_adjunto($clubIdAdj, 'enviados', (string)($adj['nombre'] ?? 'adjunto'), $bin);
+            $stmtAdj = $db->prepare('INSERT INTO envios_adjuntos (envio_id, nombre, mime, tamano, datos, ruta) VALUES (:e, :n, :m, :t, :d, :r)');
             $stmtAdj->bindValue(':e', (int)$envioRow['id'], SQLITE3_INTEGER);
             $stmtAdj->bindValue(':n', (string)($adj['nombre'] ?? 'adjunto'), SQLITE3_TEXT);
             $stmtAdj->bindValue(':m', (string)($adj['mime'] ?? 'application/octet-stream'), SQLITE3_TEXT);
             $stmtAdj->bindValue(':t', strlen($bin), SQLITE3_INTEGER);
             $stmtAdj->bindValue(':d', $bin, SQLITE3_BLOB);
+            $stmtAdj->bindValue(':r', $rutaA, SQLITE3_TEXT);
             $stmtAdj->execute();
         }
     }
