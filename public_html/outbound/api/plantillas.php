@@ -32,7 +32,22 @@ if ($action === 'save_template') {
             exit;
         }
         if ($id > 0) {
-            $stmt = $db->prepare("UPDATE plantillas SET nombre=:n, categoria=:c, asunto=:a, cuerpo=:b, tipo=:t, asunto_b=:ab, asunto_c=:ac, cuerpo_b=:cb, cuerpo_c=:cc, test_ab=:ta WHERE id=:id");
+            // T-3 (2026-09-02) plantillas VERSIONADAS: si la plantilla ya se usó en
+            // envíos (histórico), NO se sobrescribe: se crea una copia con el nuevo
+            // contenido y se devuelve su id (la original queda inmutable para los
+            // envíos ya registrados; se desactiva para no ofrecerse en nuevos envíos).
+            $usos = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE plantilla_id = {$id}")
+                  + (int)$db->querySingle("SELECT COUNT(*) FROM comunicaciones_log WHERE plantilla_id = {$id}");
+            if ($usos > 0) {
+                $idOriginal = $id;
+                $db->exec("INSERT INTO plantillas (nombre, categoria, asunto, cuerpo, tipo, asunto_b, asunto_c, cuerpo_b, cuerpo_c, test_ab, activo, fecha_creacion)
+                           SELECT nombre, categoria, asunto, cuerpo, tipo, asunto_b, asunto_c, cuerpo_b, cuerpo_c, test_ab, 0, CURRENT_TIMESTAMP
+                           FROM plantillas WHERE id = {$idOriginal}");
+                $id = (int)$db->lastInsertRowID();
+                // La ORIGINAL se desactiva (queda inmutable y fuera de nuevos envíos).
+                $db->exec("UPDATE plantillas SET activo = 0 WHERE id = {$idOriginal}");
+            }
+            $stmt = $db->prepare("UPDATE plantillas SET nombre=:n, categoria=:c, asunto=:a, cuerpo=:b, tipo=:t, asunto_b=:ab, asunto_c=:ac, cuerpo_b=:cb, cuerpo_c=:cc, test_ab=:ta, activo=1 WHERE id=:id");
             $stmt->bindValue(':n', $nombre, SQLITE3_TEXT);
             $stmt->bindValue(':c', $categoria, SQLITE3_TEXT);
             $stmt->bindValue(':a', $asunto, SQLITE3_TEXT);
@@ -45,7 +60,7 @@ if ($action === 'save_template') {
             $stmt->bindValue(':ta', $test_ab, SQLITE3_INTEGER);
             $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
             $stmt->execute();
-            echo json_encode(['ok' => true, 'id' => $id]);
+            echo json_encode(['ok' => true, 'id' => $id, 'versionada' => ($usos > 0)]);
         } else {
             $stmt = $db->prepare("INSERT INTO plantillas (nombre, categoria, asunto, cuerpo, tipo, asunto_b, asunto_c, cuerpo_b, cuerpo_c, test_ab, fecha_creacion) VALUES (:n, :c, :a, :b, :t, :ab, :ac, :cb, :cc, :ta, CURRENT_TIMESTAMP)");
             $stmt->bindValue(':n', $nombre, SQLITE3_TEXT);
@@ -73,6 +88,13 @@ if ($action === 'delete_template') {
     try {
         $id = (int)($_POST['id'] ?? 0);
         if ($id <= 0) { echo json_encode(['ok' => false, 'error' => 'ID requerido']); exit; }
+        // T-3: no permitir borrar plantillas ya utilizadas en envíos (integridad histórica).
+        $usos = (int)$db->querySingle("SELECT COUNT(*) FROM envios WHERE plantilla_id = {$id}")
+              + (int)$db->querySingle("SELECT COUNT(*) FROM comunicaciones_log WHERE plantilla_id = {$id}");
+        if ($usos > 0) {
+            echo json_encode(['ok' => false, 'error' => 'Esta plantilla ya se usó en envíos: no se puede borrar (se puede desactivar o crear una copia).', 'razon' => 'PLANTILLA_USADA']);
+            exit;
+        }
         $db->exec("DELETE FROM plantillas WHERE id = {$id}");
         echo json_encode(['ok' => true]);
     } catch (\Exception $e) { echo json_encode(['ok' => false, 'error' => $e->getMessage()]); }

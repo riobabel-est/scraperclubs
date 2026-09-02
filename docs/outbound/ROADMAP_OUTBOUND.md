@@ -70,7 +70,7 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 |---|---|---|
 | **T-1** | Dividir monolitos: `inc/imap_respuestas.php`, `api/leads.php`, `cli/init_db.php` | No bloquea; ventanas de calma |
 | **T-2** | Prepared statements en endpoints de escritura | ✅ Verificado 2026-09-02: patrón prepared + whitelist de campos + casts `(int)`; sin interpolación cruda de `$_GET/$_POST` en SQL de escritura (auditoría por patrones). |
-| **T-3** | Plantillas versionadas inmutables | ⏸️ En curso/planificado: evitar sobrescribir plantillas ya enviadas. |
+| **T-3** | Plantillas versionadas inmutables | ✅ Hecho 2026-09-02 (`api/plantillas.php`): si una plantilla ya se usó en envíos, al editarla se **crea una copia nueva** (original inmutable y desactivada; respuesta `versionada:true`); **borrado bloqueado** en plantillas usadas (`PLANTILLA_USADA`). Validado end-to-end. |
 | **T-4** | Índices y saneamiento de esquema | ✅ Hecho 2026-09-02 · nuevo `cli/optimizar_esquema.php` (idempotente: 6 índices `respuestas` + 3 `rebotes`, ANALYZE, integridad) · reflejado en `cli/init_db.php` y `scripts/preparar_bd_deploy.py` · aplicado a BD local/deploy (9 índices, integrity ok, FK 0) |
 | **T-5** | Histórico de estados Kanban **por campaña** | ✅ Hecho 2026-09-02 · nueva tabla `lead_estado_hist` (lead/campaña/estado_anterior/nuevo/origen/fecha) registrada en `api/leads.php update_lead` · esquema en `optimizar_esquema.php`, `init_db.php`, `preparar_bd_deploy.py` · validado |
 | **T-6** | Limpiar docs legacy de pendientes | Este documento la resuelve |
