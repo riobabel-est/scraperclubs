@@ -62,7 +62,7 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 | ID | Ítem | Nota |
 |---|---|---|
 | **E-3** | Deliverability: verificación SPF/DKIM/DMARC por dominio + warmup de cuentas | 🔍 **Auditoría hecha** (2026-09-02) `getfutprotec.com`: SPF ✅ (`+a +mx include:dnssmarthost ~all`) · DKIM ✅ (CNAME SiteGround autodns + selector google) · **DMARC ⚠️ `p=none`** → recomendado subir a `p=quarantine` en DNS cuando esté estable (acción del usuario, no código). Warmup sin implementar. |
-| **E-4** | Gestión de rebotes **soft** + supresión automática | Hard ✅ hecho; soft/automático pendiente |
+| **E-4** | Gestión de rebotes **soft** + supresión automática | Hard ✅ hecho · 🔍 Auditoría 2026-09-02: **22 rebotes en BD, todos 5xx (hard); 0 soft actuales** → implementar gestión soft es **opcional/no urgente** (prioridad baja). Cuando existan, clasificar `smtp_code 4xx` como soft y solo suprimir tras N (p. ej. 3) en el mismo periodo. |
 | **E-5** | ~~Rotar contraseñas SMTP en producción~~ | ✅ **Descartado por decisión del usuario** (2026-09-02): ya está todo OK. No rotar. El CLI `cli/rotar_password_smtp.php` queda disponible por si algún día se necesita. |
 
 ### Prioridad 2 — Deuda técnica

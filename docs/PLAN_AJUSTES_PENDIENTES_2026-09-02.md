@@ -66,8 +66,8 @@
 - **O-2** Vínculos cruzados entre tabs (ficha → Pipeline/Seguimiento; Analytics → acción).
 
 ### Prioridad 1 — Entregabilidad / seguridad
-- **E-3** Verificación SPF/DKIM/DMARC por dominio + warmup de cuentas.
-- **E-4** Gestión de rebotes **soft** + supresión automática (hard ✅ hecho).
+- **E-3** SPF/DKIM/DMARC: ✅ **auditoría hecha** (2026-09-02) → SPF ✅, DKIM ✅ (SiteGround), **DMARC `p=none`** (acción de DNS del usuario: subir a `p=quarantine`). Warmup sin implementar (opcional).
+- **E-4** Rebotes: hard ✅; 🔍 auditoría 2026-09-02 → **0 soft bounces actuales** (22 rebotes, todos 5xx). Gestión soft = opcional/baja prioridad.
 - **E-5** ~~Rotar contraseñas SMTP~~ → ✅ **Descartado por decisión del usuario** (2026-09-02): ya está todo OK. El CLI `cli/rotar_password_smtp.php` (cifra FP1, `--dry-run`) queda disponible por si se necesita en el futuro.
 
 ### Prioridad 2 — Deuda técnica
