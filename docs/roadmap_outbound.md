@@ -63,7 +63,7 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 |---|---|---|
 | **E-3** | Deliverability: verificación SPF/DKIM/DMARC por dominio + warmup de cuentas | Propuesto; sin implementar |
 | **E-4** | Gestión de rebotes **soft** + supresión automática | Hard ✅ hecho; soft/automático pendiente |
-| **E-5** | **Rotar contraseñas SMTP en producción** (estuvieron en historial git) | ⏸️ Pendiente de **ejecución del usuario**: generar nuevas passwords en SiteGround (Site Tools → Email → Mailboxes) y ejecutar `php cli/rotar_password_smtp.php --email=... --pass=...` (nuevo CLI, cifra FP1). Ver `docs/PLAN_AJUSTES_PENDIENTES_2026-09-02.md` §3 E-5. |
+| **E-5** | ~~Rotar contraseñas SMTP en producción~~ | ✅ **Descartado por decisión del usuario** (2026-09-02): ya está todo OK. No rotar. El CLI `cli/rotar_password_smtp.php` queda disponible por si algún día se necesita. |
 
 ### Prioridad 2 — Deuda técnica
 | ID | Ítem | Nota |

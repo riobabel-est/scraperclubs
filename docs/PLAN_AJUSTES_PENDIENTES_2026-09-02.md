@@ -68,10 +68,7 @@
 ### Prioridad 1 — Entregabilidad / seguridad
 - **E-3** Verificación SPF/DKIM/DMARC por dominio + warmup de cuentas.
 - **E-4** Gestión de rebotes **soft** + supresión automática (hard ✅ hecho).
-- **E-5** **Rotar contraseñas SMTP** (⚠️ pendiente de ejecución por el usuario):
-  - Estado: estuvieron en historial git → rotar por seguridad.
-  - Preparado: `public_html/outbound/cli/rotar_password_smtp.php` (cifra FP1 con `inc/crypto.php`; incluye `--dry-run`). Verificado.
-  - **Pasos del usuario:** ① cambiar cada password en SiteGround (Site Tools → Email → Mailboxes); ② `php cli/rotar_password_smtp.php --email="cuenta@..." --pass="NUEVA"`; ③ subir la BD a producción (o ejecutar en servidor) con backup previo; ④ probar `test_smtp` desde Ajustes → SMTP.
+- **E-5** ~~Rotar contraseñas SMTP~~ → ✅ **Descartado por decisión del usuario** (2026-09-02): ya está todo OK. El CLI `cli/rotar_password_smtp.php` (cifra FP1, `--dry-run`) queda disponible por si se necesita en el futuro.
 
 ### Prioridad 2 — Deuda técnica
 - **T-1** Dividir monolitos (`inc/imap_respuestas.php` 2.100+ líneas, `api/leads.php`, `cli/init_db.php`).
