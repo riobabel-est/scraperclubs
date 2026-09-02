@@ -1172,6 +1172,28 @@ var app = function() {
             this.tab = 'seguimiento';
             setTimeout(() => { this.abrirAtencion(lead); }, 120);
         },
+        // ─── Vínculos cruzados entre tabs (O-2) ──────────────────────────────
+        // Desde la FICHA de un lead: saltar a Pipeline (con el club buscado),
+        // a Seguimiento (modal Atender) o a la Bandeja (su conversación).
+        irAPipelineLead(lead) {
+            if (!lead || !lead.id) return;
+            this.lm = false;                 // cerrar ficha
+            this.tab = 'kanban';             // ir al Pipeline
+            this.limpiarFiltros();           // quitar filtros previos
+            this.filtroActivo = '';
+            this.busqueda = String(lead.nombre_club || lead.nombre || lead.club || '').trim();
+        },
+        irASeguimientoLead(lead) {
+            if (!lead || !lead.id) return;
+            this.lm = false;
+            this.irAAtender(lead);           // tab='seguimiento' + modal Atender del lead
+        },
+        irABandejaLead(lead) {
+            if (!lead || !lead.id) return;
+            this.lm = false;
+            this.rsTabTriaje = 'requiere_respuesta';  // vista comercial limpia
+            this.abrirConversacionLead(lead.id);       // respuestas + selecciona conversación
+        },
         tipoAccionLabel(t) {
             return ({ responder_2toque: '🎯 2º toque', enviar_1toque: '🌱 1er toque', enviar_mockup: '🎨 Mockup', presentar_proforma: '🧾 Proforma', responder: '📥 Responder' }[t] || t);
         },

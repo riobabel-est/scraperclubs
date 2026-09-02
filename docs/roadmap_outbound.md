@@ -56,7 +56,7 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 ### Prioridad 0 — Operación comercial
 | ID | Ítem | Nota |
 |---|---|---|
-| **O-2** | Vínculos cruzados entre tabs (ficha → Pipeline/Seguimiento; Analytics → acción) | No hay botones de salto contextual entre tabs |
+| **O-2** | Vínculos cruzados entre tabs (ficha → Pipeline/Seguimiento; Analytics → acción) | ✅ Parcial 2026-09-02: desde la **Ficha** hay botones **Bandeja / Pipeline / Seguimiento** (`tabs/modals.php` + `app.js` → `irABandejaLead/irAPipelineLead/irASeguimientoLead`). **Pendiente:** Analytics → acción. |
 
 ### Prioridad 1 — Entregabilidad / seguridad
 | ID | Ítem | Nota |

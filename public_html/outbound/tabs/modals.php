@@ -5,7 +5,18 @@
 <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto m-4">
 <div class="sticky top-0 bg-slate-900 border-b border-slate-800 px-5 py-3 flex items-center justify-between rounded-t-2xl z-10">
 <h5 class="text-base font-bold text-slate-200" x-text="'Ficha: '+(ld.nombre_club||'')"></h5>
-<button @click="lm=false" class="text-slate-400 hover:text-slate-300"><i data-lucide="x" class="w-5 h-5"></i></button>
+<div class="flex items-center gap-1.5 flex-wrap justify-end">
+  <button @click="irABandejaLead(ld)" x-show="ld && ld.id" title="Abrir la conversación de este club en la Bandeja"
+    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm font-semibold transition bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25">
+    <i data-lucide="inbox" class="w-4 h-4"></i> Bandeja</button>
+  <button @click="irAPipelineLead(ld)" x-show="ld && ld.id" title="Ver este club en el Pipeline (Kanban)"
+    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm font-semibold transition bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25">
+    <i data-lucide="columns-3" class="w-4 h-4"></i> Pipeline</button>
+  <button @click="irASeguimientoLead(ld)" x-show="ld && ld.id" title="Abrir Seguimiento / modal Atender de este club"
+    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm font-semibold transition bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25">
+    <i data-lucide="trending-up" class="w-4 h-4"></i> Seguimiento</button>
+  <button @click="lm=false" class="text-slate-400 hover:text-slate-300"><i data-lucide="x" class="w-5 h-5"></i></button>
+</div>
 </div>
 <div class="p-5 space-y-4">
 
