@@ -2,7 +2,9 @@
 Configuración de las federaciones a scrapear.
 """
 
+import os
 import random
+from pathlib import Path
 
 # Federaciones en plataforma NOVA (NFG_Clubes + NFG_VerClub)
 # "tls_impersonate": True → federación que bloquea el TLS fingerprint de requests
@@ -45,7 +47,24 @@ EXPECTED_CLUBS = {
 }
 
 # ScraperAPI — proxy anti-bloqueo (plan gratuito: 5000 requests/mes)
-SCRAPERAPI_KEY = "449e1b617320ef57e493eee2adc12900"
+# FUENTE PRIMARIA: variable de entorno SCRAPERAPI_KEY o .env (no versionado).
+# Fallback por compatibilidad histórica (eliminar cuando no quede en uso).
+def _scraperapi_key_from_env(default: str) -> str:
+    val = os.environ.get("SCRAPERAPI_KEY", "").strip()
+    if val:
+        return val
+    env_file = Path(__file__).parent / ".env"
+    try:
+        if env_file.exists():
+            for linea in env_file.read_text(encoding="utf-8").splitlines():
+                linea = linea.strip()
+                if linea.startswith("SCRAPERAPI_KEY=") and not linea.startswith("#"):
+                    return linea.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return default
+
+SCRAPERAPI_KEY = _scraperapi_key_from_env("449e1b617320ef57e493eee2adc12900")
 
 # Configuración del scraper
 PAGE_SIZE = 10         # registros por página (reducido para ahorrar créditos ScraperAPI)
