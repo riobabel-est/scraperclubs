@@ -1217,9 +1217,9 @@ if ($action === 'get_respuestas') {
             $mC = $cCount['mensajes'][0] ?? null;
             $estC = strtolower((string)($mC['estado_conversacion'] ?? ''));
             $rebC = (int)($mC['es_rebote'] ?? 0);
-            // Carpetas aparte (estilo gestor de correo): solo la papelera queda
-            // fuera de "Todos". Los rebotes SÍ se ven en "Todos" (todo excepto
-            // papelera) pero además tienen su propia carpeta con contador.
+            // Carpetas aparte (estilo gestor de correo): papelera y rebotes quedan
+            // FUERA de "Todos". Los rebotes tienen su propia pestaña con contador
+            // para poder verificarlos sin ensuciar la bandeja comercial.
             if ($estC === 'borrado') { $countsTriaje['borrados']++; continue; }
             if ($rebC === 1) { $countsTriaje['rebotes']++; $countsTriaje['total']++; continue; }
             $countsTriaje['total']++;
@@ -1250,9 +1250,10 @@ if ($action === 'get_respuestas') {
                     case 'borrados':
                         return $est === 'borrado';
                     case 'todos':
-                        // "Todos" = todas las conversaciones EXCEPTO la papelera
-                        // (incluye rebotes y archivados), como en un gestor normal.
-                        return $est !== 'borrado';
+                        // "Todos" = todas las conversaciones EXCEPTO papelera y rebotes.
+                        // Los rebotes (NDR) solo se muestran en su pestaña propia
+                        // ('rebotes') para poder verificarlos sin ensuciar la Bandeja.
+                        return $est !== 'borrado' && $reb === 0;
                     default:
                         // 'todo' por defecto: excluye borrado y rebotes.
                         return $est !== 'borrado' && $reb === 0;

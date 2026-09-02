@@ -2417,6 +2417,15 @@ var app = function() {
             if (!this.rsSeleccion || !Array.isArray(this.rsSeleccion.mensajes)) return [];
             return [...this.rsSeleccion.mensajes].reverse();
         },
+        // Hilo VISIBLE: en las vistas normales (Por responder/Todos/etc.) se ocultan
+        // los mensajes de rebote (NDR) para no ensuciar la bandeja comercial. Solo se
+        // muestran dentro de la pestaña "Rebotados", donde se pueden verificar.
+        rsHiloVisible() {
+            const lista = this.rsHiloInvertido();
+            if (!lista.length) return lista;
+            if (this.rsTabTriaje === 'rebotes') return lista;
+            return lista.filter(m => parseInt(m.es_rebote || 0, 10) !== 1);
+        },
 
         // ─── UNIBOX SPLIT-VIEW (FASE UNIBOX UI) ─────────────────────────────
         // Devuelve la lista de conversaciones filtradas por búsqueda y clasificación.

@@ -90,7 +90,7 @@
             <i data-lucide="inbox" class="w-3.5 h-3.5"></i> Por responder
             <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-orange-500/15 text-orange-400" x-text="rsCountsTriaje.requiere_respuesta || 0"></span>
           </button>
-          <button @click="rsSetTabTriaje('todos')" title="Todas las conversaciones (respondidas, en espera, pendientes...)"
+          <button @click="rsSetTabTriaje('todos')" title="Todas las conversaciones (respondidas, en espera, pendientes...) sin rebotes — los NDR se verifican en la pestaña Rebotados"
                   class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
                   :class="rsTabTriaje === 'todos' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-slate-100 hover:border-slate-600'">
             <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Todos
@@ -248,7 +248,7 @@
 
         <!-- Cuerpo Central: Hilo de Mensajes (scroll independiente) -->
         <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950/40">
-          <template x-for="m in rsHiloInvertido()" :key="m.id">
+          <template x-for="m in rsHiloVisible()" :key="m.id">
             <div class="flex" :class="rsEsEntrante(m) ? 'justify-start' : 'justify-end'">
               <div class="max-w-[85%] rounded-xl p-3 border"
                    :class="rsEsEntrante(m) ? 'bg-slate-900 text-slate-100 border-slate-700' : 'bg-slate-800 text-slate-200 border-slate-700'">
