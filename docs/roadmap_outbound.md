@@ -86,7 +86,7 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 ### Bugs / ajustes nuevos (2026-09-02)
 | ID | Ítem | Nota |
 |---|---|---|
-| **T-7** | `cli/init_db.php` no inicializa BD **fresca** (falla en tabla legacy `plantillas`, columnas `envios.es_test/lead_id/campaign_id`) | Parcheado solo en la copia local de deploy; falta backport al repo. Ver `docs/PLAN_AJUSTES_PENDIENTES_2026-09-02.md` §1.1 |
+| **T-7** | `cli/init_db.php` no inicializa BD **fresca** (falla en tabla legacy `plantillas`, columnas `envios.es_test/lead_id/campaign_id`) | ✅ Resuelto 2026-09-02 (commit `eb17d76` + push): 3 guards `CREATE/ALTER IF NOT EXISTS` backporteados al repo y verificados en BD vacía. |
 | **T-8** | La Bandeja muestra adjuntos técnicos de NDR/rebotes (`adjunto_N.bin` de Mailer-Daemon) | ✅ Resuelto 2026-09-02: los mensajes de rebote quedan **ocultos** en Por responder/Todos y **solo se muestran en la pestaña Rebotados** (con sus adjuntos, para verificar). Cambios en `api/analytics.php`, `js/app.js`, `tabs/respuestas.php` |
 
 ### Futuras / evaluación
