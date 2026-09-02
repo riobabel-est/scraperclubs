@@ -1031,6 +1031,17 @@ if ($action === 'update_lead') {
             $detalle = "Estado cambiado de '{$estadoAnterior}' a '{$value}'";
             $stmtLog->bindValue(':det', $detalle, SQLITE3_TEXT);
             $stmtLog->execute();
+            // T-5 (2026-09-02): histórico temporal de estados por lead/campaña
+            $campIdHist = (int)$db->querySingle("SELECT campaign_id FROM envios WHERE lead_id = {$id} AND campaign_id IS NOT NULL ORDER BY id DESC LIMIT 1");
+            $stmtHist = $db->prepare(
+                "INSERT INTO lead_estado_hist (lead_id, campaign_id, estado_anterior, estado_nuevo, origen, creado_el)
+                 VALUES (:lid, :cid, :ant, :nuevo, 'manual', CURRENT_TIMESTAMP)"
+            );
+            $stmtHist->bindValue(':lid', $id, SQLITE3_INTEGER);
+            $stmtHist->bindValue(':cid', $campIdHist > 0 ? $campIdHist : null, $campIdHist > 0 ? SQLITE3_INTEGER : SQLITE3_NULL);
+            $stmtHist->bindValue(':ant', (string)$estadoAnterior, SQLITE3_TEXT);
+            $stmtHist->bindValue(':nuevo', (string)$value, SQLITE3_TEXT);
+            $stmtHist->execute();
             echo json_encode(['ok' => true]);
             exit;
         } else {

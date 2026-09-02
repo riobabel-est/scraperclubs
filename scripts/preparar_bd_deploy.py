@@ -117,6 +117,15 @@ cur.execute('CREATE INDEX IF NOT EXISTS idx_mockups_opportunity ON mockups(oppor
 cur.execute('''CREATE TABLE IF NOT EXISTS batches (id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id INTEGER, batch TEXT, fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, estado TEXT DEFAULT 'PENDIENTE', tamano INTEGER DEFAULT 0)''')
 cur.execute('CREATE INDEX IF NOT EXISTS idx_batches_campaign ON batches(campaign_id)')
 
+# ─── T-5: histórico temporal de estados Kanban ──────────────────────────────
+cur.execute('''CREATE TABLE IF NOT EXISTS lead_estado_hist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER NOT NULL, campaign_id INTEGER DEFAULT NULL,
+    estado_anterior TEXT DEFAULT '', estado_nuevo TEXT DEFAULT '', origen TEXT DEFAULT 'manual',
+    creado_el DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_leh_lead ON lead_estado_hist(lead_id)')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_leh_campaign ON lead_estado_hist(campaign_id)')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_leh_fecha ON lead_estado_hist(creado_el)')
+
 # ─── FASE ADJUNTOS: columna ruta ────────────────────────────────────────────
 for t in ['envios_adjuntos','respuestas_adjuntos']:
     addcol(t,'ruta','ALTER TABLE '+t+' ADD COLUMN ruta TEXT')

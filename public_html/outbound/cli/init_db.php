@@ -606,6 +606,20 @@ EOT2;
     $db->exec("CREATE INDEX IF NOT EXISTS idx_rebotes_lead           ON rebotes(lead_id)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_rebotes_campaign       ON rebotes(campaign_id)");
 
+    // T-5 (2026-09-02): histórico temporal de estados Kanban (transiciones por lead/campaña).
+    $db->exec("CREATE TABLE IF NOT EXISTS lead_estado_hist (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lead_id INTEGER NOT NULL,
+        campaign_id INTEGER DEFAULT NULL,
+        estado_anterior TEXT DEFAULT '',
+        estado_nuevo TEXT DEFAULT '',
+        origen TEXT DEFAULT 'manual',
+        creado_el DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_leh_lead     ON lead_estado_hist(lead_id)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_leh_campaign ON lead_estado_hist(campaign_id)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_leh_fecha    ON lead_estado_hist(creado_el)");
+
     // ─────────────────────────────────────────────────────────────────────
     // 4. MIGRACION DE CONTACTOS CON CLASIFICACION TELEFONICA
     // ─────────────────────────────────────────────────────────────────────

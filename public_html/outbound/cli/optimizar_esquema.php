@@ -20,6 +20,21 @@ $db->enableExceptions(true);
 $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA busy_timeout=5000');
 
+// ─── T-5 (2026-09-02): histórico temporal de estados Kanban por lead/campaña ───
+// Se registra cada transición de estado_lead (update_lead). Tabla idempotente.
+$db->exec("CREATE TABLE IF NOT EXISTS lead_estado_hist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    campaign_id INTEGER DEFAULT NULL,
+    estado_anterior TEXT DEFAULT '',
+    estado_nuevo TEXT DEFAULT '',
+    origen TEXT DEFAULT 'manual',
+    creado_el DATETIME DEFAULT CURRENT_TIMESTAMP
+)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_leh_lead ON lead_estado_hist(lead_id)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_leh_campaign ON lead_estado_hist(campaign_id)");
+$db->exec("CREATE INDEX IF NOT EXISTS idx_leh_fecha ON lead_estado_hist(creado_el)");
+
 // Índices recomendados por tabla (CREATE IF NOT EXISTS → seguro repetirlos).
 $indices = [
     'respuestas' => [
