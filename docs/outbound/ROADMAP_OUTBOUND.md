@@ -68,7 +68,7 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 ### Prioridad 2 — Deuda técnica
 | ID | Ítem | Nota |
 |---|---|---|
-| **T-1** | Dividir monolitos: `inc/imap_respuestas.php`, `api/leads.php`, `cli/init_db.php` | No bloquea; ventanas de calma |
+| **T-1** | Dividir monolitos: `inc/imap_respuestas.php`, `api/leads.php`, `cli/init_db.php` | 🟠 En curso 2026-09-02 · ✅ Fase 1: `ClienteIMAP` (~330 líneas) extraído a `inc/imap_cliente.php` (imap_respuestas 2.126 → 1.820 líneas, verificado). Resto (api/leads.php, init_db, respuestas) planificado por partes de bajo riesgo. |
 | **T-2** | Prepared statements en endpoints de escritura | ✅ Verificado 2026-09-02: patrón prepared + whitelist de campos + casts `(int)`; sin interpolación cruda de `$_GET/$_POST` en SQL de escritura (auditoría por patrones). |
 | **T-3** | Plantillas versionadas inmutables | ✅ Hecho 2026-09-02 (`api/plantillas.php`): si una plantilla ya se usó en envíos, al editarla se **crea una copia nueva** (original inmutable y desactivada; respuesta `versionada:true`); **borrado bloqueado** en plantillas usadas (`PLANTILLA_USADA`). Validado end-to-end. |
 | **T-4** | Índices y saneamiento de esquema | ✅ Hecho 2026-09-02 · nuevo `cli/optimizar_esquema.php` (idempotente: 6 índices `respuestas` + 3 `rebotes`, ANALYZE, integridad) · reflejado en `cli/init_db.php` y `scripts/preparar_bd_deploy.py` · aplicado a BD local/deploy (9 índices, integrity ok, FK 0) |
