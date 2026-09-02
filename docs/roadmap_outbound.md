@@ -1,7 +1,7 @@
 # ROADMAP OUTBOUND — TODO (HECHO + PENDIENTE)
 
 **Ámbito:** `public_html/outbound/` (CRM FutProtec · PHP 8 + SQLite + JS vanilla, SiteGround)
-**Fecha de consolidación:** 2026-09-01
+**Fecha de consolidación:** 2026-09-02
 **Regla:** Este es el **único** documento de tareas del módulo outbound. Consolida todo
 lo **hecho** y todo lo **pendiente**. Los antiguos `PENDIENTES_OUTBOUND.md`,
 `ROADMAP_OUTBOUND_GLOBAL.md`, `REFACTORIZACIONES_PENDIENTES.md` y `FUTURE_IMPROVEMENTS.md`
@@ -44,6 +44,8 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 | **FASE K** | Scoring determinista (temperatura) | `inc/lead_scoring.php` |
 | **FASE L** | Verificación MX / higiene de emails | `api/lead_validate.php` (`filter_var` + `checkdnsrr`) · `tiene_whatsapp` automático |
 | **FASE 1-6 (2026-08-29)** | Adjuntos por plantilla, trazabilidad de envíos, RFC 2047, auditoría pre-lote | `inc/adjuntos.php` · tabla `plantillas_adjuntos` · `respuestas_adjuntos.ruta` · `futprotec_encodeHeaderName()` · `cli/auditoria_pre_lote.php` · `cli/enviar_lote_batch.php` (commit `b813721`) |
+| **FASE ADJUNTOS-INBOUND (2026-09-02)** | Adjuntos de respuestas entrantes (clientes) recuperados | `api/imap_sync.php` (BODY.PEEK[]+`imap_extraer_cuerpo_partes`) · `inc/imap_respuestas.php` (`imap_completar_cuerpo_duplicado` inserta adjuntos) · `inc/adjuntos.php` (rutas `\`→`/`). Commit `f6cd0a2`, desplegado a SiteGround, 54 adjuntos recuperados |
+
 | **Refactors (R-1, R-2, R-4)** | eligibilidad puras · MIME centralizado · `function_exists` | `inc/smtp_transport.php` (transporte único) |
 | **FI-001, FI-003, FI-004** | Tabla huérfana · URL tracking · 3 motores SMTP | verificado en código |
 
@@ -81,6 +83,12 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 | **C-3** | Snooze / posponer leads en colas | No implementado |
 | **AI-4** | Pipeline configurable (etapas editables en Ajustes) | Requiere plan dedicado (migración de literales) |
 
+### Bugs / ajustes nuevos (2026-09-02)
+| ID | Ítem | Nota |
+|---|---|---|
+| **T-7** | `cli/init_db.php` no inicializa BD **fresca** (falla en tabla legacy `plantillas`, columnas `envios.es_test/lead_id/campaign_id`) | Parcheado solo en la copia local de deploy; falta backport al repo. Ver `docs/PLAN_AJUSTES_PENDIENTES_2026-09-02.md` §1.1 |
+| **T-8** | La Bandeja muestra adjuntos técnicos de NDR/rebotes (`adjunto_N.bin` de Mailer-Daemon) | Recuperados 50 por backfill; ocultar adjuntos cuando `es_rebote=1` o filtrar genéricos. Ver `PLAN_AJUSTES…` §1.2 |
+
 ### Futuras / evaluación
 | ID | Ítem | Estado |
 |---|---|---|
@@ -92,5 +100,6 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 
 ## 3. REFERENCIAS
 - Trazabilidad de lo hecho: `docs/checkpoint_*.md` (cada feature tiene su checkpoint).
+- Plan de ajustes consolidado de lo pendiente: `docs/PLAN_AJUSTES_PENDIENTES_2026-09-02.md`.
 - Listados de scraping (federaciones/clubes): `docs/ESTADO_LISTADOS_CLUBES_2026-09-01.md`.
 - Reglas de ejecución y protección: `.clinerules` (no tocar `output/`/`checkpoints/`; no push sin orden).

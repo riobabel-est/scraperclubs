@@ -310,6 +310,16 @@ try {
     ");
 
     // Migrar plantillas viejas a la nueva tabla si es necesario
+    // [FIX BD fresca] Si la tabla legacy 'plantillas' NO existe (BD nueva),
+    // créala vacía para que el bloque de migración a plantillas_new no falle.
+    $db->exec("CREATE TABLE IF NOT EXISTS plantillas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre VARCHAR(100) NOT NULL,
+        asunto VARCHAR(255) DEFAULT '',
+        cuerpo_html TEXT,
+        activo INTEGER DEFAULT 1,
+        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
     $colTipo = [];
     $resCheck = $db->query("PRAGMA table_info(plantillas)");
     while ($r = $resCheck->fetchArray(SQLITE3_ASSOC)) {
@@ -573,6 +583,14 @@ EOT2;
     $db->exec("CREATE INDEX IF NOT EXISTS idx_envios_tracking ON envios(tracking_id)");
     // Índice compuesto para acelerar el JOIN aperturas↔envios y el filtro de aislamiento
     // TEST/REAL (es_test=0) usado en la agregación de aperturas del Kanban.
+    // [FIX BD fresca] La columna es_test solo existe en BD con historial: añadir si falta.
+    $__colsEnv = [];
+    $__resEnv = $db->query("PRAGMA table_info(envios)");
+    while ($__rowEnv = $__resEnv->fetchArray(SQLITE3_ASSOC)) { $__colsEnv[] = $__rowEnv['name']; }
+    if (!in_array('es_test', $__colsEnv, true)) {
+        $db->exec("ALTER TABLE envios ADD COLUMN es_test INTEGER DEFAULT 0");
+        echo "   Migracion: columna 'es_test' anadida a envios\n";
+    }
     $db->exec("CREATE INDEX IF NOT EXISTS idx_envios_tracking_test ON envios(tracking_id, es_test)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_aperturas_tracking ON aperturas(tracking_id)");
 
@@ -863,6 +881,15 @@ EOT2;
     if (!in_array('paso_secuencia', $colsEnvios, true)) {
         $db->exec("ALTER TABLE envios ADD COLUMN paso_secuencia INTEGER DEFAULT NULL");
         echo "   Migración: columna 'paso_secuencia' añadida a envios\n";
+    }
+    // [FIX BD fresca] envios nace sin lead_id/campaign_id en BD nueva.
+    if (!in_array('lead_id', $colsEnvios, true)) {
+        $db->exec("ALTER TABLE envios ADD COLUMN lead_id INTEGER DEFAULT NULL");
+        echo "   Migración: columna 'lead_id' añadida a envios\n";
+    }
+    if (!in_array('campaign_id', $colsEnvios, true)) {
+        $db->exec("ALTER TABLE envios ADD COLUMN campaign_id INTEGER DEFAULT NULL");
+        echo "   Migración: columna 'campaign_id' añadida a envios\n";
     }
     $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_envios_sec_paso ON envios(lead_id, campaign_id, paso_secuencia) WHERE paso_secuencia IS NOT NULL");
 
