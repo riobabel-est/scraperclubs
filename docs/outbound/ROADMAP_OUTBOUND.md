@@ -103,3 +103,4 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 - Plan de ajustes resumido de lo pendiente (outbound): `PLAN_AJUSTES_OUTBOUND.md`.
 - Escalado del CRM: `public_html/outbound/README.md`.
 - Reglas de ejecución y protección: `.clinerules` (no tocar `output/`/`checkpoints/`; no push sin orden).
+- **Deploy a producción 2026-09-03:** deuda técnica T-1 (inc/imap_cliente.php) · T-3 (api/plantillas.php) · T-4 (cli/optimizar_esquema.php + init_db.php) · T-5 (api/leads.php) + **BD migrada** con índices respuestas/rebotes y tabla `lead_estado_hist` (backup: `backups_deploy/deuda_tecnica_20260903_011253/`). Sync IMAP verificado (0 errores).
