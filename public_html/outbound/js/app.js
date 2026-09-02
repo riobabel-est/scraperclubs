@@ -2104,6 +2104,24 @@ var app = function() {
             this.aqLoading = false; setTimeout(() => lucide.createIcons(), 100);
         },
         aqTitulo(tab) { const mapa = { envios: 'Envíos Realizados', aperturas: 'Aperturas (Tracking)', rebotes: 'Rebotes', bajas: 'Leads de Baja' }; return mapa[tab] || tab; },
+        // Vínculo cruzado (O-2): desde una fila del modal Analytics → Ficha del lead
+        // si existe lead_id; si no, busca el club/email en el Pipeline (Kanban).
+        aqAccionLead(row) {
+            if (!row) return;
+            const lid = parseInt(row.lead_id || row.club_id || 0, 10) || 0;
+            const club = String(row.club || row.nombre_club || '').trim();
+            const email = String(row.email || '').trim();
+            if (lid > 0) {
+                this.aq = false;          // cerrar modal Analytics
+                this.openLead(lid);       // abrir Ficha del lead
+                return;
+            }
+            this.aq = false;
+            this.tab = 'kanban';
+            this.limpiarFiltros();
+            this.filtroActivo = '';
+            this.busqueda = club || email || '';
+        },
 
         // ─── Presupuesto ──────────────────────────────────────────────────────
         async crearPresupuesto() {
