@@ -65,7 +65,7 @@ scrapperclub/
 | Castilla-La Mancha | NOVA | ❌ Vacío | 0% |
 | Cataluña | FCF CAT | ❌ Sin iniciar | 0% |
 
-> ℹ️ Ver `docs/informe_estado_scraping.md` para detalles completos y próximos pasos.
+> ℹ️ Ver `docs/scraping/ESTADO_LISTADOS_CLUBES.md` y `docs/scraping/PLAN_SCRAPING.md` para el estado y próximos pasos.
 
 ### ⚠️ `clubs_todos.csv`
 
@@ -142,6 +142,7 @@ Todos los CSV usan las mismas columnas:
 
 ## Ver también
 
-- `docs/informe_estado_scraping.md` — estado detallado y próximos pasos
-- `docs/informe_stack_arquitectura.md` — análisis de la arquitectura
+- `docs/README.md` — índice de documentación por módulos (scraping / outbound)
+- `docs/scraping/ESTADO_LISTADOS_CLUBES.md` — estado detallado y próximos pasos
+- `docs/outbound/ROADMAP_OUTBOUND.md` — TODO (hecho + pendiente) del CRM outbound
 - `.clinerules` — reglas y restricciones del proyecto
