@@ -72,6 +72,12 @@ addcol('comunicaciones_log','metadata','ALTER TABLE comunicaciones_log ADD COLUM
 for col in ['fecha_respuesta_iso','intencion','proxima_accion']:
     addcol('respuestas', col, 'ALTER TABLE respuestas ADD COLUMN '+col+' TEXT')
 cur.execute('CREATE INDEX IF NOT EXISTS idx_respuestas_intencion ON respuestas(intencion)')
+# ─── T-4 (2026-09-02): índices de respuestas (Bandeja, idempotencia, rendimiento) ───
+# (las columnas ya existen en respuestas; solo se aseguran índices)
+for _col, _name in [('lead_id','idx_respuestas_lead'), ('cuenta_uid','idx_respuestas_cuenta_uid'),
+                    ('hash_auxiliar','idx_respuestas_hash'), ('estado_conversacion','idx_respuestas_estado_conv'),
+                    ('fecha_respuesta','idx_respuestas_fecha'), ('carpeta','idx_respuestas_carpeta')]:
+    cur.execute(f'CREATE INDEX IF NOT EXISTS {_name} ON respuestas({_col})')
 cur.execute('''CREATE TABLE IF NOT EXISTS oportunidades (
   id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER NOT NULL, campaign_id INTEGER,
   estado TEXT NOT NULL DEFAULT 'NUEVA', origen TEXT, fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

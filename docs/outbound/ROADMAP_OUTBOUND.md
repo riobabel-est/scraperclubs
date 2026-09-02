@@ -71,7 +71,7 @@ fueron **eliminados** al quedar vacíos (ver historial git si se necesita trazab
 | **T-1** | Dividir monolitos: `inc/imap_respuestas.php`, `api/leads.php`, `cli/init_db.php` | No bloquea; ventanas de calma |
 | **T-2** | Prepared statements en endpoints de escritura | Sin SQLi confirmada (mejora) |
 | **T-3** | Plantillas versionadas inmutables | Evita sobrescribir plantillas enviadas |
-| **T-4** | Índices y saneamiento de esquema | Rendimiento con volumen |
+| **T-4** | Índices y saneamiento de esquema | ✅ Hecho 2026-09-02 · nuevo `cli/optimizar_esquema.php` (idempotente: 6 índices `respuestas` + 3 `rebotes`, ANALYZE, integridad) · reflejado en `cli/init_db.php` y `scripts/preparar_bd_deploy.py` · aplicado a BD local/deploy (9 índices, integrity ok, FK 0) |
 | **T-5** | Histórico de estados Kanban **por campaña** | `lead_pipelines` ya filtra; falta histórico temporal |
 | **T-6** | Limpiar docs legacy de pendientes | Este documento la resuelve |
 

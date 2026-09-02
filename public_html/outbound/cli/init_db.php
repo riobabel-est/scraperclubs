@@ -599,6 +599,13 @@ EOT2;
     $db->exec("CREATE INDEX IF NOT EXISTS idx_crm_federacion ON clubes_crm(federacion)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_crm_email ON clubes_crm(email)");
 
+    // T-4 (2026-09-02): índices de rebotes (tabla existente). Los índices de
+    // `respuestas` se aseguran en inc/imap_respuestas.php (imap_asegurar_esquema),
+    // porque esa tabla se crea en runtime y puede no existir en BD fresca aún.
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_rebotes_envio          ON rebotes(envio_id)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_rebotes_lead           ON rebotes(lead_id)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_rebotes_campaign       ON rebotes(campaign_id)");
+
     // ─────────────────────────────────────────────────────────────────────
     // 4. MIGRACION DE CONTACTOS CON CLASIFICACION TELEFONICA
     // ─────────────────────────────────────────────────────────────────────
