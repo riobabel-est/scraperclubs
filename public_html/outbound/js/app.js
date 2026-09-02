@@ -3258,6 +3258,29 @@ console.log('[DEBUG] window._cfg definido?', typeof window._cfg !== 'undefined')
 console.log('[DEBUG] typeof app:', typeof app);
 console.log('[DEBUG] Componentes usados con x-data="fn()" (sin registro Alpine.data).');
 
+// ─── resumenDia (componente Lanzadera) — definido AQUÍ para garantizar que existe
+// antes de que Alpine inicialice el DOM, con independencia del orden/caché de
+// analytics.js (2026-09-03). Consume get_analytics_federaciones (desde=hasta=hoy).
+function resumenDia() {
+    return {
+        datos: null, cargando: false, error: '',
+        async cargar() {
+            this.cargando = true; this.error = '';
+            const hoy = new Date();
+            const iso = hoy.toISOString().slice(0, 10);
+            try {
+                const r = await fetch('?action=get_analytics_federaciones&desde=' + iso + '&hasta=' + iso);
+                const j = await r.json();
+                this.datos = (j && j.ok) ? j : null;
+            } catch (e) { this.error = 'No se pudo cargar el resumen del día.'; }
+            this.cargando = false;
+            if (window.lucide) lucide.createIcons();
+        },
+        get r() { return this.datos ? this.datos.resumen : null; },
+        get porFed() { return this.datos ? this.datos.por_federacion : []; }
+    };
+}
+
 // ─── Toggle de contraseña SMTP (JS nativo, sin Alpine) ──────────────────────
 // Movido desde tabs/modals.php (refactor 2026-08-25). Usa delegación de eventos
 // para funcionar con cualquier input[data-smtp-password-input] + botón

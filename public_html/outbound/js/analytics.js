@@ -123,30 +123,7 @@ function analyticsCampana() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// resumenDia — Resumen global del día (bloque de la Lanzadera)
-// Consume get_analytics_federaciones con desde=hasta=hoy.
-// ═════════════════════════════════════════════════════════════════════════════
-function resumenDia() {
-    return {
-        datos: null, cargando: false, error: '',
-        async cargar() {
-            this.cargando = true; this.error = '';
-            const hoy = new Date();
-            const iso = hoy.toISOString().slice(0, 10);
-            try {
-                const r = await fetch('?action=get_analytics_federaciones&desde=' + iso + '&hasta=' + iso);
-                const j = await r.json();
-                this.datos = (j && j.ok) ? j : null;
-            } catch (e) { this.error = 'No se pudo cargar el resumen del día.'; }
-            this.cargando = false;
-            if (window.lucide) lucide.createIcons();
-        },
-        get r() { return this.datos ? this.datos.resumen : null; },
-        get porFed() { return this.datos ? this.datos.por_federacion : []; }
-    };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+// (resumenDia movido a app.js 2026-09-03 para garantizar disponibilidad de carga)
 // marketingFederaciones — Cuadro de mando de marketing por federación
 // (Analytics). Filtros: fechas, campaña, federación. Gráficos CSS puros.
 // ═════════════════════════════════════════════════════════════════════════════
