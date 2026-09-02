@@ -95,6 +95,3 @@ cambio en el backend.**
 
 - El toast usa `sessionStorage` para mostrarse solo una vez por sesión de navegador,
   evitando ruido en cada recarga.
-- El contador `rsNuevas` se recalcula en cada `loadRespuestas()` (al entrar al tab),
-  por lo que el badge se actualiza dinámicamente.
-- No se modifica ningún dato de producción: es una capa puramente de presentación.

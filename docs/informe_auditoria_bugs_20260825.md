@@ -111,6 +111,6 @@ acceso al servidor podría derivarla. **Recomendación:** usar una clave aleator
 
 ## Archivos de referencia
 
-- `docs/REFACTORIZACIONES_PENDIENTES.md` — seguimiento de refactors
+- `docs/roadmap_outbound.md` — roadmap único outbound (refactors T-1/T-2 consolidados)
 - `public_html/outbound/inc/secret.php` — infraestructura para mover credenciales
 - `public_html/outbound/inc/crypto.php` — patrón `function_exists` (referencia)

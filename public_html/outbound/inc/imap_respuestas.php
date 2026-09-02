@@ -1493,12 +1493,13 @@ function imap_notificar_respuesta(SQLite3 $db, ?int $leadId, int $respuestaId, s
  */
 function imap_completar_cuerpo_duplicado(SQLite3 $db, string $campo, string $valor, array $msg): bool
 {
-    if (empty($msg['cuerpo']) && empty($msg['cuerpo_html'])) return false;
+    if (empty($msg['cuerpo']) && empty($msg['cuerpo_html']) && empty($msg['adjuntos'])) return false;
     $row = $db->querySingle(
-        "SELECT id, cuerpo, contenido_html FROM respuestas WHERE {$campo} = '" . $db->escapeString($valor) . "' LIMIT 1",
+        "SELECT id, lead_id, cuerpo, contenido_html FROM respuestas WHERE {$campo} = '" . $db->escapeString($valor) . "' LIMIT 1",
         true
     );
     if (!$row) return false;
+    $cambio = false;
     $cuerpoActual = (string)($row['cuerpo'] ?? '');
     $htmlActual = (string)($row['contenido_html'] ?? '');
     if (trim($cuerpoActual) === '' && trim($htmlActual) === '') {
@@ -1507,9 +1508,35 @@ function imap_completar_cuerpo_duplicado(SQLite3 $db, string $campo, string $val
         $stmt->bindValue(':h', $msg['cuerpo_html'] ?? '', SQLITE3_TEXT);
         $stmt->bindValue(':id', (int)$row['id'], SQLITE3_INTEGER);
         $stmt->execute();
-        return true;
+        $cambio = true;
     }
-    return false;
+    // FIX adjuntos (2026-09-02): respuestas ya registradas (detectadas como duplicado
+    // por el cron) cuyos adjuntos no llegaron a guardarse por el bug de BODY.PEEK[TEXT].
+    // Si ahora el mensaje completo SÍ trae adjuntos y la respuesta no tiene, se insertan.
+    if (!empty($msg['adjuntos'])) {
+        $nAdj = (int)$db->querySingle("SELECT COUNT(*) FROM respuestas_adjuntos WHERE respuesta_id = " . (int)$row['id']);
+        if ($nAdj === 0) {
+            $leadIdAdj = (int)($row['lead_id'] ?? 0);
+            foreach ($msg['adjuntos'] as $adj) {
+                $dA = (string)($adj['datos'] ?? '');
+                if ($dA === '') continue;
+                $rutaA = futprotec_guardar_adjunto($leadIdAdj, 'recibidos', (string)($adj['nombre'] ?? 'adjunto'), $dA);
+                $stmtA = $db->prepare(
+                    "INSERT INTO respuestas_adjuntos (respuesta_id, nombre, mime, tamano, datos, ruta)
+                     VALUES (:rid, :nombre, :mime, :tam, :datos, :ruta)"
+                );
+                $stmtA->bindValue(':rid', (int)$row['id'], SQLITE3_INTEGER);
+                $stmtA->bindValue(':nombre', (string)($adj['nombre'] ?? 'adjunto'), SQLITE3_TEXT);
+                $stmtA->bindValue(':mime', (string)($adj['mime'] ?? 'application/octet-stream'), SQLITE3_TEXT);
+                $stmtA->bindValue(':tam', strlen($dA), SQLITE3_INTEGER);
+                $stmtA->bindValue(':datos', $dA, SQLITE3_BLOB);
+                $stmtA->bindValue(':ruta', $rutaA, SQLITE3_TEXT);
+                $stmtA->execute();
+            }
+            $cambio = true;
+        }
+    }
+    return $cambio;
 }
 
 function imap_registrar_respuesta(SQLite3 $db, array $msg, ?array $envio, string $clasificacion, string $carpeta, ?string $uidImap = null, ?string $cuentaEmail = null): string

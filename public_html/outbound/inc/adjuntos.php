@@ -72,6 +72,9 @@ if (!function_exists('futprotec_ruta_adjunto')) {
     function futprotec_ruta_adjunto(string $rutaRelativa): ?string
     {
         $rutaRelativa = ltrim(trim($rutaRelativa), '/\\');
+        // FIX (2026-09-02): tolerar rutas legacy guardadas con separador Windows (\).
+        // Algunas migraciones locales escribieron 'adjuntos\\<club>\\<tipo>\\<archivo>'.
+        $rutaRelativa = str_replace('\\', '/', $rutaRelativa);
         if ($rutaRelativa === '' || !str_starts_with($rutaRelativa, 'adjuntos/')) {
             return null;
         }

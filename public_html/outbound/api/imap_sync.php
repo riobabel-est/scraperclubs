@@ -175,9 +175,22 @@ foreach ($cuentas as $cuenta) {
 
                         // Intento de cuerpo con degradado elegante
                         try {
-                            $cuerpoRaw = $imap->fetchCuerpo($seq);
+                            // FIX adjuntos (2026-09-02): fetchCuerpo() = BODY.PEEK[TEXT]
+                            // solo trae texto (SIN adjuntos). Se usa BODY.PEEK[] completo
+                            // (fetchCuerpoCompleto) y se extraen cuerpo+HTML+adjuntos vía
+                            // imap_extraer_cuerpo_partes(), igual que imap_procesar_mensaje().
+                            // Sin esto, las respuestas entrantes con adjuntos de clientes
+                            // se registraban sin adjuntos en respuestas_adjuntos.
+                            $cuerpoRaw = $imap->fetchCuerpoCompleto($seq);
+                            if (trim($cuerpoRaw) === '') {
+                                $cuerpoRaw = $imap->fetchCuerpo($seq);
+                            }
                             if (trim($cuerpoRaw) !== '') {
-                                $msg['cuerpo'] = trim($cuerpoRaw);
+                                $parsedRaw = imap_parsear_mensaje($cuerpoRaw);
+                                $partesCuerpo = imap_extraer_cuerpo_partes($cuerpoRaw);
+                                $msg['cuerpo'] = $partesCuerpo['cuerpo'] !== '' ? $partesCuerpo['cuerpo'] : trim($parsedRaw['cuerpo'] ?? '');
+                                $msg['cuerpo_html'] = $partesCuerpo['cuerpo_html'];
+                                $msg['adjuntos'] = $partesCuerpo['adjuntos'];
                             }
                         } catch (\Throwable $e) {
                             try { $imap->cerrar(); } catch (\Throwable $ign) {}
