@@ -1392,12 +1392,16 @@ $db->close();
          componente ANTES de procesar el DOM. Esto elimina la condición de
          carrera que provocaba "Alpine Expression Error: rsSyncing is not
          defined" en el tab Respuestas. -->
-    <script defer src="js/app.js?v=<?= md5_file(__DIR__ . '/js/app.js') ?>"></script>
+    <script defer src="js/app.v3.js"></script>
     <!-- Módulos Alpine (refactor modular 2026-08-26): se cargan ANTES de Alpine,
-         en orden, para que las funciones globales existan cuando Alpine procese el DOM. -->
-    <script defer src="js/seguimiento.js?v=<?= md5_file(__DIR__ . '/js/seguimiento.js') ?>"></script>
-    <script defer src="js/analytics.js?v=<?= md5_file(__DIR__ . '/js/analytics.js') ?>"></script>
-    <script defer src="js/campanas.js?v=<?= md5_file(__DIR__ . '/js/campanas.js') ?>"></script>
+         en orden, para que las funciones globales existan cuando Alpine procese el DOM.
+         NOTA 2026-09-03: SiteGround (nginx/Static Cache) ignora el cache-busting por
+         query string (?v=) y sirve JS viejos con max-age=1 año. Para garantizar la
+         versión actual se usan NOMBRES versionados (app.v3.js, analytics.v3.js…).
+         Al desplegar un cambio en cualquier js: bump a v4 (crear js/*.v4.js y subir). -->
+    <script defer src="js/seguimiento.v3.js"></script>
+    <script defer src="js/analytics.v3.js"></script>
+    <script defer src="js/campanas.v3.js"></script>
     <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
